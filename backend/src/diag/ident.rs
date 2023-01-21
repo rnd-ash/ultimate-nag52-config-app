@@ -1,6 +1,6 @@
 use std::fmt::{Display, Write};
 
-use ecu_diagnostics::{DiagServerResult, kwp2000::DaimlerEcuIdent};
+use ecu_diagnostics::{kwp2000::DaimlerEcuIdent, DiagServerResult};
 
 use super::{Nag52Diag, Nag52Endpoint};
 
@@ -9,7 +9,7 @@ pub enum EgsMode {
     EGS51,
     EGS52,
     EGS53,
-    Unknown(u16)
+    Unknown(u16),
 }
 
 impl From<u16> for EgsMode {
@@ -18,7 +18,7 @@ impl From<u16> for EgsMode {
             0x0251 => Self::EGS51,
             0x0252 => Self::EGS51,
             0x0253 => Self::EGS51,
-            _ => Self::Unknown(diag_var_code)
+            _ => Self::Unknown(diag_var_code),
         }
     }
 }
@@ -39,7 +39,7 @@ pub enum PCBVersion {
     OnePointOne,
     OnePointTwo,
     OnePointThree,
-    Unknown
+    Unknown,
 }
 
 impl PCBVersion {
@@ -58,14 +58,12 @@ impl PCBVersion {
 
 impl Display for PCBVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            match self {
-                PCBVersion::OnePointOne => "V1.1",
-                PCBVersion::OnePointTwo => "V1.2",
-                PCBVersion::OnePointThree => "V1.3",
-                PCBVersion::Unknown => "V_NDEF",
-            }
-        )
+        f.write_str(match self {
+            PCBVersion::OnePointOne => "V1.1",
+            PCBVersion::OnePointTwo => "V1.2",
+            PCBVersion::OnePointThree => "V1.3",
+            PCBVersion::Unknown => "V_NDEF",
+        })
     }
 }
 
@@ -82,20 +80,23 @@ pub struct IdentData {
     pub hw_year: u32,
 
     pub sw_week: u32,
-    pub sw_year: u32
+    pub sw_year: u32,
 }
 
 fn bcd_decode_to_int(u: u8) -> u32 {
     10 * (u as u32 / 16) + (u as u32 % 16)
 }
 
-impl Nag52Diag where {
+impl Nag52Diag {
     pub fn query_ecu_data(&mut self) -> DiagServerResult<IdentData> {
         self.with_kwp(|k| {
             let ident = k.read_daimler_identification()?;
             Ok(IdentData {
                 egs_mode: EgsMode::from(ident.diag_info.get_info_id()),
-                board_ver: PCBVersion::from_date(bcd_decode_to_int(ident.ecu_hw_build_week), bcd_decode_to_int(ident.ecu_hw_build_year)),
+                board_ver: PCBVersion::from_date(
+                    bcd_decode_to_int(ident.ecu_hw_build_week),
+                    bcd_decode_to_int(ident.ecu_hw_build_year),
+                ),
                 manf_day: bcd_decode_to_int(ident.ecu_production_day),
                 manf_month: bcd_decode_to_int(ident.ecu_production_month),
                 manf_year: bcd_decode_to_int(ident.ecu_production_year),

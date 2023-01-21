@@ -104,9 +104,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             self.last_query_time = Instant::now();
             self.chart_idx += 100;
             if let Some(rid) = self.record_to_query {
-                match self.nag.with_kwp(|server| {
-                    rid.query_ecu(server)
-                }) {
+                match self.nag.with_kwp(|server| rid.query_ecu(server)) {
                     Ok(r) => self.record_data = Some(r),
                     Err(e) => {
                         eprintln!("Could not query {}", e);

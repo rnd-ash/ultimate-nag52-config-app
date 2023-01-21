@@ -1,4 +1,4 @@
-pub mod hw;
 pub mod diag;
+pub mod hw;
 
-pub use ecu_diagnostics as ecu_diagnostics;
+pub use ecu_diagnostics;

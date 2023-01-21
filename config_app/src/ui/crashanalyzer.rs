@@ -1,13 +1,17 @@
 use std::{
     fs::File,
     io::Write,
-    sync::{Arc, RwLock}, path::PathBuf,
+    path::PathBuf,
+    sync::{Arc, RwLock},
 };
 
-use backend::{ecu_diagnostics::{
-    kwp2000::{Kwp2000DiagnosticServer, SessionType},
-    DiagError, DiagServerResult, DiagnosticServer,
-}, diag::Nag52Diag};
+use backend::{
+    diag::Nag52Diag,
+    ecu_diagnostics::{
+        kwp2000::{Kwp2000DiagnosticServer, SessionType},
+        DiagError, DiagServerResult, DiagnosticServer,
+    },
+};
 use eframe::egui::{self, *};
 
 use crate::window::{InterfacePage, PageAction};
@@ -44,7 +48,7 @@ impl ReadState {
 pub struct CrashAnalyzerUI {
     nag: Nag52Diag,
     read_state: Arc<RwLock<ReadState>>,
-    save_path: Arc<RwLock<Option<String>>>
+    save_path: Arc<RwLock<Option<String>>>,
 }
 
 impl CrashAnalyzerUI {
@@ -86,7 +90,11 @@ fn init_flash_mode(server: &mut Kwp2000DiagnosticServer) -> DiagServerResult<(u3
     Ok((address, size, bs))
 }
 
-fn on_flash_end(path: &str, server: &mut Kwp2000DiagnosticServer, read: Vec<u8>) -> DiagServerResult<()> {
+fn on_flash_end(
+    path: &str,
+    server: &mut Kwp2000DiagnosticServer,
+    read: Vec<u8>,
+) -> DiagServerResult<()> {
     server.send_byte_array_with_response(&[0x37])?;
     let mut p = PathBuf::from(path);
     p.push("dump.elf");
@@ -108,12 +116,16 @@ impl InterfacePage for CrashAnalyzerUI {
                         if let nfd::Response::Okay(path) = f {
                             *self.save_path.write().unwrap() = Some(path);
                         } else {
-                            *self.read_state.write().unwrap() = ReadState::Aborted("User did not select a save path for coredump".to_string());
+                            *self.read_state.write().unwrap() = ReadState::Aborted(
+                                "User did not select a save path for coredump".to_string(),
+                            );
                             return PageAction::None;
                         }
                     }
                     Err(_) => {
-                        *self.read_state.write().unwrap() = ReadState::Aborted("User did not select a save path for coredump".to_string());
+                        *self.read_state.write().unwrap() = ReadState::Aborted(
+                            "User did not select a save path for coredump".to_string(),
+                        );
                         return PageAction::None;
                     }
                 }
@@ -200,7 +212,7 @@ impl InterfacePage for CrashAnalyzerUI {
                 ui.label(format!("Bytes read: {}", bytes_written));
             }
             ReadState::Completed => {
-                let saved= self.save_path.read().unwrap().clone().unwrap();
+                let saved = self.save_path.read().unwrap().clone().unwrap();
                 ui.label(
                     RichText::new(format!("Coredump ELF saved as {}dump.elf!", saved))
                         .color(Color32::from_rgb(0, 255, 0)),

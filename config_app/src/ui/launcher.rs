@@ -3,7 +3,17 @@ use std::{
     sync::{mpsc, Arc, Mutex},
 };
 
-use backend::{ecu_diagnostics::{hardware::{socketcan::SocketCanScanner, passthru::PassthruScanner, HardwareResult, Hardware, HardwareScanner, HardwareInfo}, DiagServerResult, DiagError}, hw::usb_scanner::Nag52UsbScanner, diag::{AdapterHw, AdapterType, Nag52Diag}};
+use backend::{
+    diag::{AdapterHw, AdapterType, Nag52Diag},
+    ecu_diagnostics::{
+        hardware::{
+            passthru::PassthruScanner, socketcan::SocketCanScanner, Hardware, HardwareInfo,
+            HardwareResult, HardwareScanner,
+        },
+        DiagError, DiagServerResult,
+    },
+    hw::usb_scanner::Nag52UsbScanner,
+};
 use eframe::egui;
 use eframe::egui::*;
 
@@ -26,7 +36,7 @@ pub struct Launcher {
     scan_scanner: SocketCanScanner,
     selected_device: String,
     curr_api_type: AdapterType,
-    curr_dev_list: Vec<HardwareInfo>
+    curr_dev_list: Vec<HardwareInfo>,
 }
 
 impl Launcher {
@@ -41,7 +51,7 @@ impl Launcher {
             scan_scanner: SocketCanScanner::new(),
             selected_device: String::new(),
             curr_api_type: AdapterType::USB,
-            curr_dev_list: vec![]
+            curr_dev_list: vec![],
         }
     }
 }
@@ -49,7 +59,10 @@ impl Launcher {
 impl Launcher {
     pub fn open_device(&self, name: &str) -> DiagServerResult<Nag52Diag> {
         println!("Opening '{}'", name);
-        let hw_info = self.curr_dev_list.iter().find(|x| x.name == name)
+        let hw_info = self
+            .curr_dev_list
+            .iter()
+            .find(|x| x.name == name)
             .ok_or(DiagError::ParameterInvalid)?;
         let hw = AdapterHw::try_connect(hw_info, self.curr_api_type)?;
         Nag52Diag::new(hw)
@@ -59,8 +72,7 @@ impl Launcher {
     where
         T: HardwareScanner<X>,
     {
-        return scanner.list_devices()
-            
+        return scanner.list_devices();
     }
 }
 
@@ -102,7 +114,11 @@ impl InterfacePage for Launcher {
                 .selected_text(&self.selected_device)
                 .show_ui(ui, |cb_ui| {
                     for dev in dev_list {
-                        cb_ui.selectable_value(&mut self.selected_device, dev.name.clone(), dev.name);
+                        cb_ui.selectable_value(
+                            &mut self.selected_device,
+                            dev.name.clone(),
+                            dev.name,
+                        );
                     }
                 });
         }

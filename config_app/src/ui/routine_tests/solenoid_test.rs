@@ -10,10 +10,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use backend::{ecu_diagnostics::{
-    kwp2000::{Kwp2000DiagnosticServer, SessionType},
-    DiagError, DiagServerResult, DiagnosticServer,
-}, diag::Nag52Diag};
+use backend::{
+    diag::Nag52Diag,
+    ecu_diagnostics::{
+        kwp2000::{Kwp2000DiagnosticServer, SessionType},
+        DiagError, DiagServerResult, DiagnosticServer,
+    },
+};
 use eframe::egui::{
     self,
     plot::{Legend, Line, Plot},
@@ -185,7 +188,8 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                                 Ok(res) => {
                                     let routine_res_ptr: *const TestResultsSolenoid =
                                         res[2..].as_ptr() as *const TestResultsSolenoid;
-                                    let routine_res: TestResultsSolenoid = unsafe { *routine_res_ptr };
+                                    let routine_res: TestResultsSolenoid =
+                                        unsafe { *routine_res_ptr };
                                     *res_ref.write().unwrap() = Some(routine_res);
                                     *str_ref.write().unwrap() = format!("ECU Test Completed!");
                                     break;

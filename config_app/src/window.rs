@@ -10,7 +10,7 @@ use crate::ui::{
     status_bar::{self},
 };
 use eframe::{
-    egui::{self, Direction, WidgetText, RichText},
+    egui::{self, Direction, RichText, WidgetText},
     epaint::Pos2,
 };
 use egui_toast::{Toast, ToastKind, ToastOptions, Toasts};
@@ -98,7 +98,7 @@ impl eframe::App for MainWindow {
                             options: ToastOptions {
                                 show_icon: true,
                                 expires_at: Some(Instant::now().add(Duration::from_secs(5))),
-                            }
+                            },
                         });
                     }
                 }

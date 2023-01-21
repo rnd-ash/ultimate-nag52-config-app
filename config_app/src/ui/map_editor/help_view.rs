@@ -1,10 +1,10 @@
 use eframe::egui;
 
-
 pub trait HelpView: Clone + Sized {
-    fn gen_ui(&self, meta: &super::MapData, raw_ui: &mut egui::Ui) -> bool where Self: Sized;
+    fn gen_ui(&self, meta: &super::MapData, raw_ui: &mut egui::Ui) -> bool
+    where
+        Self: Sized;
 }
-
 
 #[derive(Clone, Copy)]
 pub struct FillingPressureHelp;

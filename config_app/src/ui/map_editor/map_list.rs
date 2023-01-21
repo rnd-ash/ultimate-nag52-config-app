@@ -1,7 +1,6 @@
 use super::MapData;
 
-
-pub (crate) const MAP_ARRAY: &[MapData] = &[
+pub(crate) const MAP_ARRAY: &[MapData] = &[
     MapData::new(
         0x01,
         "Upshift (A)",
@@ -145,7 +144,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         Some(&["K1", "K2", "K3", "B1", "B2"]),
         //None
     ),
-
     MapData::new(
         0x10,
         "Upshift overlap time (Agility)",
@@ -159,7 +157,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         None,
         //None
     ),
-
     MapData::new(
         0x11,
         "Downshift overlap time (Agility)",
@@ -186,7 +183,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         None,
         //None
     ),
-
     MapData::new(
         0x13,
         "Downshift overlap time (Standard)",
@@ -213,7 +209,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         None,
         //None
     ),
-
     MapData::new(
         0x15,
         "Downshift overlap time (Comfort)",
@@ -240,7 +235,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         None,
         //None
     ),
-
     MapData::new(
         0x17,
         "Downshift overlap time (Winter)",
@@ -267,7 +261,6 @@ pub (crate) const MAP_ARRAY: &[MapData] = &[
         None,
         //None
     ),
-
     MapData::new(
         0x19,
         "Downshift overlap time (Manual)",

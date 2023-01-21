@@ -23,7 +23,7 @@ impl<'a> egui::Widget for MapWidget<'a> {
             FontId::monospace(12.0),
             line_visuals,
             // Y column count
-            row_height*(self.0.y_values.len() as f32)
+            row_height * (self.0.y_values.len() as f32),
         );
         let galley_y_size = galley_y.size();
         let galley_x = ui.painter().layout_no_wrap(
@@ -33,14 +33,15 @@ impl<'a> egui::Widget for MapWidget<'a> {
         );
         let galley_x_size = galley_x.size();
 
-
         let table_width = (space_per_column * self.0.x_values.len() as f32) + header_column_width;
         let table_height = row_height * self.0.y_values.len() as f32;
-        let desired_size = egui::Vec2::new(table_width+galley_y_size.x, table_height+galley_x_size.y);
+        let desired_size = egui::Vec2::new(
+            table_width + galley_y_size.x,
+            table_height + galley_x_size.y,
+        );
         let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
         let painter = ui.painter();
         let mut b = false;
-
 
         for col in 0..self.0.y_values.len() {
             let c = match b {
@@ -82,8 +83,6 @@ impl<'a> egui::Widget for MapWidget<'a> {
                 Stroke::new(1.0, line_visuals),
             );
         }
-
-        
 
         let idx = ui.painter().add(TextShape {
             pos: (rect.left(), rect.bottom()).into(),

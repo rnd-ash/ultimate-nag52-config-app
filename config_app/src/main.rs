@@ -6,6 +6,7 @@ use std::{env, iter};
 use ui::launcher::Launcher;
 use window::MainWindow;
 
+mod plot_backend;
 mod ui;
 mod window;
 

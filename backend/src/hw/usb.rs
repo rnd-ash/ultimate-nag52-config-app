@@ -4,6 +4,7 @@ use ecu_diagnostics::{
 };
 use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
 use std::{
+    borrow::BorrowMut,
     io::{BufRead, BufReader, Write},
     panic::catch_unwind,
     sync::{
@@ -11,7 +12,7 @@ use std::{
         mpsc::{self},
         Arc,
     },
-    time::Instant, borrow::BorrowMut,
+    time::Instant,
 };
 
 #[derive(Debug, Clone, Copy)]

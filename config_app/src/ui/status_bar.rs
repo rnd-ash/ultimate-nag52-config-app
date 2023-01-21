@@ -5,9 +5,7 @@ use std::{
     sync::{mpsc, Arc, Mutex, RwLock},
 };
 
-use crate::{
-    window::{InterfacePage, StatusBar},
-};
+use crate::window::{InterfacePage, StatusBar};
 use eframe::egui;
 
 #[derive(Clone)]

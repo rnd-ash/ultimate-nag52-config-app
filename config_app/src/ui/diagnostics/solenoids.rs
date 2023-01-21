@@ -1,13 +1,14 @@
+use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
+use eframe::egui::plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
 use std::{
+    ops::RangeInclusive,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
     },
     thread,
-    time::{Duration, Instant}, ops::RangeInclusive,
+    time::{Duration, Instant},
 };
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
-use eframe::egui::plot::{Legend, Line, Plot, PlotPoints, Bar, BarChart};
 
 use crate::{ui::status_bar::MainStatusBar, window::PageAction};
 
@@ -22,13 +23,13 @@ pub struct SolenoidPage {
     curr_values: Arc<RwLock<Option<DataSolenoids>>>,
     prev_values: Arc<RwLock<Option<DataSolenoids>>>,
     time_since_launch: Instant,
-    view_type: ViewType
+    view_type: ViewType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ViewType {
     Pwm,
-    Current
+    Current,
 }
 
 impl SolenoidPage {
@@ -52,8 +53,7 @@ impl SolenoidPage {
                 server.set_diagnostic_session_mode(SessionType::Normal)?;
                 while run_t.load(Ordering::Relaxed) {
                     let start = Instant::now();
-                    if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(server)
-                    {
+                    if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(server) {
                         if let LocalRecordData::Solenoids(s) = r {
                             let curr = *store_t.read().unwrap();
                             *store_old_t.write().unwrap() = curr;
@@ -80,7 +80,7 @@ impl SolenoidPage {
             last_update_time: last_update,
             prev_values: store_old,
             time_since_launch: launch_time,
-            view_type: ViewType::Pwm
+            view_type: ViewType::Pwm,
         }
     }
 }
@@ -141,8 +141,9 @@ impl crate::window::InterfacePage for SolenoidPage {
                 4 => "Y3",
                 5 => "Y4",
                 6 => "Y5",
-                _ => ""
-            }.to_string()
+                _ => "",
+            }
+            .to_string()
         };
 
         let mut plot = Plot::new("Solenoid data")
@@ -157,63 +158,107 @@ impl crate::window::InterfacePage for SolenoidPage {
 
         if self.view_type == ViewType::Pwm {
             bars.push(
-                make_pwm_bar(1, (curr.mpc_pwm() as f32 * proportion_curr)
-                + (prev.mpc_pwm() as f32 * proportion_prev)).name("MPC")
+                make_pwm_bar(
+                    1,
+                    (curr.mpc_pwm() as f32 * proportion_curr)
+                        + (prev.mpc_pwm() as f32 * proportion_prev),
+                )
+                .name("MPC"),
             );
             bars.push(
-                make_pwm_bar(2, (curr.spc_pwm() as f32 * proportion_curr)
-                + (prev.spc_pwm() as f32 * proportion_prev)).name("SPC")
+                make_pwm_bar(
+                    2,
+                    (curr.spc_pwm() as f32 * proportion_curr)
+                        + (prev.spc_pwm() as f32 * proportion_prev),
+                )
+                .name("SPC"),
             );
             bars.push(
-                make_pwm_bar(3, (curr.tcc_pwm() as f32 * proportion_curr)
-                + (prev.tcc_pwm() as f32 * proportion_prev)).name("TCC")
+                make_pwm_bar(
+                    3,
+                    (curr.tcc_pwm() as f32 * proportion_curr)
+                        + (prev.tcc_pwm() as f32 * proportion_prev),
+                )
+                .name("TCC"),
             );
             bars.push(
-                make_pwm_bar(4, (curr.y3_pwm() as f32 * proportion_curr)
-                + (prev.y3_pwm() as f32 * proportion_prev)).name("Y3")
+                make_pwm_bar(
+                    4,
+                    (curr.y3_pwm() as f32 * proportion_curr)
+                        + (prev.y3_pwm() as f32 * proportion_prev),
+                )
+                .name("Y3"),
             );
             bars.push(
-                make_pwm_bar(5, (curr.y4_pwm() as f32 * proportion_curr)
-                + (prev.y4_pwm() as f32 * proportion_prev)).name("Y4")
+                make_pwm_bar(
+                    5,
+                    (curr.y4_pwm() as f32 * proportion_curr)
+                        + (prev.y4_pwm() as f32 * proportion_prev),
+                )
+                .name("Y4"),
             );
             bars.push(
-                make_pwm_bar(6, (curr.y5_pwm() as f32 * proportion_curr)
-                + (prev.y5_pwm() as f32 * proportion_prev)).name("Y5")
+                make_pwm_bar(
+                    6,
+                    (curr.y5_pwm() as f32 * proportion_curr)
+                        + (prev.y5_pwm() as f32 * proportion_prev),
+                )
+                .name("Y5"),
             );
-            let mut y_fmt_pwm = |x, _range: &RangeInclusive<f64>| {
-                format!("{} %", x)
-            };
-            plot = plot.y_axis_formatter( y_fmt_pwm);
+            let mut y_fmt_pwm = |x, _range: &RangeInclusive<f64>| format!("{} %", x);
+            plot = plot.y_axis_formatter(y_fmt_pwm);
             plot = plot.include_y(100);
         } else {
             bars.push(
-                make_current_bar(1, (curr.mpc_current() as f32 * proportion_curr)
-                + (prev.mpc_current() as f32 * proportion_prev)).name("MPC")
+                make_current_bar(
+                    1,
+                    (curr.mpc_current() as f32 * proportion_curr)
+                        + (prev.mpc_current() as f32 * proportion_prev),
+                )
+                .name("MPC"),
             );
             bars.push(
-                make_current_bar(2, (curr.spc_current() as f32 * proportion_curr)
-                + (prev.spc_current() as f32 * proportion_prev)).name("SPC")
+                make_current_bar(
+                    2,
+                    (curr.spc_current() as f32 * proportion_curr)
+                        + (prev.spc_current() as f32 * proportion_prev),
+                )
+                .name("SPC"),
             );
             bars.push(
-                make_current_bar(3, (curr.tcc_current() as f32 * proportion_curr)
-                + (prev.tcc_current() as f32 * proportion_prev)).name("TCC")
+                make_current_bar(
+                    3,
+                    (curr.tcc_current() as f32 * proportion_curr)
+                        + (prev.tcc_current() as f32 * proportion_prev),
+                )
+                .name("TCC"),
             );
             bars.push(
-                make_current_bar(4, (curr.y3_current() as f32 * proportion_curr)
-                + (prev.y3_current() as f32 * proportion_prev)).name("Y3")
+                make_current_bar(
+                    4,
+                    (curr.y3_current() as f32 * proportion_curr)
+                        + (prev.y3_current() as f32 * proportion_prev),
+                )
+                .name("Y3"),
             );
             bars.push(
-                make_current_bar(5, (curr.y4_current() as f32 * proportion_curr)
-                + (prev.y4_current() as f32 * proportion_prev)).name("Y4")
+                make_current_bar(
+                    5,
+                    (curr.y4_current() as f32 * proportion_curr)
+                        + (prev.y4_current() as f32 * proportion_prev),
+                )
+                .name("Y4"),
             );
             bars.push(
-                make_current_bar(6, (curr.y5_current() as f32 * proportion_curr)
-                + (prev.y5_current() as f32 * proportion_prev)).name("Y5")
+                make_current_bar(
+                    6,
+                    (curr.y5_current() as f32 * proportion_curr)
+                        + (prev.y5_current() as f32 * proportion_prev),
+                )
+                .name("Y5"),
             );
-            let mut y_fmt_current = |x, _range: &RangeInclusive<f64>| {
-                format!("{} mA", x)
-            };
-            plot = plot.y_axis_formatter( y_fmt_current);
+            let mut y_fmt_current = |x, _range: &RangeInclusive<f64>| format!("{} mA", x);
+            plot = plot.y_axis_formatter(y_fmt_current);
             plot = plot.include_y(2000);
         }
         plot.show(ui, |plot_ui| {

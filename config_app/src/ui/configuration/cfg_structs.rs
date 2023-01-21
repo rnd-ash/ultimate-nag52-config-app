@@ -22,7 +22,7 @@ pub struct TcmCoreConfig {
     pub io_0_usage: IOPinConfig,
     pub input_sensor_pulses_per_rev: u8,
     pub output_pulse_width_per_kmh: u8,
-    pub mosfet_purpose: MosfetPurpose
+    pub mosfet_purpose: MosfetPurpose,
 }
 
 #[derive(BitfieldSpecifier)]
@@ -50,7 +50,7 @@ pub enum ShifterStyle {
 pub enum IOPinConfig {
     NotConnected = 0,
     Input = 1,
-    Output = 2
+    Output = 2,
 }
 
 #[derive(BitfieldSpecifier)]
@@ -59,7 +59,7 @@ pub enum IOPinConfig {
 pub enum MosfetPurpose {
     NotConnected = 0,
     TorqueCutTrigger = 1,
-    B3BrakeSolenoid = 2
+    B3BrakeSolenoid = 2,
 }
 
 #[bitfield]
@@ -69,7 +69,7 @@ pub struct TcmEfuseConfig {
     pub manf_day: u8,
     pub manf_week: u8,
     pub manf_month: u8,
-    pub manf_year: u8
+    pub manf_year: u8,
 }
 
 #[derive(BitfieldSpecifier)]
@@ -98,7 +98,7 @@ pub enum BoardType {
     Unknown = 0,
     V11 = 1,
     V12 = 2,
-    V13 = 3
+    V13 = 3,
 }
 
 impl Display for BoardType {

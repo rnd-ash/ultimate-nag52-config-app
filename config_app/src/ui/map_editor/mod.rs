@@ -5,25 +5,33 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use backend::{diag::Nag52Diag, ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::{KWP2000Command, SessionType}, DiagnosticServer}};
+use backend::{
+    diag::Nag52Diag,
+    ecu_diagnostics::{
+        kwp2000::{KWP2000Command, SessionType},
+        DiagError, DiagServerResult, DiagnosticServer,
+    },
+};
 use eframe::{
     egui::{
         self,
         plot::{Bar, BarChart, CoordinatesFormatter, HLine, Legend, Line, LineStyle, PlotPoints},
-        Layout, TextEdit, RichText, Response,
+        Layout, Response, RichText, TextEdit,
     },
-    epaint::{vec2, Color32, Stroke, FontId, TextShape},
+    epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2},
 };
 use egui_extras::{Size, Table, TableBuilder};
 use egui_toast::ToastKind;
 use nom::number::complete::le_u16;
-mod map_widget;
+use plotters::{prelude::{IntoDrawingArea, ChartBuilder, Rectangle}, style::{WHITE, BLACK, BLUE, Color}, series::SurfaceSeries};
 mod help_view;
 mod map_list;
+mod map_widget;
+use crate::{window::PageAction, plot_backend::{EguiPlotBackend, into_rgba_color}};
 use map_list::MAP_ARRAY;
-use crate::window::PageAction;
+use plotters::prelude::*;
 
-use self::{map_widget::MapWidget, help_view::HelpView};
+use self::{help_view::HelpView, map_widget::MapWidget};
 
 use super::{
     configuration::{
@@ -43,7 +51,7 @@ pub enum MapCmd {
     ResetToFlash = 0x05,
     Undo = 0x06,
     ReadMeta = 0x07,
-    ReadEEPROM = 0x08
+    ReadEEPROM = 0x08,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -51,6 +59,15 @@ pub enum MapViewType {
     EEPROM,
     Default,
     Modify,
+}
+
+fn pdf(x: f64, y: f64) -> f64 {
+    const SDX: f64 = 0.1;
+    const SDY: f64 = 0.1;
+    const A: f64 = 5.0;
+    let x = x as f64 / 10.0;
+    let y = y as f64 / 10.0;
+    A * (-x * x / 2.0 / SDX / SDX - y * y / 2.0 / SDY / SDY).exp()
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +87,9 @@ pub struct Map {
     showing_default: bool,
     ecu_ref: Nag52Diag,
     curr_edit_cell: Option<(usize, String, Response)>,
-    view_type: MapViewType
+    view_type: MapViewType,
+    pitch: f64,
+    rot: f64
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -90,22 +109,23 @@ fn read_u16(a: &[u8]) -> DiagServerResult<(&[u8], u16)> {
 }
 
 impl Map {
-    pub fn new(
-        map_id: u8,
-        mut nag: Nag52Diag,
-        meta: MapData,
-    ) -> DiagServerResult<Self> {
+    pub fn new(map_id: u8, mut nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
         // Read metadata
 
         let ecu_response = nag.with_kwp(|server| {
-            server.send_byte_array_with_response(&[
-                KWP2000Command::ReadDataByLocalIdentifier.into(),
-                0x19,
-                map_id,
-                MapCmd::ReadMeta as u8,
-                0x00,
-                0x00,
-            ]).map(|mut x| {x.drain(0..1); x})
+            server
+                .send_byte_array_with_response(&[
+                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    0x19,
+                    map_id,
+                    MapCmd::ReadMeta as u8,
+                    0x00,
+                    0x00,
+                ])
+                .map(|mut x| {
+                    x.drain(0..1);
+                    x
+                })
         })?;
         let (data, data_len) = read_u16(&ecu_response)?;
         if data.len() != data_len as usize {
@@ -133,18 +153,23 @@ impl Map {
 
         let mut default: Vec<i16> = Vec::new();
         let mut current: Vec<i16> = Vec::new();
-        let mut eeprom : Vec<i16> = Vec::new();
+        let mut eeprom: Vec<i16> = Vec::new();
 
         // Read current data
         let ecu_response = nag.with_kwp(|server| {
-            server.send_byte_array_with_response(&[
-                KWP2000Command::ReadDataByLocalIdentifier.into(),
-                0x19,
-                map_id,
-                MapCmd::Read as u8,
-                0x00,
-                0x00,
-            ]).map(|mut x| {x.drain(0..1); x})
+            server
+                .send_byte_array_with_response(&[
+                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    0x19,
+                    map_id,
+                    MapCmd::Read as u8,
+                    0x00,
+                    0x00,
+                ])
+                .map(|mut x| {
+                    x.drain(0..1);
+                    x
+                })
         })?;
         let (mut c_data, c_arr_size) = read_u16(&ecu_response)?;
         if c_data.len() != c_arr_size as usize {
@@ -157,15 +182,20 @@ impl Map {
         }
         // Read default data
         let ecu_response = nag.with_kwp(|server| {
-            server.send_byte_array_with_response(&[
-                KWP2000Command::ReadDataByLocalIdentifier.into(),
-                0x19,
-                map_id,
-                MapCmd::ReadDefault as u8,
-                0x00,
-                0x00,
-            ]).map(|mut x| {x.drain(0..1); x})
-        })?;        
+            server
+                .send_byte_array_with_response(&[
+                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    0x19,
+                    map_id,
+                    MapCmd::ReadDefault as u8,
+                    0x00,
+                    0x00,
+                ])
+                .map(|mut x| {
+                    x.drain(0..1);
+                    x
+                })
+        })?;
         let (mut d_data, d_arr_size) = read_u16(&ecu_response)?;
         if d_data.len() != d_arr_size as usize {
             return Err(DiagError::InvalidResponseLength);
@@ -176,14 +206,19 @@ impl Map {
             d_data = d;
         }
         let ecu_response = nag.with_kwp(|server| {
-            server.send_byte_array_with_response(&[
-                KWP2000Command::ReadDataByLocalIdentifier.into(),
-                0x19,
-                map_id,
-                MapCmd::ReadEEPROM as u8,
-                0x00,
-                0x00,
-            ]).map(|mut x| {x.drain(0..1); x})
+            server
+                .send_byte_array_with_response(&[
+                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    0x19,
+                    map_id,
+                    MapCmd::ReadEEPROM as u8,
+                    0x00,
+                    0x00,
+                ])
+                .map(|mut x| {
+                    x.drain(0..1);
+                    x
+                })
         })?;
         let (mut e_data, e_arr_size) = read_u16(&ecu_response)?;
         if e_data.len() != e_arr_size as usize {
@@ -207,14 +242,15 @@ impl Map {
             showing_default: false,
             ecu_ref: nag,
             curr_edit_cell: None,
-            view_type: MapViewType::Modify
-
+            view_type: MapViewType::Modify,
+            pitch: 0.8,
+            rot: 0.0
         })
     }
 
     fn data_to_byte_array(&self, data: &Vec<i16>) -> Vec<u8> {
         let mut ret = Vec::new();
-        ret.extend_from_slice(&((data.len()*2) as u16).to_le_bytes());
+        ret.extend_from_slice(&((data.len() * 2) as u16).to_le_bytes());
         for point in data {
             ret.extend_from_slice(&point.to_le_bytes());
         }
@@ -223,43 +259,42 @@ impl Map {
 
     pub fn write_to_ram(&mut self) -> DiagServerResult<()> {
         let mut payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(), 
-            0x19, 
+            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            0x19,
             self.meta.id,
             MapCmd::Write as u8,
         ];
         payload.extend_from_slice(&self.data_to_byte_array(&self.data_modify));
-        self.ecu_ref.with_kwp(|server| {
-            server.send_byte_array_with_response(&payload)
-        })?;
+        self.ecu_ref
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
     pub fn save_to_eeprom(&mut self) -> DiagServerResult<()> {
         let payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(), 
-            0x19, 
+            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            0x19,
             self.meta.id,
             MapCmd::Burn as u8,
-            0x00, 0x00
+            0x00,
+            0x00,
         ];
-        self.ecu_ref.with_kwp(|server| {
-            server.send_byte_array_with_response(&payload)
-        })?;
+        self.ecu_ref
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
     pub fn undo_changes(&mut self) -> DiagServerResult<()> {
         let payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(), 
-            0x19, 
+            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            0x19,
             self.meta.id,
             MapCmd::Undo as u8,
-            0x00, 0x00
+            0x00,
+            0x00,
         ];
-        self.ecu_ref.with_kwp(|server| {
-            server.send_byte_array_with_response(&payload)
-        })?;
+        self.ecu_ref
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
@@ -301,73 +336,102 @@ impl Map {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
                 .scroll(false)
-                .cell_layout(Layout::left_to_right(egui::Align::Center).with_cross_align(egui::Align::Center))
+                .cell_layout(
+                    Layout::left_to_right(egui::Align::Center)
+                        .with_cross_align(egui::Align::Center),
+                )
                 .column(Size::initial(60.0).at_least(60.0));
             for _ in 0..copy.x_values.len() {
                 table_builder = table_builder.column(Size::initial(70.0).at_least(70.0));
             }
-            table_builder.header(15.0, |mut header | {
-                header.col(|_| {}); // Nothing in corner cell
-                if copy.x_values.len() == 1 {
-                    header.col(|_|{});
-                } else {
-                    for v in 0..copy.x_values.len() {
-                        header.col(|u| {
-                            u.label(RichText::new(format!("{}", copy.get_x_label(v))).color(header_color));
-                        });
+            table_builder
+                .header(15.0, |mut header| {
+                    header.col(|_| {}); // Nothing in corner cell
+                    if copy.x_values.len() == 1 {
+                        header.col(|_| {});
+                    } else {
+                        for v in 0..copy.x_values.len() {
+                            header.col(|u| {
+                                u.label(
+                                    RichText::new(format!("{}", copy.get_x_label(v)))
+                                        .color(header_color),
+                                );
+                            });
+                        }
                     }
-                }
-            }).body(|body| {
-                body.rows(15.0, copy.y_values.len(), |row_id, mut row| {
-                    // Header column
-                    row.col(|c| { c.label(RichText::new(format!("{}", copy.get_y_label(row_id))).color(header_color));});
-                        
-                    // Data columns
-                    for x_pos in 0..copy.x_values.len() {
-                        row.col(|cell| {
-                            match self.view_type {
+                })
+                .body(|body| {
+                    body.rows(15.0, copy.y_values.len(), |row_id, mut row| {
+                        // Header column
+                        row.col(|c| {
+                            c.label(
+                                RichText::new(format!("{}", copy.get_y_label(row_id)))
+                                    .color(header_color),
+                            );
+                        });
+
+                        // Data columns
+                        for x_pos in 0..copy.x_values.len() {
+                            row.col(|cell| match self.view_type {
                                 MapViewType::EEPROM => {
-                                    cell.label(format!("{}", copy.data_eeprom[(row_id*copy.x_values.len())+x_pos]));
-                                },
+                                    cell.label(format!(
+                                        "{}",
+                                        copy.data_eeprom[(row_id * copy.x_values.len()) + x_pos]
+                                    ));
+                                }
                                 MapViewType::Default => {
-                                    cell.label(format!("{}", copy.data_program[(row_id*copy.x_values.len())+x_pos]));
-                                },
+                                    cell.label(format!(
+                                        "{}",
+                                        copy.data_program[(row_id * copy.x_values.len()) + x_pos]
+                                    ));
+                                }
                                 MapViewType::Modify => {
-                                    let map_idx = (row_id*copy.x_values.len())+x_pos;
+                                    let map_idx = (row_id * copy.x_values.len()) + x_pos;
                                     let mut value = format!("{}", copy.data_modify[map_idx]);
-                                    if let Some((curr_edit_idx, current_edit_txt, resp)) = &copy.curr_edit_cell {
+                                    if let Some((curr_edit_idx, current_edit_txt, resp)) =
+                                        &copy.curr_edit_cell
+                                    {
                                         if *curr_edit_idx == map_idx {
                                             value = current_edit_txt.clone();
                                         }
                                     }
-                                    let changed_value = value != format!("{}", copy.data_eeprom[map_idx]);
+                                    let changed_value =
+                                        value != format!("{}", copy.data_eeprom[map_idx]);
                                     let mut edit = TextEdit::singleline(&mut value);
                                     if changed_value {
                                         edit = edit.text_color(cell_edit_color);
                                     }
                                     let mut response = cell.add(edit);
                                     if changed_value {
-                                        response = response.on_hover_text(format!("Current in EEPROM: {}", copy.data_eeprom[map_idx]));
+                                        response = response.on_hover_text(format!(
+                                            "Current in EEPROM: {}",
+                                            copy.data_eeprom[map_idx]
+                                        ));
                                     }
-                                    if response.lost_focus() || cell.ctx().input().key_pressed(egui::Key::Enter) {
+                                    if response.lost_focus()
+                                        || cell.ctx().input().key_pressed(egui::Key::Enter)
+                                    {
                                         if let Ok(new_v) = i16::from_str_radix(&value, 10) {
                                             copy.data_modify[map_idx] = new_v;
                                         }
                                         copy.curr_edit_cell = None;
                                     } else if response.gained_focus() || response.has_focus() {
-                                        if let Some((curr_edit_idx, current_edit_txt, _resp)) = &copy.curr_edit_cell {
-                                            if let Ok(new_v) = i16::from_str_radix(&current_edit_txt, 10) {
+                                        if let Some((curr_edit_idx, current_edit_txt, _resp)) =
+                                            &copy.curr_edit_cell
+                                        {
+                                            if let Ok(new_v) =
+                                                i16::from_str_radix(&current_edit_txt, 10)
+                                            {
                                                 copy.data_modify[*curr_edit_idx] = new_v;
                                             }
                                         }
                                         copy.curr_edit_cell = Some((map_idx, value, response));
                                     }
                                 }
-                            }
-                        });
-                    }
-                })
-            });
+                            });
+                        }
+                    })
+                });
         });
         *self = copy;
     }
@@ -388,7 +452,7 @@ impl Map {
                 let value = match self.view_type {
                     MapViewType::Default => self.data_program[x],
                     MapViewType::EEPROM => self.data_eeprom[x],
-                    MapViewType::Modify => self.data_modify[x]
+                    MapViewType::Modify => self.data_modify[x],
                 };
                 let key = self.get_y_label(x);
                 bars.push(Bar::new(x as f64, value as f64).name(key))
@@ -401,22 +465,21 @@ impl Map {
                 .include_x(0)
                 .include_y((self.y_values.len() + 1) as f64 * 1.5)
                 .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new(bars)));
-        } else { // Line chart
+        } else if (self.meta.x_replace.is_some() || self.meta.y_replace.is_some()) {
+            // Line chart
             let mut lines: Vec<Line> = Vec::new();
             for (y_idx, key) in self.y_values.iter().enumerate() {
-                let mut points : Vec<[f64;2]> = Vec::new();
+                let mut points: Vec<[f64; 2]> = Vec::new();
                 for (x_idx, key) in self.x_values.iter().enumerate() {
-                    let map_idx = (y_idx*self.x_values.len())+x_idx;
+                    let map_idx = (y_idx * self.x_values.len()) + x_idx;
                     let data = match self.view_type {
                         MapViewType::Default => self.data_program[map_idx],
                         MapViewType::EEPROM => self.data_eeprom[map_idx],
-                        MapViewType::Modify => self.data_modify[map_idx]
+                        MapViewType::Modify => self.data_modify[map_idx],
                     };
                     points.push([*key as f64, data as f64]);
                 }
-                lines.push(
-                    Line::new(points).name(self.get_y_label(y_idx))
-                );
+                lines.push(Line::new(points).name(self.get_y_label(y_idx)));
             }
             egui::plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                 .allow_drag(false)
@@ -429,7 +492,66 @@ impl Map {
                         plot_ui.line(l);
                     }
                 });
+        } else {
+            let src = &self.data_modify;
+            let desired_size = egui::Vec2::new(raw_ui.available_width(), 400.0);
+            let (rect, mut response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
+            let painter = raw_ui.painter_at(rect);
+            let area = EguiPlotBackend::new(painter).into_drawing_area();
+            
+            let x_min = *self.x_values.iter().min().unwrap() as f64;
+            let x_max = *self.x_values.iter().max().unwrap() as f64;
+            let z_min = *self.y_values.iter().min().unwrap() as f64;
+            let z_max = *self.y_values.iter().max().unwrap() as f64;
 
+            let y_min = *src.iter().min().unwrap() as f64;
+            let y_max = *src.iter().max().unwrap() as f64;
+
+            self.pitch += response.drag_delta().y as f64 /30.0;
+            self.rot += response.drag_delta().x as f64 /30.0;
+            if self.pitch < 0.0 {
+                self.pitch = 0.0;
+            } else if self.pitch > 1.57 {
+                self.pitch = 1.57;
+            }
+
+            let mut chart = ChartBuilder::on(&area)
+                .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
+            chart.with_projection(|mut p| {
+                p.pitch = self.pitch; //0.8;
+                p.scale = 0.8;
+                p.yaw = self.rot;
+                p.into_matrix() // build the projection matrix
+            });
+
+            let vis = &raw_ui.ctx().style().visuals;
+            chart
+                .configure_axes()
+                .x_labels(self.x_values.len())
+                .y_labels(10)
+                .z_labels(self.y_values.len())
+                .light_grid_style(into_rgba_color(vis.text_color()))
+                .max_light_lines(1)
+                .draw().unwrap();
+
+            chart.draw_series(
+                SurfaceSeries::xoz(
+                    self.x_values.iter().map(|x| *x as f64),
+                    self.y_values.iter().map(|y| *y as f64),
+                    |x, y| {
+                        let x_v = x as i16;
+                        let y_v = y as i16;
+                        let x_idx = self.x_values.iter().position(|s| *s == x_v).unwrap();
+                        let y_idx = self.y_values.iter().position(|s| *s == y_v).unwrap();
+                        let len = self.x_values.len();
+                        src[(len*y_idx)+x_idx] as f64
+                    }
+                )
+                .style_func(&|&v| {
+                    (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
+                }),
+            ).unwrap();
+            area.present();
         }
         raw_ui.label("View mode:");
         raw_ui.horizontal(|row| {
@@ -442,32 +564,52 @@ impl Map {
                 return match self.undo_changes() {
                     Ok(_) => {
                         self.data_modify = self.data_eeprom.clone();
-                        Some(PageAction::SendNotification { text: format!("Map {} undo OK!", self.eeprom_key), kind: ToastKind::Success })
-                    },
-                    Err(e) => Some(PageAction::SendNotification { text: format!("Map {} undo failed! {}", self.eeprom_key, e), kind: ToastKind::Error })
-                }
+                        Some(PageAction::SendNotification {
+                            text: format!("Map {} undo OK!", self.eeprom_key),
+                            kind: ToastKind::Success,
+                        })
+                    }
+                    Err(e) => Some(PageAction::SendNotification {
+                        text: format!("Map {} undo failed! {}", self.eeprom_key, e),
+                        kind: ToastKind::Error,
+                    }),
+                };
             }
             if raw_ui.button("Write changes (To RAM)").clicked() {
                 return match self.write_to_ram() {
                     Ok(_) => {
                         self.data_memory = self.data_modify.clone();
-                        Some(PageAction::SendNotification { text: format!("Map {} RAM write OK!", self.eeprom_key), kind: ToastKind::Success })
-                    },
-                    Err(e) => Some(PageAction::SendNotification { text: format!("Map {} RAM write failed! {}", self.eeprom_key, e), kind: ToastKind::Error })
-                }
+                        Some(PageAction::SendNotification {
+                            text: format!("Map {} RAM write OK!", self.eeprom_key),
+                            kind: ToastKind::Success,
+                        })
+                    }
+                    Err(e) => Some(PageAction::SendNotification {
+                        text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
+                        kind: ToastKind::Error,
+                    }),
+                };
             }
         }
         if self.data_memory != self.data_eeprom {
             if raw_ui.button("Write changes (To EEPROM)").clicked() {
                 return match self.save_to_eeprom() {
                     Ok(_) => {
-                        if let Ok(new_data) = Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone()) {
+                        if let Ok(new_data) =
+                            Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
+                        {
                             *self = new_data;
                         }
-                        Some(PageAction::SendNotification { text: format!("Map {} EEPROM save OK!", self.eeprom_key), kind: ToastKind::Success })
-                    },
-                    Err(e) => Some(PageAction::SendNotification { text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e), kind: ToastKind::Error })
-                }
+                        Some(PageAction::SendNotification {
+                            text: format!("Map {} EEPROM save OK!", self.eeprom_key),
+                            kind: ToastKind::Success,
+                        })
+                    }
+                    Err(e) => Some(PageAction::SendNotification {
+                        text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
+                        kind: ToastKind::Error,
+                    }),
+                };
             }
         }
         if self.data_modify != self.data_program {
@@ -491,7 +633,7 @@ pub struct MapData {
     value_unit: &'static str,
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
-    show_help: bool
+    show_help: bool,
 }
 
 impl MapData {
@@ -505,7 +647,7 @@ impl MapData {
         v_desc: &'static str,
         value_unit: &'static str,
         x_replace: Option<&'static [&'static str]>,
-        y_replace: Option<&'static [&'static str]>
+        y_replace: Option<&'static [&'static str]>,
     ) -> Self {
         Self {
             id,
@@ -518,7 +660,7 @@ impl MapData {
             value_unit,
             x_replace,
             y_replace,
-            show_help: false
+            show_help: false,
         }
     }
 }
@@ -532,9 +674,7 @@ pub struct MapEditor {
 
 impl MapEditor {
     pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
-        nag.with_kwp(|server|
-            server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics)
-        );
+        nag.with_kwp(|server| server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics));
         Self {
             bar,
             nag,

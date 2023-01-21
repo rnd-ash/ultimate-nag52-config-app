@@ -1,11 +1,11 @@
 //! Read data by local identifier data structures
 //! Based on diag_data.h in TCM source code
 //!
-use std::borrow::Borrow;
 use backend::ecu_diagnostics::kwp2000::Kwp2000DiagnosticServer;
 use backend::ecu_diagnostics::{DiagError, DiagServerResult};
 use eframe::egui::{self, Color32, InnerResponse, RichText, Ui};
 use modular_bitfield::{bitfield, BitfieldSpecifier};
+use std::borrow::Borrow;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]

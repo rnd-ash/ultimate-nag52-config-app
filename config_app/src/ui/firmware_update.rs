@@ -11,7 +11,6 @@ use backend::ecu_diagnostics::{
 };
 use backend::hw::firmware::*;
 
-
 use eframe::egui;
 use eframe::egui::*;
 use nfd::Response;
@@ -162,18 +161,18 @@ Compile time: {} on {}
             let state = self.flash_state.read().unwrap().clone();
             if state.is_done() {
                 if ui.button("Query current firmware").clicked() {
-
-                    match self.nag.with_kwp(|server| {
-                        server.read_custom_local_identifier(0x28)
-                    }).and_then(|resp| {
-                        if resp.len() != std::mem::size_of::<FirmwareHeader>() {
-                            Err(DiagError::InvalidResponseLength)
-                        } else {
-                            Ok(unsafe {
-                                std::ptr::read::<FirmwareHeader>(resp.as_ptr() as *const _)
-                            })
-                        }
-                    }) {
+                    match self
+                        .nag
+                        .with_kwp(|server| server.read_custom_local_identifier(0x28))
+                        .and_then(|resp| {
+                            if resp.len() != std::mem::size_of::<FirmwareHeader>() {
+                                Err(DiagError::InvalidResponseLength)
+                            } else {
+                                Ok(unsafe {
+                                    std::ptr::read::<FirmwareHeader>(resp.as_ptr() as *const _)
+                                })
+                            }
+                        }) {
                         Ok(header) => self.curr_fw = Some(header),
                         Err(e) => {
                             // TODO
@@ -209,10 +208,9 @@ Compile time: {} on {}
                                         let mut req = vec![0x36, ((block_id + 1) & 0xFF) as u8]; // [Transfer data request, block counter]
                                         req.extend_from_slice(block); // Block to transfer
                                         if let Err(e) = server.send_byte_array_with_response(&req) {
-                                            *state_c.write().unwrap() = FlashState::Aborted(format!(
-                                                "ECU failed to write data to flash: {}",
-                                                e
-                                            ));
+                                            *state_c.write().unwrap() = FlashState::Aborted(
+                                                format!("ECU failed to write data to flash: {}", e),
+                                            );
                                             eprintln!("Writing failed! Error {}", e);
                                             server.set_rw_timeout(old_timeouts.0, old_timeouts.1);
                                             failure = true;
@@ -230,10 +228,9 @@ Compile time: {} on {}
                                         *state_c.write().unwrap() = FlashState::Verify;
                                         if let Err(e) = on_flash_end(&mut server) {
                                             server.set_rw_timeout(old_timeouts.0, old_timeouts.1);
-                                            *state_c.write().unwrap() = FlashState::Aborted(format!(
-                                                "ECU failed to verify flash: {}",
-                                                e
-                                            ))
+                                            *state_c.write().unwrap() = FlashState::Aborted(
+                                                format!("ECU failed to verify flash: {}", e),
+                                            )
                                         } else {
                                             *state_c.write().unwrap() = FlashState::Completed;
                                         }

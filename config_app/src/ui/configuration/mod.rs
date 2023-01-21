@@ -4,14 +4,23 @@ use std::{
 };
 
 use crate::window::PageAction;
-use backend::{diag::Nag52Diag, ecu_diagnostics::{kwp2000::{SessionType, ResetMode}, DiagnosticServer}};
+use backend::{
+    diag::Nag52Diag,
+    ecu_diagnostics::{
+        kwp2000::{ResetMode, SessionType},
+        DiagnosticServer,
+    },
+};
 use chrono::{Datelike, Weekday};
 use eframe::egui::Ui;
 use eframe::egui::{self, *};
 use egui_extras::RetainedImage;
-use image::{ImageFormat, DynamicImage};
+use image::{DynamicImage, ImageFormat};
 
-use self::cfg_structs::{DefaultProfile, EngineType, TcmCoreConfig, TcmEfuseConfig, BoardType, EgsCanType, ShifterStyle, IOPinConfig, MosfetPurpose};
+use self::cfg_structs::{
+    BoardType, DefaultProfile, EgsCanType, EngineType, IOPinConfig, MosfetPurpose, ShifterStyle,
+    TcmCoreConfig, TcmEfuseConfig,
+};
 
 use super::{status_bar::MainStatusBar, StatusText};
 
@@ -27,21 +36,36 @@ pub struct ConfigPage {
     show_final_warning: bool,
     pcb_11_img: RetainedImage,
     pcb_12_img: RetainedImage,
-    pcb_13_img: RetainedImage
+    pcb_13_img: RetainedImage,
 }
 
 fn load_image(image: DynamicImage, name: &str) -> RetainedImage {
     let size = [image.width() as usize, image.height() as usize];
     let buffer = image.to_rgba8();
     let pixels = buffer.as_flat_samples();
-    RetainedImage::from_color_image(name, ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()))
+    RetainedImage::from_color_image(
+        name,
+        ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()),
+    )
 }
 
 impl ConfigPage {
     pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
-        let red_img = image::load_from_memory_with_format(include_bytes!("../../../res/pcb_11.jpg"), ImageFormat::Jpeg).unwrap();
-        let blk_img = image::load_from_memory_with_format(include_bytes!("../../../res/pcb_12.jpg"), ImageFormat::Jpeg).unwrap();
-        let bet_img = image::load_from_memory_with_format(include_bytes!("../../../res/pcb_13.jpg"), ImageFormat::Jpeg).unwrap();
+        let red_img = image::load_from_memory_with_format(
+            include_bytes!("../../../res/pcb_11.jpg"),
+            ImageFormat::Jpeg,
+        )
+        .unwrap();
+        let blk_img = image::load_from_memory_with_format(
+            include_bytes!("../../../res/pcb_12.jpg"),
+            ImageFormat::Jpeg,
+        )
+        .unwrap();
+        let bet_img = image::load_from_memory_with_format(
+            include_bytes!("../../../res/pcb_13.jpg"),
+            ImageFormat::Jpeg,
+        )
+        .unwrap();
 
         let pcb_11_img = load_image(red_img, "V11-PCB");
         let pcb_12_img = load_image(blk_img, "V12-PCB");
@@ -56,7 +80,7 @@ impl ConfigPage {
             show_final_warning: false,
             pcb_11_img,
             pcb_12_img,
-            pcb_13_img
+            pcb_13_img,
         }
     }
 }
@@ -66,7 +90,6 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.heading("TCM Configuration");
 
         if ui.button("Read Configuration").clicked() {
-
             self.nag.with_kwp(|server| {
                 match server.read_custom_local_identifier(0xFE) {
                     Ok(res) => {
@@ -74,7 +97,8 @@ impl crate::window::InterfacePage for ConfigPage {
                         self.status = StatusText::Ok(format!("Read OK!"));
                     }
                     Err(e) => {
-                        self.status = StatusText::Err(format!("Error reading TCM configuration: {}", e))
+                        self.status =
+                            StatusText::Err(format!("Error reading TCM configuration: {}", e))
                     }
                 }
                 match server.read_custom_local_identifier(0xFD) {
@@ -87,14 +111,19 @@ impl crate::window::InterfacePage for ConfigPage {
                         self.status = StatusText::Ok(format!("Read OK!"));
                     }
                     Err(e) => {
-                        self.status = StatusText::Err(format!("Error reading TCM EFUSE configuration: {}", e))
+                        self.status =
+                            StatusText::Err(format!("Error reading TCM EFUSE configuration: {}", e))
                     }
                 }
                 Ok(())
             });
         }
 
-        let board_ver = self.efuse.clone().map(|x| x.board_ver()).unwrap_or(BoardType::Unknown);
+        let board_ver = self
+            .efuse
+            .clone()
+            .map(|x| x.board_ver())
+            .unwrap_or(BoardType::Unknown);
         if let Some(scn) = self.scn.borrow_mut() {
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
                 let mut x = scn.is_large_nag() == 1;
@@ -204,8 +233,15 @@ impl crate::window::InterfacePage for ConfigPage {
                     .selected_text(format!("{:?}", can))
                     .show_ui(ui, |cb_ui| {
                         let layers = match board_ver {
-                            BoardType::Unknown | BoardType::V11 => vec![EgsCanType::UNKNOWN, EgsCanType::EGS52, EgsCanType::EGS53],
-                            _ => vec![EgsCanType::UNKNOWN, EgsCanType::EGS51, EgsCanType::EGS52, EgsCanType::EGS53]
+                            BoardType::Unknown | BoardType::V11 => {
+                                vec![EgsCanType::UNKNOWN, EgsCanType::EGS52, EgsCanType::EGS53]
+                            }
+                            _ => vec![
+                                EgsCanType::UNKNOWN,
+                                EgsCanType::EGS51,
+                                EgsCanType::EGS52,
+                                EgsCanType::EGS53,
+                            ],
                         };
                         for layer in layers {
                             cb_ui.selectable_value(&mut can, layer.clone(), format!("{:?}", layer));
@@ -214,14 +250,19 @@ impl crate::window::InterfacePage for ConfigPage {
                     });
                 ui.end_row();
 
-                if board_ver == BoardType::V12 || board_ver == BoardType::V13 { // 1.2 or 1.3 config
+                if board_ver == BoardType::V12 || board_ver == BoardType::V13 {
+                    // 1.2 or 1.3 config
                     ui.label("Shifter style: ");
                     let mut ss = scn.shifter_style();
                     egui::ComboBox::from_id_source("shifter_style")
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            let options = vec![ShifterStyle::EWM_CAN, ShifterStyle::TRRS, ShifterStyle::SLR_MCLAREN];
+                            let options = vec![
+                                ShifterStyle::EWM_CAN,
+                                ShifterStyle::TRRS,
+                                ShifterStyle::SLR_MCLAREN,
+                            ];
                             for o in options {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
@@ -230,14 +271,19 @@ impl crate::window::InterfacePage for ConfigPage {
                     ui.end_row();
                 }
 
-                if board_ver == BoardType::V13 { // Only v1.3 config
+                if board_ver == BoardType::V13 {
+                    // Only v1.3 config
                     ui.label("GPIO usage: ");
                     let mut ss = scn.io_0_usage();
                     egui::ComboBox::from_id_source("gpio_usage")
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            let options = vec![IOPinConfig::NotConnected, IOPinConfig::Input, IOPinConfig::Output];
+                            let options = vec![
+                                IOPinConfig::NotConnected,
+                                IOPinConfig::Input,
+                                IOPinConfig::Output,
+                            ];
                             for o in options {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
@@ -263,18 +309,22 @@ impl crate::window::InterfacePage for ConfigPage {
                         ui.end_row();
                     }
                     ui.label("General MOSFET usage: ");
-                        let mut ss = scn.mosfet_purpose();
-                        egui::ComboBox::from_id_source("mosfet_purpose")
-                            .width(200.0)
-                            .selected_text(format!("{:?}", ss))
-                            .show_ui(ui, |cb_ui| {
-                                let options = vec![MosfetPurpose::NotConnected, MosfetPurpose::TorqueCutTrigger, MosfetPurpose::B3BrakeSolenoid];
-                                for o in options {
-                                    cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
-                                }
-                                scn.set_mosfet_purpose(ss)
-                            });
-                        ui.end_row();
+                    let mut ss = scn.mosfet_purpose();
+                    egui::ComboBox::from_id_source("mosfet_purpose")
+                        .width(200.0)
+                        .selected_text(format!("{:?}", ss))
+                        .show_ui(ui, |cb_ui| {
+                            let options = vec![
+                                MosfetPurpose::NotConnected,
+                                MosfetPurpose::TorqueCutTrigger,
+                                MosfetPurpose::B3BrakeSolenoid,
+                            ];
+                            for o in options {
+                                cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
+                            }
+                            scn.set_mosfet_purpose(ss)
+                        });
+                    ui.end_row();
                 }
             });
 
@@ -294,25 +344,32 @@ impl crate::window::InterfacePage for ConfigPage {
 
         if let Some(efuse) = self.efuse.borrow_mut() {
             if self.show_efuse {
-
-
                 ui.heading("EFUSE CONFIG");
                 ui.label("IMPORTANT! This can only be set once! Be careful!");
                 ui.spacing();
                 ui.horizontal(|row| {
                     row.vertical(|col| {
                         col.label("V1.1 - Red PCB (12/12/21)");
-                        col.image(self.pcb_11_img.texture_id(col.ctx()), Vec2::from((200.0, 150.0)));
+                        col.image(
+                            self.pcb_11_img.texture_id(col.ctx()),
+                            Vec2::from((200.0, 150.0)),
+                        );
                     });
                     row.separator();
                     row.vertical(|col| {
                         col.label("V1.2 - Black PCB (07/07/22) with TRRS support");
-                        col.image(self.pcb_12_img.texture_id(col.ctx()), Vec2::from((200.0, 150.0)));     
+                        col.image(
+                            self.pcb_12_img.texture_id(col.ctx()),
+                            Vec2::from((200.0, 150.0)),
+                        );
                     });
                     row.separator();
                     row.vertical(|col| {
                         col.label("V1.3 - UNDER DEVELOPMENT - DO NOT SELECT!!!!");
-                        col.image(self.pcb_13_img.texture_id(col.ctx()), Vec2::from((230.0, 150.0)));
+                        col.image(
+                            self.pcb_13_img.texture_id(col.ctx()),
+                            Vec2::from((230.0, 150.0)),
+                        );
                     });
                 });
                 let mut ver = efuse.board_ver();
@@ -340,12 +397,14 @@ impl crate::window::InterfacePage for ConfigPage {
         let ss = ui.ctx().input().screen_rect();
         let mut reload = false;
         egui::Window::new("ARE YOU SURE?")
-        .open(&mut self.show_final_warning)
-        .fixed_pos(Pos2::new(ss.size().x / 2.0,ss.size().y / 2.0))
-        .show(ui.ctx(), |win| {
-            win.label("EFUSE CONFIGURATION CANNOT BE UN-DONE");
-            win.label("Please double check and ensure you have selected the right board variant!");
-            win.horizontal(|row| {
+            .open(&mut self.show_final_warning)
+            .fixed_pos(Pos2::new(ss.size().x / 2.0, ss.size().y / 2.0))
+            .show(ui.ctx(), |win| {
+                win.label("EFUSE CONFIGURATION CANNOT BE UN-DONE");
+                win.label(
+                    "Please double check and ensure you have selected the right board variant!",
+                );
+                win.horizontal(|row| {
                     if row.button("Take me back").clicked() {
                         tmp = false;
                     }
@@ -357,7 +416,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         efuse.set_manf_month(date.month() as u8);
                         efuse.set_manf_year((date.year() - 2000) as u8);
                         println!("EFUSE: {:?}", efuse);
-                        
+
                         let mut x = vec![0x3Bu8, 0xFD];
                         x.extend_from_slice(&efuse.into_bytes());
                         self.nag.with_kwp(|server| {
@@ -368,9 +427,8 @@ impl crate::window::InterfacePage for ConfigPage {
                         });
                         tmp = false;
                     }
-                }
-            )
-        });
+                })
+            });
         if reload {
             *self = Self::new(self.nag.clone(), self.bar.clone());
         }

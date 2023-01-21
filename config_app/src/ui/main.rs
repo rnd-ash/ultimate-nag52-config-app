@@ -1,21 +1,15 @@
-use std::sync::{mpsc, Arc, Mutex};
-use backend::diag::Nag52Diag;
 use backend::diag::ident::IdentData;
+use backend::diag::Nag52Diag;
 use eframe::egui;
 use eframe::Frame;
+use std::sync::{mpsc, Arc, Mutex};
 
-use crate::{
-    window::{InterfacePage, PageAction},
-};
+use crate::window::{InterfacePage, PageAction};
 
 use super::{
-    configuration::ConfigPage,
-    crashanalyzer::CrashAnalyzerUI,
-    diagnostics::{solenoids::SolenoidPage},
-    firmware_update::FwUpdateUI,
-    io_maipulator::IoManipulatorPage,
-    map_editor::MapEditor,
-    routine_tests::RoutinePage,
+    configuration::ConfigPage, crashanalyzer::CrashAnalyzerUI,
+    diagnostics::solenoids::SolenoidPage, firmware_update::FwUpdateUI,
+    io_maipulator::IoManipulatorPage, map_editor::MapEditor, routine_tests::RoutinePage,
     status_bar::MainStatusBar,
 };
 use crate::ui::diagnostics::DiagnosticsPage;
@@ -24,18 +18,16 @@ pub struct MainPage {
     bar: MainStatusBar,
     show_about_ui: bool,
     diag_server: Nag52Diag,
-    info: Option<IdentData>
+    info: Option<IdentData>,
 }
 
 impl MainPage {
-    pub fn new(
-        nag: Nag52Diag,
-    ) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         Self {
             bar: MainStatusBar::new(),
             show_about_ui: false,
             diag_server: nag,
-            info: None
+            info: None,
         }
     }
 }
@@ -132,10 +124,20 @@ impl InterfacePage for MainPage {
                         about_cols.separator();
                         if let Some(ident) = self.info {
                             about_cols.heading("TCU Data");
-                            about_cols.label(format!("PCB Version: {} (HW date: {} week 20{})", ident.board_ver, ident.hw_week, ident.hw_year));
-                            about_cols.label(format!("PCB Production date: {}/{}/20{}", ident.manf_day, ident.manf_month, ident.manf_year));
-                            about_cols.label(format!("PCB Software date: week {} of 20{}", ident.sw_week, ident.sw_year));
-                            about_cols.label(format!("EGS CAN Matrix selected: {}", ident.egs_mode));
+                            about_cols.label(format!(
+                                "PCB Version: {} (HW date: {} week 20{})",
+                                ident.board_ver, ident.hw_week, ident.hw_year
+                            ));
+                            about_cols.label(format!(
+                                "PCB Production date: {}/{}/20{}",
+                                ident.manf_day, ident.manf_month, ident.manf_year
+                            ));
+                            about_cols.label(format!(
+                                "PCB Software date: week {} of 20{}",
+                                ident.sw_week, ident.sw_year
+                            ));
+                            about_cols
+                                .label(format!("EGS CAN Matrix selected: {}", ident.egs_mode));
                         } else {
                             about_cols.heading("Could not read TCU Ident data");
                         }

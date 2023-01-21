@@ -1,3 +1,5 @@
+use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
+use eframe::egui::plot::{Legend, Line, Plot};
 use std::{
     char::MAX,
     sync::{
@@ -7,8 +9,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
-use eframe::egui::plot::{Legend, Line, Plot};
 
 use crate::{ui::status_bar::MainStatusBar, window::PageAction};
 
@@ -48,8 +48,7 @@ impl IoManipulatorPage {
                 server.set_diagnostic_session_mode(SessionType::Normal)?;
                 while run_t.load(Ordering::Relaxed) {
                     let start = Instant::now();
-                    if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(&mut server)
-                    {
+                    if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(&mut server) {
                         if let LocalRecordData::Solenoids(s) = r {
                             let curr = *store_t.read().unwrap();
                             *store_old_t.write().unwrap() = curr;
