@@ -2,7 +2,7 @@ use std::{
     borrow::BorrowMut,
     collections::HashMap,
     fmt::Display,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, hash::Hash,
 };
 
 use backend::{
@@ -16,9 +16,9 @@ use eframe::{
     egui::{
         self,
         plot::{Bar, BarChart, CoordinatesFormatter, HLine, Legend, Line, LineStyle, PlotPoints},
-        Layout, Response, RichText, TextEdit,
+        Layout, Response, RichText, TextEdit, Ui,
     },
-    epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2},
+    epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2}, emath::lerp,
 };
 use egui_extras::{Size, Table, TableBuilder};
 use egui_toast::ToastKind;
@@ -89,7 +89,8 @@ pub struct Map {
     curr_edit_cell: Option<(usize, String, Response)>,
     view_type: MapViewType,
     pitch: f64,
-    rot: f64
+    rot: f64,
+    last_draw_hash: u32
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -106,6 +107,18 @@ fn read_u16(a: &[u8]) -> DiagServerResult<(&[u8], u16)> {
     }
     let r = u16::from_le_bytes(a[0..2].try_into().unwrap());
     Ok((&a[2..], r))
+}
+
+// https://github.com/emilk/egui/blob/master/crates/egui/src/widgets/plot/mod.rs
+fn color_from_contrast(ui: &Ui, contrast: f32) -> Color32 {
+    let bg = ui.visuals().extreme_bg_color;
+    let fg = ui.visuals().widgets.open.fg_stroke.color;
+    let mix = 0.5 * contrast.sqrt();
+    Color32::from_rgb(
+        lerp((bg.r() as f32)..=(fg.r() as f32), mix) as u8,
+        lerp((bg.g() as f32)..=(fg.g() as f32), mix) as u8,
+        lerp((bg.b() as f32)..=(fg.b() as f32), mix) as u8,
+    )
 }
 
 impl Map {
@@ -244,7 +257,8 @@ impl Map {
             curr_edit_cell: None,
             view_type: MapViewType::Modify,
             pitch: 0.8,
-            rot: 0.0
+            rot: 0.8,
+            last_draw_hash: 0
         })
     }
 
@@ -493,11 +507,15 @@ impl Map {
                     }
                 });
         } else {
-            let src = &self.data_modify;
+            let src = match self.view_type {
+                MapViewType::Default => &self.data_program,
+                MapViewType::EEPROM => &self.data_eeprom,
+                MapViewType::Modify => &self.data_modify,
+            };
             let desired_size = egui::Vec2::new(raw_ui.available_width(), 400.0);
-            let (rect, mut response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
+            let (rect, response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
             let painter = raw_ui.painter_at(rect);
-            let area = EguiPlotBackend::new(painter).into_drawing_area();
+            let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned()).into_drawing_area();
             
             let x_min = *self.x_values.iter().min().unwrap() as f64;
             let x_max = *self.x_values.iter().max().unwrap() as f64;
@@ -514,17 +532,18 @@ impl Map {
             } else if self.pitch > 1.57 {
                 self.pitch = 1.57;
             }
-
+            let vis = &raw_ui.ctx().style().visuals;
+            area.fill(&into_rgba_color(vis.extreme_bg_color));
             let mut chart = ChartBuilder::on(&area)
                 .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
-            chart.with_projection(|mut p| {
+                chart.with_projection(|mut p| {
                 p.pitch = self.pitch; //0.8;
-                p.scale = 0.8;
+                p.scale = 0.75;
                 p.yaw = self.rot;
                 p.into_matrix() // build the projection matrix
             });
 
-            let vis = &raw_ui.ctx().style().visuals;
+
             chart
                 .configure_axes()
                 .x_labels(self.x_values.len())
@@ -550,7 +569,8 @@ impl Map {
                 .style_func(&|&v| {
                     (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
                 }),
-            ).unwrap();
+            )
+            .unwrap();
             area.present();
         }
         raw_ui.label("View mode:");

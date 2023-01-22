@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::Add};
+use std::{fmt::Display, ops::Add, sync::Arc};
 
 use eframe::{egui::*, epaint::PathShape};
 use plotters_backend::{DrawingBackend, DrawingErrorKind, BackendColor};
@@ -24,13 +24,15 @@ impl std::error::Error for DrawingError {
 }
 
 pub struct EguiPlotBackend {
-    painter: Painter
+    painter: Painter,
+    style: Arc<Style>
 }
 
 impl EguiPlotBackend {
-    pub fn new(painter: Painter) -> Self {
+    pub fn new(painter: Painter, style: Arc<Style>) -> Self {
         Self {
-            painter
+            painter,
+            style
         }
     }
 }
@@ -159,6 +161,16 @@ impl DrawingBackend for EguiPlotBackend {
             style: &TStyle,
             pos: plotters_backend::BackendCoord,
         ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
+            let fid = TextStyle::Monospace.resolve(&self.style);
+            let r = self.painter.clip_rect();
+            let epos = Pos2::new(pos.0 as f32 + r.left_top().x, pos.1 as f32 + r.left_top().y);
+            self.painter.text(
+                epos, 
+                Align2::CENTER_TOP, 
+                text, 
+                fid, 
+                self.style.visuals.text_color()
+            );
             Ok(())
     }
 
