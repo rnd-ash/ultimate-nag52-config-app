@@ -58,7 +58,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-${env.BRANCH_NAME}-exe
-          path: config_app/target/release/*.exe
+          path: config_app/target/i686-pc-windows-msvc/release/*.exe
 
   Create-Upload:
     needs: [Windows-App, Linux-App]
@@ -88,7 +88,7 @@ jobs:
         name: Release ${{ env.BRANCH_NAME }}
         files: |
           config-app-${{env.BRANCH_NAME}}-exe/*.exe
-          config-app-${{env.BRANCH_NAME}}-exe/*.AppImage
+          config-app-${{env.BRANCH_NAME}}-appimage/*.AppImage
       
           
        
