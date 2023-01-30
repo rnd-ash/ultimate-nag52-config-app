@@ -51,7 +51,6 @@ jobs:
           rustup target add i686-pc-windows-msvc
         shell: powershell
       - name: Build executable
-        working-directory: ./ultimate-nag52-config-app
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
         run: ls target -R
