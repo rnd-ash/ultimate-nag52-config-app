@@ -56,13 +56,13 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-${env.BRANCH_NAME}-exe
-          path: config_app/target/**/*.exe
+          path: config_app/target/release/*.exe
 
   Create-Upload:
     needs: [Windows-App, Linux-App]
     runs-on: [ubuntu-latest]
     steps:
-    - name: Download all installers and also the release notes
+    - name: Download all artifacts
       uses: actions/download-artifact@v2
     - name: View artifacts
       run: ls -R
@@ -85,8 +85,8 @@ jobs:
         tag_name: ${{ env.BRANCH_NAME }}
         name: Release ${{ env.BRANCH_NAME }}
         files: |
-          *.exe
-          *.AppImage
+          config-app-${env.BRANCH_NAME}-exe/*.exe
+          config-app-${env.BRANCH_NAME}-exe/*.AppImage
       
           
        
