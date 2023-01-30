@@ -83,10 +83,10 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ env.BRANCH_NAME }}
-        name: Release $${{ env.BRANCH_NAME }}
+        name: Release ${{ env.BRANCH_NAME }}
         files: |
-          msi/${{ env.pkg-name }}-windows-${{ env.pkg-version }}.exe
-          deb/${{ env.pkg-name }}-linux_${{ env.pkg-version }}-${{ env.pkg-version-short }}_amd64.deb
+          *.exe
+          *.AppImage
       
           
        
