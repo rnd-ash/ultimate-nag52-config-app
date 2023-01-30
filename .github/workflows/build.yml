@@ -56,7 +56,7 @@ jobs:
         run: ls target -R
       - uses: actions/upload-artifact@v3
         with:
-          name: config-app-${env.BRANCH_NAME}-exe
+          name: config-app-${{env.BRANCH_NAME}}-exe
           path: target/i686-pc-windows-msvc/release/*.exe
 
   Create-Upload:
