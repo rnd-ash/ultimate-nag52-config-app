@@ -40,6 +40,7 @@ impl fmt::Debug for AdapterHw {
         match self {
             Self::Usb(_) => f.debug_tuple("Usb").finish(),
             Self::Passthru(_) => f.debug_tuple("Passthru").finish(),
+            #[cfg(unix)]
             Self::SocketCAN(_) => f.debug_tuple("SocketCAN").finish(),
         }
     }
