@@ -1,0 +1,91 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
+
+  Linux-App:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install deps
+      run: sudo apt-get install -y binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
+    - name: Download appimagekit
+      run: sudo wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+    - name: Make appimagetool exec
+      run: sudo chmod +x /usr/local/bin/appimagetool
+    - name: Install cargo-appimage
+      run: cargo install cargo-appimage
+    - name: Build executable
+      working-directory: ./config_app
+      run: cargo build --verbose --release
+    - name: Build appimage
+      working-directory: ./config_app
+      run: cargo appimage
+    - uses: actions/upload-artifact@v3
+      with:
+        name: config-app-${{BRANCH_NAME}}-appimage
+        path: config_app/*.AppImage
+
+        
+  Windows-App:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: win32
+      - name: Install Rustup using win.rustup.rs
+        run: |
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
+          .\rustup-init.exe -y --default-host=i686-pc-windows-msvc --default-toolchain=none
+          del rustup-init.exe
+          rustup target add i686-pc-windows-msvc
+        shell: powershell
+      - name: Build executable
+        working-directory: ./config_app
+        run: cargo build --verbose --release --target i686-pc-windows-msvc
+      - uses: actions/upload-artifact@v3
+        with:
+          name: config-app-exe
+          path: config_app/target/**/*.exe
+
+  Create-Upload:
+    needs: [Windows-App, Linux-App]
+    runs-on: [ubuntu-latest]
+    steps:
+    - name: Download all installers and also the release notes
+      uses: actions/download-artifact@v2
+    - name: View artifacts
+      run: ls -R
+    - name: create release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.BRANCH_NAME }}
+        release_name: Release ${{ env.BRANCH_NAME }}
+        draft: false
+        prerelease: ${{env.BRANCH_NAME}} != "main"
+    - name: Upload all apps
+      id: upload-release-asset 
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.BRANCH_NAME }}
+        name: Release $${{ env.BRANCH_NAME }}
+        files: |
+          msi/${{ env.pkg-name }}-windows-${{ env.pkg-version }}.exe
+          deb/${{ env.pkg-name }}-linux_${{ env.pkg-version }}-${{ env.pkg-version-short }}_amd64.deb
+      
+          
+       
