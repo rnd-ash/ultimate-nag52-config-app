@@ -7,13 +7,17 @@ use backend::{
     diag::{AdapterHw, AdapterType, Nag52Diag},
     ecu_diagnostics::{
         hardware::{
-            passthru::PassthruScanner, socketcan::SocketCanScanner, Hardware, HardwareInfo,
+            passthru::PassthruScanner, Hardware, HardwareInfo,
             HardwareResult, HardwareScanner,
         },
         DiagError, DiagServerResult,
     },
     hw::usb_scanner::Nag52UsbScanner,
 };
+
+#[cfg(unix)]
+use backend::ecu_diagnostics::hardware::socketcan::SocketCanScanner;
+
 use eframe::egui;
 use eframe::egui::*;
 
