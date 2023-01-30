@@ -53,6 +53,8 @@ jobs:
       - name: Build executable
         working-directory: ./config_app
         run: cargo build --verbose --release --target i686-pc-windows-msvc
+      - name: View artifacts
+        run: ls target -R
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-${env.BRANCH_NAME}-exe
@@ -85,8 +87,8 @@ jobs:
         tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
         name: Release ${{ env.BRANCH_NAME }}
         files: |
-          config-app-${env.BRANCH_NAME}-exe/*.exe
-          config-app-${env.BRANCH_NAME}-exe/*.AppImage
+          config-app-${{env.BRANCH_NAME}}-exe/*.exe
+          config-app-${{env.BRANCH_NAME}}-exe/*.AppImage
       
           
        
