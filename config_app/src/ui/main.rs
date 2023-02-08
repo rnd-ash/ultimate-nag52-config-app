@@ -20,6 +20,7 @@ pub struct MainPage {
     show_about_ui: bool,
     diag_server: Nag52Diag,
     info: Option<IdentData>,
+    sn: Option<String>
 }
 
 impl MainPage {
@@ -29,6 +30,7 @@ impl MainPage {
             show_about_ui: false,
             diag_server: nag,
             info: None,
+            sn: None
         }
     }
 }
@@ -42,9 +44,8 @@ impl InterfacePage for MainPage {
                     //TODO
                 }
                 if x.button("About").clicked() {
-                    if let Ok(ident) = self.diag_server.query_ecu_data() {
-                        self.info = Some(ident);
-                    }
+                    self.info = self.diag_server.query_ecu_data().ok();
+                    self.sn = self.diag_server.get_ecu_sn().ok();
                     self.show_about_ui = true;
                 }
             })
@@ -133,6 +134,10 @@ impl InterfacePage for MainPage {
                         about_cols.separator();
                         if let Some(ident) = self.info {
                             about_cols.heading("TCU Data");
+                            about_cols.label(format!(
+                                "ECU Serial number: {}",
+                                self.sn.clone().unwrap_or("Unknown".into())
+                            ));
                             about_cols.label(format!(
                                 "PCB Version: {} (HW date: {} week 20{})",
                                 ident.board_ver, ident.hw_week, ident.hw_year

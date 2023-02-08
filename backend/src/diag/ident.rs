@@ -1,6 +1,6 @@
 use std::fmt::{Display};
 
-use ecu_diagnostics::{DiagServerResult};
+use ecu_diagnostics::{DiagServerResult, bcd_decode_slice};
 
 use super::{Nag52Diag};
 
@@ -105,6 +105,12 @@ impl Nag52Diag {
                 sw_week: bcd_decode_to_int(ident.ecu_sw_build_week),
                 sw_year: bcd_decode_to_int(ident.ecu_sw_build_year),
             })
+        })
+    }
+
+    pub fn get_ecu_sn(&mut self) -> DiagServerResult<String> {
+        self.with_kwp(|k| {
+            Ok(String::from_utf8(k.read_ecu_serial_number()?).unwrap())
         })
     }
 }
