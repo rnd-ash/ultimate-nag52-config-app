@@ -1,8 +1,8 @@
-use std::fmt::{Display, Write};
+use std::fmt::{Display};
 
-use ecu_diagnostics::{kwp2000::DaimlerEcuIdent, DiagServerResult};
+use ecu_diagnostics::{DiagServerResult};
 
-use super::{Nag52Diag, Nag52Endpoint};
+use super::{Nag52Diag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EgsMode {

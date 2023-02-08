@@ -568,7 +568,7 @@ impl Map {
                 )
                 .style_func(&|&v| {
                     (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
-                }),
+                })
             )
             .unwrap();
             area.present();

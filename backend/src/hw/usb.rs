@@ -4,7 +4,6 @@ use ecu_diagnostics::{
 };
 use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
 use std::{
-    borrow::BorrowMut,
     io::{BufRead, BufReader, Write},
     panic::catch_unwind,
     sync::{
@@ -46,7 +45,7 @@ unsafe impl Sync for Nag52USB {}
 unsafe impl Send for Nag52USB {}
 
 impl Nag52USB {
-    pub fn new(path: &str, info: PortInfo) -> HardwareResult<Self> {
+    pub fn new(path: &str, _info: PortInfo) -> HardwareResult<Self> {
         let mut port = serial_rs::new_from_path(
             path,
             Some(
@@ -250,12 +249,12 @@ impl PayloadChannel for Nag52USB {
     }
 
     fn clear_rx_buffer(&mut self) -> ecu_diagnostics::channel::ChannelResult<()> {
-        match self.port.as_mut() {
-            Some(p) => {
+        match self.port.is_some() {
+            true => {
                 while self.rx_diag.try_recv().is_ok() {} // Clear rx_diag too!
                 Ok(())
             }
-            None => Err(ChannelError::InterfaceNotOpen),
+            false => Err(ChannelError::InterfaceNotOpen),
         }
     }
 

@@ -18,6 +18,7 @@ use crate::hw::{
     usb_scanner::Nag52UsbScanner,
 };
 pub mod ident;
+pub mod flash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {

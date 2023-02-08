@@ -1,10 +1,5 @@
-#[macro_use]
-extern crate static_assertions;
-
-use eframe::{epaint::Vec2, IconData, NativeOptions, Renderer};
-use std::{env, iter};
+use eframe::{epaint::Vec2, IconData, NativeOptions};
 use ui::launcher::Launcher;
-use window::MainWindow;
 
 mod plot_backend;
 mod ui;

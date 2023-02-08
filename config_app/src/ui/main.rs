@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use crate::window::{InterfacePage, PageAction};
 
+use super::updater::UpdatePage;
 use super::{
     configuration::ConfigPage, crashanalyzer::CrashAnalyzerUI,
     diagnostics::solenoids::SolenoidPage, firmware_update::FwUpdateUI,
@@ -52,6 +53,7 @@ impl InterfacePage for MainPage {
         let mut create_page = None;
         ui.vertical(|v| {
             v.heading("Utilities");
+            v.label("Legacy (Use Updater on newer FW)");
             if v.button("Firmware updater")
                 .on_disabled_hover_ui(|u| {
                     u.label("Broken, will be added soon!");
@@ -65,6 +67,13 @@ impl InterfacePage for MainPage {
             if v.button("Crash analyzer").clicked() {
                 create_page = Some(PageAction::Add(Box::new(CrashAnalyzerUI::new(
                     self.diag_server.clone(),
+                ))));
+            }
+            v.label("New!");
+            if v.button("Updater").clicked() {
+                create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
+                    self.diag_server.clone(),
+                    self.bar.clone(),
                 ))));
             }
             if v.button("Diagnostics").clicked() {

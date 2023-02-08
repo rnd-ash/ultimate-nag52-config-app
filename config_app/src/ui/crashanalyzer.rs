@@ -75,13 +75,19 @@ fn init_flash_mode(server: &mut Kwp2000DiagnosticServer) -> DiagServerResult<(u3
     }
     let address = u32::from_le_bytes(res[0..4].try_into().unwrap());
     let size = u32::from_le_bytes(res[4..8].try_into().unwrap());
+    let address = 0x00;
+    let size = 0x00400000;
     if size == 0 {
         return Ok((0, 0, 0));
     }
-    let mut upload_req = vec![0x35, 0x31, 0x00, 0x00, 0x00];
+    let mut upload_req = vec![0x35, 0x31];
+    upload_req.push((address >> 16) as u8);
+    upload_req.push((address >> 8) as u8);
+    upload_req.push((address >> 0) as u8);
     upload_req.push((size >> 16) as u8);
     upload_req.push((size >> 8) as u8);
     upload_req.push((size >> 0) as u8);
+    println!("{:02X?}", upload_req);
     res = server.send_byte_array_with_response(&upload_req)?;
     if res.len() != 3 {
         return Err(DiagError::InvalidResponseLength);
@@ -104,7 +110,7 @@ fn on_flash_end(
 
 impl InterfacePage for CrashAnalyzerUI {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
-        ui.heading("Crash Analyzer");
+        ui.heading("Crash Analyzer (Legacy)");
         ui.label(
             RichText::new("Caution! Only use when car is off").color(Color32::from_rgb(255, 0, 0)),
         );
