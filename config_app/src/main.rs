@@ -1,6 +1,9 @@
 use eframe::{epaint::Vec2, IconData, NativeOptions};
 use ui::launcher::Launcher;
 
+#[cfg(windows)]
+use eframe::Renderer;
+
 mod plot_backend;
 mod ui;
 mod window;
