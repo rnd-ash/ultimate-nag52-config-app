@@ -145,6 +145,19 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
+        0x0C,
+        "MPC fill phase adder",
+        "%",
+        "",
+        "Input torque % of rated box",
+        "Clutch",
+        "MPC pressure adderin millibar",
+        "mBar",
+        None,
+        Some(&["K1", "K2", "K3", "B1", "B2"]),
+        //None
+    ),
+    MapData::new(
         0x10,
         "Upshift overlap time (Agility)",
         "%",
