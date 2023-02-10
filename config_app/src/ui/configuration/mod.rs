@@ -394,7 +394,7 @@ impl crate::window::InterfacePage for ConfigPage {
 
         let mut tmp = self.show_final_warning;
 
-        let ss = ui.ctx().input().screen_rect();
+        let ss = ui.ctx().input(|x| x.screen_rect());
         let mut reload = false;
         egui::Window::new("ARE YOU SURE?")
             .open(&mut self.show_final_warning)

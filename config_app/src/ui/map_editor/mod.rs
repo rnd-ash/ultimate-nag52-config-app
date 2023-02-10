@@ -20,7 +20,7 @@ use eframe::{
     },
     epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2}, emath::lerp,
 };
-use egui_extras::{Size, Table, TableBuilder};
+use egui_extras::{Size, Table, TableBuilder, Column};
 use egui_toast::ToastKind;
 use nom::number::complete::le_u16;
 use plotters::{prelude::{IntoDrawingArea, ChartBuilder, Rectangle}, style::{WHITE, BLACK, BLUE, Color}, series::SurfaceSeries};
@@ -354,9 +354,9 @@ impl Map {
                     Layout::left_to_right(egui::Align::Center)
                         .with_cross_align(egui::Align::Center),
                 )
-                .column(Size::initial(60.0).at_least(60.0));
+                .column(Column::initial(60.0).at_least(60.0));
             for _ in 0..copy.x_values.len() {
-                table_builder = table_builder.column(Size::initial(70.0).at_least(70.0));
+                table_builder = table_builder.column(Column::initial(70.0).at_least(70.0));
             }
             table_builder
                 .header(15.0, |mut header| {
@@ -421,9 +421,9 @@ impl Map {
                                             "Current in EEPROM: {}",
                                             copy.data_eeprom[map_idx]
                                         ));
-                                    }
+                                    }                              
                                     if response.lost_focus()
-                                        || cell.ctx().input().key_pressed(egui::Key::Enter)
+                                        || cell.ctx().input(|x| x.key_pressed(egui::Key::Enter))
                                     {
                                         if let Ok(new_v) = i16::from_str_radix(&value, 10) {
                                             copy.data_modify[map_idx] = new_v;

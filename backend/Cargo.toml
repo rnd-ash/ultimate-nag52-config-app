@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ecu_diagnostics="0.90.52"
+ecu_diagnostics="0.90.60"
 serial-rs = {git="https://github.com/rnd-ash/serial-rs"}
 packed_struct="0.10.0"
 static_assertions = "1.1.0"
