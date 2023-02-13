@@ -154,6 +154,7 @@ pub struct DataGearboxSensors {
     pub v_batt: u16,
     pub atf_temp_c: u32,
     pub parking_lock: u8,
+    pub output_rpm: u16
 }
 
 fn make_text<T: Into<String>>(t: T, e: bool) -> egui::RichText {
@@ -191,6 +192,15 @@ impl DataGearboxSensors {
                 make_text("ERROR", true)
             } else {
                 make_text(format!("{} RPM", self.calculated_rpm()), false)
+            });
+            ui.end_row();
+
+            ui.label("Calculated output RPM")
+                .on_hover_text("Calculated output RPM. Either based on GPIO pin, or CAN Data");
+            ui.label(if self.output_rpm() == u16::MAX {
+                make_text("ERROR", true)
+            } else {
+                make_text(format!("{} RPM", self.output_rpm()), false)
             });
             ui.end_row();
 
