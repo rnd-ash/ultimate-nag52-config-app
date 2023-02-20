@@ -154,6 +154,7 @@ pub struct DataGearboxSensors {
     pub v_batt: u16,
     pub atf_temp_c: u32,
     pub parking_lock: u8,
+    pub output_rpm: u16
 }
 
 fn make_text<T: Into<String>>(t: T, e: bool) -> egui::RichText {
@@ -191,6 +192,15 @@ impl DataGearboxSensors {
                 make_text("ERROR", true)
             } else {
                 make_text(format!("{} RPM", self.calculated_rpm()), false)
+            });
+            ui.end_row();
+
+            ui.label("Calculated output RPM")
+                .on_hover_text("Calculated output RPM. Either based on GPIO pin, or CAN Data");
+            ui.label(if self.output_rpm() == u16::MAX {
+                make_text("ERROR", true)
+            } else {
+                make_text(format!("{} RPM", self.output_rpm()), false)
             });
             ui.end_row();
 
@@ -390,6 +400,19 @@ impl DataSolenoids {
 #[derive(BitfieldSpecifier)]
 #[bits = 8]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub enum TorqueReqType {
+    None,
+    LessThan,
+    MoreThan,
+    Exact,
+    LessThanFast,
+    MoreThanFast,
+    ExtactFast
+}
+
+#[derive(BitfieldSpecifier)]
+#[bits = 8]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaddlePosition {
     None,
     Plus,
@@ -433,6 +456,8 @@ pub struct DataCanDump {
     pub paddle_position: PaddlePosition,
     pub engine_rpm: u16,
     pub fuel_flow: u16,
+    pub egs_req_torque: u16,
+    pub egs_torque_req_type: TorqueReqType
 }
 
 impl DataCanDump {
@@ -542,15 +567,18 @@ impl DataCanDump {
             ui.label("Fuel flow");
             ui.label(format!("{} ul/s", self.fuel_flow()));
             ui.end_row();
+
+            ui.label("Torque request");
+            if self.egs_torque_req_type() == TorqueReqType::None {
+                ui.label("None");
+            } else {
+                ui.label(format!("{} Nm (TY: {:?})", self.egs_req_torque() as f32 / 4.0 - 500.0, self.egs_torque_req_type()));
+            }
+            ui.end_row();
         })
     }
 
     pub fn to_chart_data(&self) -> Vec<ChartData> {
-        let max = if self.max_torque_ms() == u16::MAX {
-            0.0
-        } else {
-            self.max_torque_ms() as f32 / 4.0 - 500.0
-        };
         let min = if self.min_torque_ms() == u16::MAX {
             0.0
         } else {
@@ -566,13 +594,18 @@ impl DataCanDump {
         } else {
             self.driver_torque() as f32 / 4.0 - 500.0
         };
+        let egs = if self.egs_req_torque() == u16::MAX || self.egs_torque_req_type() == TorqueReqType::None {
+            0.0
+        } else {
+            self.egs_req_torque() as f32 / 4.0 - 500.0
+        };
         vec![ChartData::new(
             "Engine torque".into(),
             vec![
-                ("Max", max, None),
                 ("Min", min, None),
                 ("Static", sta, None),
                 ("Driver", drv, None),
+                ("EGS Request", egs, None)
             ],
             None,
         )]

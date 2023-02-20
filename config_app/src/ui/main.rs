@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use crate::window::{InterfacePage, PageAction};
 
+use super::updater::UpdatePage;
 use super::{
     configuration::ConfigPage, crashanalyzer::CrashAnalyzerUI,
     diagnostics::solenoids::SolenoidPage, firmware_update::FwUpdateUI,
@@ -19,6 +20,7 @@ pub struct MainPage {
     show_about_ui: bool,
     diag_server: Nag52Diag,
     info: Option<IdentData>,
+    sn: Option<String>
 }
 
 impl MainPage {
@@ -28,6 +30,7 @@ impl MainPage {
             show_about_ui: false,
             diag_server: nag,
             info: None,
+            sn: None
         }
     }
 }
@@ -41,9 +44,8 @@ impl InterfacePage for MainPage {
                     //TODO
                 }
                 if x.button("About").clicked() {
-                    if let Ok(ident) = self.diag_server.query_ecu_data() {
-                        self.info = Some(ident);
-                    }
+                    self.info = self.diag_server.query_ecu_data().ok();
+                    self.sn = self.diag_server.get_ecu_sn().ok();
                     self.show_about_ui = true;
                 }
             })
@@ -52,6 +54,7 @@ impl InterfacePage for MainPage {
         let mut create_page = None;
         ui.vertical(|v| {
             v.heading("Utilities");
+            v.label("Legacy (Use Updater on newer FW)");
             if v.button("Firmware updater")
                 .on_disabled_hover_ui(|u| {
                     u.label("Broken, will be added soon!");
@@ -65,6 +68,13 @@ impl InterfacePage for MainPage {
             if v.button("Crash analyzer").clicked() {
                 create_page = Some(PageAction::Add(Box::new(CrashAnalyzerUI::new(
                     self.diag_server.clone(),
+                ))));
+            }
+            v.label("New!");
+            if v.button("Updater").clicked() {
+                create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
+                    self.diag_server.clone(),
+                    self.bar.clone(),
                 ))));
             }
             if v.button("Diagnostics").clicked() {
@@ -124,6 +134,10 @@ impl InterfacePage for MainPage {
                         about_cols.separator();
                         if let Some(ident) = self.info {
                             about_cols.heading("TCU Data");
+                            about_cols.label(format!(
+                                "ECU Serial number: {}",
+                                self.sn.clone().unwrap_or("Unknown".into())
+                            ));
                             about_cols.label(format!(
                                 "PCB Version: {} (HW date: {} week 20{})",
                                 ident.board_ver, ident.hw_week, ident.hw_year

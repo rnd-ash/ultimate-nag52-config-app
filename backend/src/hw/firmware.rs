@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use packed_struct::prelude::PackedStruct;
+use packed_struct::{prelude::PackedStruct, PackedStructSlice};
 use static_assertions::assert_eq_size;
 
 const HEADER_SIZE: usize = 256;
@@ -29,19 +29,19 @@ pub struct FirmwareHeader {
 
 impl FirmwareHeader {
     pub fn get_version(&self) -> String {
-        String::from_utf8_lossy(&self.version).to_string()
+        String::from_utf8(self.version.to_vec()).unwrap_or("UNKNOWN".into()).trim_matches(char::from(0)).to_string()
     }
     pub fn get_idf_version(&self) -> String {
-        String::from_utf8_lossy(&self.idf_ver).to_string()
+        String::from_utf8(self.idf_ver.to_vec()).unwrap_or("UNKNOWN".into()).trim_matches(char::from(0)).to_string()
     }
     pub fn get_date(&self) -> String {
-        String::from_utf8_lossy(&self.date).to_string()
+        String::from_utf8(self.date.to_vec()).unwrap_or("UNKNOWN".into()).trim_matches(char::from(0)).to_string()
     }
     pub fn get_time(&self) -> String {
-        String::from_utf8_lossy(&self.time).to_string()
+        String::from_utf8(self.time.to_vec()).unwrap_or("UNKNOWN".into()).trim_matches(char::from(0)).to_string()
     }
     pub fn get_fw_name(&self) -> String {
-        String::from_utf8_lossy(&self.project_name).to_string()
+        String::from_utf8(self.project_name.to_vec()).unwrap_or("UNKNOWN".into()).trim_matches(char::from(0)).to_string()
     }
 }
 
@@ -88,7 +88,6 @@ pub fn load_binary(path: String) -> FirwmareLoadResult<Firmware> {
         ));
     }
     // Ok, read the header
-    let header: FirmwareHeader =
-        unsafe { std::ptr::read(buf[header_start_idx..].as_ptr() as *const _) };
+    let header: FirmwareHeader = FirmwareHeader::unpack_from_slice(&buf[header_start_idx..header_start_idx+HEADER_SIZE]).unwrap();
     Ok(Firmware { raw: buf, header })
 }
