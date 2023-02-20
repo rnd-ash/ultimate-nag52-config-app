@@ -75,8 +75,6 @@ fn init_flash_mode(server: &mut Kwp2000DiagnosticServer) -> DiagServerResult<(u3
     }
     let address = u32::from_le_bytes(res[0..4].try_into().unwrap());
     let size = u32::from_le_bytes(res[4..8].try_into().unwrap());
-    let address = 0x00;
-    let size = 0x00400000;
     if size == 0 {
         return Ok((0, 0, 0));
     }

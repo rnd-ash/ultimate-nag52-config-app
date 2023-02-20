@@ -14,6 +14,8 @@ use std::{
     time::Instant,
 };
 
+use super::usb_scanner::Nag52UsbScanner;
+
 #[derive(Debug, Clone, Copy)]
 pub enum EspLogLevel {
     Debug,
