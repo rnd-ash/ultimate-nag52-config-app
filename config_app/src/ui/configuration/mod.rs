@@ -295,7 +295,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         let mut t = format!("{}", scn.input_sensor_pulses_per_rev());
                         ui.label("Input sensor pulses/rev");
                         ui.text_edit_singleline(&mut t);
-                        if let Ok(prev) = buffer.parse::<u8>() {
+                        if let Ok(prev) = t.parse::<u8>() {
                             scn.set_input_sensor_pulses_per_rev(prev);
                         }
                         ui.end_row();
@@ -303,7 +303,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         let mut t = format!("{}", scn.output_pulse_width_per_kmh());
                         ui.label("Pulse width (us) per kmh");
                         ui.text_edit_singleline(&mut t);
-                        if let Ok(prev) = buffer.parse::<u8>() {
+                        if let Ok(prev) = t.parse::<u8>() {
                             scn.set_output_pulse_width_per_kmh(prev);
                         }
                         ui.end_row();
@@ -394,7 +394,7 @@ impl crate::window::InterfacePage for ConfigPage {
 
         let mut tmp = self.show_final_warning;
 
-        let ss = ui.ctx().input().screen_rect();
+        let ss = ui.ctx().input(|x| x.screen_rect());
         let mut reload = false;
         egui::Window::new("ARE YOU SURE?")
             .open(&mut self.show_final_warning)

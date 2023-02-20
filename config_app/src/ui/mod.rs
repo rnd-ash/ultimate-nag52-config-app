@@ -15,6 +15,7 @@ pub mod map_editor;
 pub mod routine_tests;
 pub mod status_bar;
 pub mod widgets;
+pub mod updater;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StatusText {

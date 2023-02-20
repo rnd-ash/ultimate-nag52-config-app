@@ -18,6 +18,7 @@ use crate::hw::{
     usb_scanner::Nag52UsbScanner,
 };
 pub mod ident;
+pub mod flash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {
@@ -180,6 +181,7 @@ impl Nag52Diag {
             tester_present_interval_ms: 2000,
             tester_present_require_response: true,
             global_session_control: false,
+            command_cooldown_ms: 0
         };
 
         let kwp = Kwp2000DiagnosticServer::new_over_iso_tp(

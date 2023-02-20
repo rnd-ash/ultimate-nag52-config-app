@@ -1,7 +1,7 @@
-use std::{fmt::Display, ops::Add, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use eframe::{egui::*, epaint::PathShape};
-use plotters_backend::{DrawingBackend, DrawingErrorKind, BackendColor};
+use plotters_backend::{DrawingBackend, DrawingErrorKind, BackendCoord};
 
 mod color;
 pub use color::*;
@@ -25,15 +25,21 @@ impl std::error::Error for DrawingError {
 
 pub struct EguiPlotBackend {
     painter: Painter,
-    style: Arc<Style>
+    style: Arc<Style>,
+    clip_rect: Rect
 }
 
 impl EguiPlotBackend {
     pub fn new(painter: Painter, style: Arc<Style>) -> Self {
         Self {
+            clip_rect: painter.clip_rect(),
             painter,
             style
         }
+    }
+
+    fn backend_coord_to_pos2(&self, b: BackendCoord) -> Pos2 {
+        Pos2::new(b.0 as f32 + self.clip_rect.left_top().x, b.1 as f32 + self.clip_rect.left_top().y)
     }
 }
 
@@ -41,8 +47,7 @@ impl DrawingBackend for EguiPlotBackend {
     type ErrorType = DrawingError;
 
     fn get_size(&self) -> (u32, u32) {
-        let r = self.painter.clip_rect();
-        (r.width() as u32, r.height() as u32)
+        (self.clip_rect.width() as u32, self.clip_rect.height() as u32)
     }
 
     fn ensure_prepared(
@@ -60,15 +65,11 @@ impl DrawingBackend for EguiPlotBackend {
         point: plotters_backend::BackendCoord,
         color: plotters_backend::BackendColor,
     ) -> Result<(), plotters_backend::DrawingErrorKind<Self::ErrorType>> {
-        let r = self.painter.clip_rect();
         let rect = Rect::from_points(
-            &[
-                    Pos2::new(point.0 as f32 + r.left_top().x, point.1 as f32 + r.left_top().y),
-                    Pos2::new(1.0+point.0 as f32 + r.left_top().x, 1.0+point.1 as f32 + r.left_top().y)
-                ]
-            );
-        let egui_c = Color32::from_rgba_unmultiplied(color.rgb.0, color.rgb.1, color.rgb.2, (color.alpha * 255.0) as u8);
-        self.painter.rect_filled(rect, Rounding::none(), egui_c);
+            &[self.backend_coord_to_pos2(point), self.backend_coord_to_pos2(point)]
+        );
+        let c = into_egui_color(color);
+        self.painter.rect_filled(rect, Rounding::none(), c);
         Ok(())
     }
 
@@ -78,16 +79,13 @@ impl DrawingBackend for EguiPlotBackend {
         to: plotters_backend::BackendCoord,
         style: &S,
     ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-        let c = style.color();
-        let r = self.painter.clip_rect().left_top();
-        self.painter.line_segment(
-            [
-                Pos2::new(from.0 as f32 + r.x, from.1 as f32 + r.y),
-                Pos2::new(to.0 as f32 + r.x, to.1 as f32 + r.y),
+        self.painter.line_segment([
+            self.backend_coord_to_pos2(from), 
+            self.backend_coord_to_pos2(to)
             ],
             Stroke::new(
                 style.stroke_width() as f32,
-                Color32::from_rgba_unmultiplied(c.rgb.0, c.rgb.1, c.rgb.2, (c.alpha * 255.0) as u8),
+                into_egui_color(style.color())
             ),
         );
         Ok(())
@@ -122,6 +120,16 @@ impl DrawingBackend for EguiPlotBackend {
             style: &S,
             fill: bool,
         ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
+            let r = self.painter.clip_rect();
+            let epos = Pos2::new(center.0 as f32 + r.left_top().x, center.1 as f32 + r.left_top().y);
+            let c = into_egui_color(style.color());
+            let stroke = Stroke::new(style.stroke_width() as f32, c);
+            let fill_c = if fill {
+                c
+            } else {
+                Color32::from_rgba_unmultiplied(0, 0, 0, 0)
+            };
+            self.painter.circle(epos, radius as f32, fill_c, stroke);
             Ok(())
         }
     
@@ -158,14 +166,12 @@ impl DrawingBackend for EguiPlotBackend {
     fn draw_text<TStyle: plotters_backend::BackendTextStyle>(
             &mut self,
             text: &str,
-            style: &TStyle,
+            _style: &TStyle,
             pos: plotters_backend::BackendCoord,
         ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
             let fid = TextStyle::Monospace.resolve(&self.style);
-            let r = self.painter.clip_rect();
-            let epos = Pos2::new(pos.0 as f32 + r.left_top().x, pos.1 as f32 + r.left_top().y);
             self.painter.text(
-                epos, 
+                self.backend_coord_to_pos2(pos), 
                 Align2::CENTER_TOP, 
                 text, 
                 fid, 

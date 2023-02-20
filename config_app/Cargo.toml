@@ -1,6 +1,6 @@
 [package]
 name = "config_app"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,13 +15,14 @@ serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
 image = "0.24.5"
 nfd="0.0.4"
-pollster = "0.2.5"
-eframe = {version="0.19.0", features=["wgpu"]}
-egui_extras = "0.19.0"
+pollster = "0.3.0"
+eframe = {default-features=false, version="0.21.0", features=["dark-light", "wgpu", "default_fonts"]}
+egui_extras = "0.21.0"
 modular-bitfield = "0.11.2"
 static_assertions = "1.1.0"
 env_logger="0.10.0"
-egui-toast="0.4.0"
+#egui-toast="0.5.0"
+egui-toast={git = "https://github.com/rnd-ash/egui-toast"}
 chrono = "0.4.23"
 nom="7.1.1"
 plotters-backend="0.3.4"

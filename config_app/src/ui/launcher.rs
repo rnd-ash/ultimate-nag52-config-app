@@ -130,7 +130,7 @@ impl InterfacePage for Launcher {
         if !self.selected_device.is_empty() && ui.button("Launch configuration app").clicked() {
             match self.open_device(&self.selected_device) {
                 Ok(mut dev) => {
-                    return PageAction::Overwrite(Box::new(MainPage::new(dev)));
+                    return PageAction::Add(Box::new(MainPage::new(dev)));
                 }
                 Err(e) => self.launch_err = Some(format!("Cannot open device: {}", e)),
             }

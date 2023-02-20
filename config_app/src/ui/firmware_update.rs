@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use backend::diag::Nag52Diag;
+use backend::diag::{Nag52Diag, flash::OTA_FORMAT};
 use backend::ecu_diagnostics::{
     kwp2000::{Kwp2000DiagnosticServer, ResetMode, SessionType},
     DiagError, DiagServerResult, DiagnosticServer,
@@ -80,7 +80,7 @@ impl FwUpdateUI {
 
 fn init_flash_mode(server: &mut Kwp2000DiagnosticServer, flash_size: u32) -> DiagServerResult<u32> {
     server.set_diagnostic_session_mode(SessionType::Reprogramming)?;
-    let mut req: Vec<u8> = vec![0x34, 0x00, 0x00, 0x00, 0x00];
+    let mut req: Vec<u8> = vec![0x34, 0x00, 0x00, 0x00, OTA_FORMAT];
     req.push((flash_size >> 16) as u8);
     req.push((flash_size >> 8) as u8);
     req.push((flash_size) as u8);
@@ -103,7 +103,7 @@ fn on_flash_end(server: &mut Kwp2000DiagnosticServer) -> DiagServerResult<()> {
 
 impl InterfacePage for FwUpdateUI {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
-        ui.heading("Firmware update");
+        ui.heading("Firmware update (Legacy)");
         ui.label(
             RichText::new("Caution! Only use when car is off").color(Color32::from_rgb(255, 0, 0)),
         );
