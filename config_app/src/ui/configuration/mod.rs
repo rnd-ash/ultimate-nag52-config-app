@@ -365,7 +365,7 @@ impl crate::window::InterfacePage for ConfigPage {
                     });
                     row.separator();
                     row.vertical(|col| {
-                        col.label("V1.3 - UNDER DEVELOPMENT - DO NOT SELECT!!!!");
+                        col.label("V1.3 - Black PCB (12/12/22) - Latest PCB");
                         col.image(
                             self.pcb_13_img.texture_id(col.ctx()),
                             Vec2::from((230.0, 150.0)),

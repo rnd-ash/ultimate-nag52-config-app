@@ -107,7 +107,7 @@ impl Display for BoardType {
             BoardType::Unknown => write!(f, "Unknown"),
             BoardType::V11 => write!(f, "V1.1 (12/12/21)"),
             BoardType::V12 => write!(f, "V1.2 (07/07/22)"),
-            BoardType::V13 => write!(f, "V1.3 (UNDER DEVELOPMENT DO NOT SELECT)"),
+            BoardType::V13 => write!(f, "V1.3 (12/12/22)"),
         }
     }
 }
