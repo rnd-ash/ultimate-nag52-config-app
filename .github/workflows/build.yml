@@ -61,14 +61,15 @@ jobs:
 
   OSX-app:
     runs-on: macos-latest
-    - uses: actions/checkout@v3
-    - name: Build executable
-      working-directory: ./config_app
-      run: cargo build --verbose --release
-    - uses: actions/upload-artifact@v3
-      with:
-        name: config-app-${{env.BRANCH_NAME}}-osx
-        path: target/release/*.app
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build executable
+        working-directory: ./config_app
+        run: cargo build --verbose --release
+      - uses: actions/upload-artifact@v3
+        with:
+          name: config-app-${{env.BRANCH_NAME}}-osx
+          path: target/release/*.app
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app]
