@@ -160,7 +160,7 @@ impl InterfacePage for MainPage {
                         about_cols.heading("Open source");
                         about_cols.add(egui::Hyperlink::from_label_and_url(
                             "Github repository (Configuration utility)",
-                            "https://github.com/rnd-ash/ultimate_nag52/tree/main/config_app",
+                            "https://github.com/rnd-ash/ultimate-nag52-config-app",
                         ));
                         about_cols.add(egui::Hyperlink::from_label_and_url(
                             "Github repository (TCM source code)",
