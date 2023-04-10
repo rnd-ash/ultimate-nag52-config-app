@@ -150,7 +150,7 @@ impl InterfacePage for Launcher {
             ui.label(RichText::new(format!("Error: {}", e)).color(Color32::from_rgb(255, 0, 0)));
         }
 
-        range_display(ui, 65.0, 50.0, 70.0, 0.0, 100.0);
+        //range_display(ui, 65.0, 50.0, 70.0, 0.0, 100.0);
 
         crate::window::PageAction::None
     }

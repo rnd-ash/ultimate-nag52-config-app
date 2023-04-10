@@ -23,6 +23,10 @@ pub struct TcmCoreConfig {
     pub input_sensor_pulses_per_rev: u8,
     pub output_pulse_width_per_kmh: u8,
     pub mosfet_purpose: MosfetPurpose,
+    // Only for HFM CAN mode
+    pub throttle_max_open_angle: u8,
+    // Value here is 1000x value ECU uses (Like diff ratio)
+    pub c_eng: u16
 }
 
 #[derive(BitfieldSpecifier)]
