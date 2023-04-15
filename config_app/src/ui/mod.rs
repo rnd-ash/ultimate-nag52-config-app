@@ -16,6 +16,7 @@ pub mod routine_tests;
 pub mod status_bar;
 pub mod widgets;
 pub mod updater;
+pub mod param_editor;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StatusText {

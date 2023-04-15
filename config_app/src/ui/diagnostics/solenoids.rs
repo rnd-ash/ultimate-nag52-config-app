@@ -160,48 +160,48 @@ impl crate::window::InterfacePage for SolenoidPage {
             bars.push(
                 make_pwm_bar(
                     1,
-                    (curr.mpc_pwm() as f32 * proportion_curr)
-                        + (prev.mpc_pwm() as f32 * proportion_prev),
+                    (curr.mpc_pwm as f32 * proportion_curr)
+                        + (prev.mpc_pwm as f32 * proportion_prev),
                 )
                 .name("MPC"),
             );
             bars.push(
                 make_pwm_bar(
                     2,
-                    (curr.spc_pwm() as f32 * proportion_curr)
-                        + (prev.spc_pwm() as f32 * proportion_prev),
+                    (curr.spc_pwm as f32 * proportion_curr)
+                        + (prev.spc_pwm as f32 * proportion_prev),
                 )
                 .name("SPC"),
             );
             bars.push(
                 make_pwm_bar(
                     3,
-                    (curr.tcc_pwm() as f32 * proportion_curr)
-                        + (prev.tcc_pwm() as f32 * proportion_prev),
+                    (curr.tcc_pwm as f32 * proportion_curr)
+                        + (prev.tcc_pwm as f32 * proportion_prev),
                 )
                 .name("TCC"),
             );
             bars.push(
                 make_pwm_bar(
                     4,
-                    (curr.y3_pwm() as f32 * proportion_curr)
-                        + (prev.y3_pwm() as f32 * proportion_prev),
+                    (curr.y3_pwm as f32 * proportion_curr)
+                        + (prev.y3_pwm as f32 * proportion_prev),
                 )
                 .name("Y3"),
             );
             bars.push(
                 make_pwm_bar(
                     5,
-                    (curr.y4_pwm() as f32 * proportion_curr)
-                        + (prev.y4_pwm() as f32 * proportion_prev),
+                    (curr.y4_pwm as f32 * proportion_curr)
+                        + (prev.y4_pwm as f32 * proportion_prev),
                 )
                 .name("Y4"),
             );
             bars.push(
                 make_pwm_bar(
                     6,
-                    (curr.y5_pwm() as f32 * proportion_curr)
-                        + (prev.y5_pwm() as f32 * proportion_prev),
+                    (curr.y5_pwm as f32 * proportion_curr)
+                        + (prev.y5_pwm as f32 * proportion_prev),
                 )
                 .name("Y5"),
             );
@@ -212,48 +212,48 @@ impl crate::window::InterfacePage for SolenoidPage {
             bars.push(
                 make_current_bar(
                     1,
-                    (curr.mpc_current() as f32 * proportion_curr)
-                        + (prev.mpc_current() as f32 * proportion_prev),
+                    (curr.mpc_current as f32 * proportion_curr)
+                        + (prev.mpc_current as f32 * proportion_prev),
                 )
                 .name("MPC"),
             );
             bars.push(
                 make_current_bar(
                     2,
-                    (curr.spc_current() as f32 * proportion_curr)
-                        + (prev.spc_current() as f32 * proportion_prev),
+                    (curr.spc_current as f32 * proportion_curr)
+                        + (prev.spc_current as f32 * proportion_prev),
                 )
                 .name("SPC"),
             );
             bars.push(
                 make_current_bar(
                     3,
-                    (curr.tcc_current() as f32 * proportion_curr)
-                        + (prev.tcc_current() as f32 * proportion_prev),
+                    (curr.tcc_current as f32 * proportion_curr)
+                        + (prev.tcc_current as f32 * proportion_prev),
                 )
                 .name("TCC"),
             );
             bars.push(
                 make_current_bar(
                     4,
-                    (curr.y3_current() as f32 * proportion_curr)
-                        + (prev.y3_current() as f32 * proportion_prev),
+                    (curr.y3_current as f32 * proportion_curr)
+                        + (prev.y3_current as f32 * proportion_prev),
                 )
                 .name("Y3"),
             );
             bars.push(
                 make_current_bar(
                     5,
-                    (curr.y4_current() as f32 * proportion_curr)
-                        + (prev.y4_current() as f32 * proportion_prev),
+                    (curr.y4_current as f32 * proportion_curr)
+                        + (prev.y4_current as f32 * proportion_prev),
                 )
                 .name("Y4"),
             );
             bars.push(
                 make_current_bar(
                     6,
-                    (curr.y5_current() as f32 * proportion_curr)
-                        + (prev.y5_current() as f32 * proportion_prev),
+                    (curr.y5_current as f32 * proportion_curr)
+                        + (prev.y5_current as f32 * proportion_prev),
                 )
                 .name("Y5"),
             );

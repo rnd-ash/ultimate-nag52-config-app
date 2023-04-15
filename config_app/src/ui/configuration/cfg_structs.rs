@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
-use modular_bitfield::{bitfield, BitfieldSpecifier};
+use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
 
-#[bitfield]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, PackedStruct)]
+#[packed_struct(endian="lsb")]
 pub struct TcmCoreConfig {
     pub is_large_nag: u8,
     pub diff_ratio: u16,
@@ -11,17 +11,23 @@ pub struct TcmCoreConfig {
     pub is_four_matic: u8,
     pub transfer_case_high_ratio: u16,
     pub transfer_case_low_ratio: u16,
+    #[packed_field(size_bytes="1", ty="enum")]
     pub default_profile: DefaultProfile,
     pub red_line_dieselrpm: u16,
     pub red_line_petrolrpm: u16,
+    #[packed_field(size_bytes="1", ty="enum")]
     pub engine_type: EngineType,
+    #[packed_field(size_bytes="1", ty="enum")]
     pub egs_can_type: EgsCanType,
     // Only for V1,2 and newer PCBs
+    #[packed_field(size_bytes="1", ty="enum")]
     pub shifter_style: ShifterStyle,
     // Only for V1.3 and newer PCBs
+    #[packed_field(size_bytes="1", ty="enum")]
     pub io_0_usage: IOPinConfig,
     pub input_sensor_pulses_per_rev: u8,
     pub output_pulse_width_per_kmh: u8,
+    #[packed_field(size_bytes="1", ty="enum")]
     pub mosfet_purpose: MosfetPurpose,
     // Only for HFM CAN mode
     pub throttle_max_open_angle: u8,
@@ -29,9 +35,7 @@ pub struct TcmCoreConfig {
     pub c_eng: u16
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum EgsCanType {
     UNKNOWN = 0,
     EGS51 = 1,
@@ -39,36 +43,30 @@ pub enum EgsCanType {
     EGS53 = 3,
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum ShifterStyle {
     EWM_CAN = 0,
     TRRS = 1,
     SLR_MCLAREN = 2, // NEEDS TESTING (Need to work out how this works)
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum IOPinConfig {
     NotConnected = 0,
     Input = 1,
     Output = 2,
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum MosfetPurpose {
     NotConnected = 0,
     TorqueCutTrigger = 1,
     B3BrakeSolenoid = 2,
 }
 
-#[bitfield]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, PackedStruct)]
 pub struct TcmEfuseConfig {
+    #[packed_field(size_bytes="1", ty="enum")]
     pub board_ver: BoardType,
     pub manf_day: u8,
     pub manf_week: u8,
@@ -76,9 +74,7 @@ pub struct TcmEfuseConfig {
     pub manf_year: u8,
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum DefaultProfile {
     Standard = 0,
     Comfort = 1,
@@ -87,17 +83,13 @@ pub enum DefaultProfile {
     Manual = 4,
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum EngineType {
     Diesel,
     Petrol,
 }
 
-#[derive(BitfieldSpecifier)]
-#[bits = 8]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
 pub enum BoardType {
     Unknown = 0,
     V11 = 1,

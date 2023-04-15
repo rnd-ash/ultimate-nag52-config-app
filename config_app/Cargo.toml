@@ -18,7 +18,6 @@ nfd="0.0.4"
 pollster = "0.3.0"
 eframe = {default-features=false, version="0.21.0", features=["dark-light", "wgpu", "default_fonts"]}
 egui_extras = "0.21.0"
-modular-bitfield = "0.11.2"
 static_assertions = "1.1.0"
 env_logger="0.10.0"
 #egui-toast="0.5.0"
@@ -27,3 +26,4 @@ chrono = "0.4.23"
 nom="7.1.1"
 plotters-backend="0.3.4"
 plotters={version="0.3.4", default_features = false, features=["surface_series"]}
+packed_struct="0.10.0"
