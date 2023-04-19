@@ -1,4 +1,4 @@
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
+use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::KwpSessionType};
 use eframe::egui::plot::{Legend, Line, Plot};
 use std::{
     char::MAX,
@@ -44,8 +44,8 @@ impl IoManipulatorPage {
         let last_update_t = last_update.clone();
         let mut nag_c = nag.clone();
         thread::spawn(move || {
-            let _ = nag_c.with_kwp(|mut server| {
-                server.set_diagnostic_session_mode(SessionType::Normal)?;
+            let _ = nag_c.with_kwp_mut(|mut server| {
+                server.kwp_set_session(KwpSessionType::Normal.into())?;
                 while run_t.load(Ordering::Relaxed) {
                     let start = Instant::now();
                     if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(&mut server) {

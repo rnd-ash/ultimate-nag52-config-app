@@ -1,4 +1,4 @@
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
+use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
 use eframe::egui::plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
 use std::{
     ops::RangeInclusive,
@@ -49,8 +49,8 @@ impl SolenoidPage {
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
         let _ = thread::spawn(move || {
-            nag.with_kwp(|server| {
-                server.set_diagnostic_session_mode(SessionType::Normal)?;
+            nag.with_kwp_mut(|server| {
+                server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))?;
                 while run_t.load(Ordering::Relaxed) {
                     let start = Instant::now();
                     if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(server) {

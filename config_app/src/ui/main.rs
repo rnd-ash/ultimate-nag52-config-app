@@ -18,17 +18,25 @@ use crate::ui::diagnostics::DiagnosticsPage;
 pub struct MainPage {
     bar: MainStatusBar,
     show_about_ui: bool,
-    diag_server: Nag52Diag,
+    diag_server: &'static mut Nag52Diag,
     info: Option<IdentData>,
     sn: Option<String>
 }
 
 impl MainPage {
     pub fn new(nag: Nag52Diag) -> Self {
+        // Static mutable ref creation
+        // this Nag52 lives the whole lifetime of the app once created,
+        // so we have no need to clone it constantly, just throw the pointer around at
+        // the subpages.
+        //
+        // We can keep it here as a ref to create a box from it when Drop() is called
+        // so we can drop it safely without a memory leak
+        let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
         Self {
             bar: MainStatusBar::new(),
             show_about_ui: false,
-            diag_server: nag,
+            diag_server: static_ref,
             info: None,
             sn: None
         }
@@ -174,5 +182,13 @@ impl InterfacePage for MainPage {
 
     fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
         Some(Box::new(self.bar.clone()))
+    }
+}
+
+impl Drop for MainPage {
+    fn drop(&mut self) {
+        // Create a temp box so we can drop it
+        let b = unsafe { Box::from_raw(self.diag_server) };
+        drop(b);
     }
 }

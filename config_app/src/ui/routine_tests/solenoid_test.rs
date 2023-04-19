@@ -13,8 +13,7 @@ use std::{
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        kwp2000::{Kwp2000DiagnosticServer, SessionType},
-        DiagError, DiagServerResult, DiagnosticServer,
+        DiagError, DiagServerResult, kwp2000::KwpSessionType,
     },
 };
 use eframe::egui::{
@@ -165,9 +164,9 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                 let mut n = self.nag.clone();
                 std::thread::spawn(move || {
                     state_ref.store(1, Ordering::Relaxed);
-                    n.with_kwp(|server| {
+                    n.with_kwp_mut(|server| {
                         if let Err(e) =
-                            server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics)
+                            server.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())
                         {
                             *str_ref.write().unwrap() =
                                 format!("ECU failed to enter extended diagnostic mode: {}", e);
@@ -176,7 +175,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             return Ok(());
                         }
                         if let Err(e) = server.send_byte_array_with_response(&[0x31, 0xDE]) {
-                            let _ = server.set_diagnostic_session_mode(SessionType::Normal);
+                            let _ = server.kwp_set_session(KwpSessionType::Normal.into());
                             *str_ref.write().unwrap() = format!("ECU rejected the test: {}", e);
                             state_ref.store(2, Ordering::Relaxed);
                             ctx.request_repaint();
@@ -210,7 +209,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             }
                             std::thread::sleep(std::time::Duration::from_millis(500));
                         }
-                        let _ = server.set_diagnostic_session_mode(SessionType::Normal);
+                        let _ = server.kwp_set_session(KwpSessionType::Normal.into());
                         state_ref.store(2, Ordering::Relaxed);
                         ctx.request_repaint();
                         Ok(())

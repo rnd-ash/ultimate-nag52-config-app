@@ -1,3 +1,4 @@
+use backend::diag::Nag52Diag;
 use eframe::egui::*;
 use std::{
     borrow::BorrowMut,

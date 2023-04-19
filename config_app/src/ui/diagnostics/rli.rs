@@ -1,7 +1,7 @@
 //! Read data by local identifier data structures
 //! Based on diag_data.h in TCM source code
 //!
-use backend::ecu_diagnostics::kwp2000::Kwp2000DiagnosticServer;
+use backend::ecu_diagnostics::dynamic_diag::DynamicDiagSession;
 use backend::ecu_diagnostics::{DiagError, DiagServerResult};
 use eframe::egui::{self, Color32, InnerResponse, RichText, Ui};
 use packed_struct::PackedStructSlice;
@@ -31,9 +31,9 @@ where
 impl RecordIdents {
     pub fn query_ecu(
         &self,
-        server: &mut Kwp2000DiagnosticServer,
+        server: &mut DynamicDiagSession,
     ) -> DiagServerResult<LocalRecordData> {
-        let resp = server.read_custom_local_identifier(*self as u8)?;
+        let resp = server.kwp_read_custom_local_identifier(*self as u8)?;
         match self {
             Self::GearboxSensors => Ok(LocalRecordData::Sensors(read_struct(&resp)?)),
             Self::SolenoidStatus => Ok(LocalRecordData::Solenoids(read_struct(&resp)?)),

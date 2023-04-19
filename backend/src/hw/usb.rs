@@ -191,6 +191,10 @@ impl ecu_diagnostics::hardware::Hardware for Nag52USB {
     fn get_info(&self) -> &ecu_diagnostics::hardware::HardwareInfo {
         &self.info
     }
+
+    fn is_connected(&self) -> bool {
+        true
+    }
 }
 
 impl PayloadChannel for Nag52USB {
@@ -229,6 +233,7 @@ impl PayloadChannel for Nag52USB {
     fn write_bytes(
         &mut self,
         addr: u32,
+        _ext_id: Option<u8>,
         buffer: &[u8],
         _timeout_ms: u32,
     ) -> ecu_diagnostics::channel::ChannelResult<()> {
@@ -262,6 +267,18 @@ impl PayloadChannel for Nag52USB {
 
     fn clear_tx_buffer(&mut self) -> ecu_diagnostics::channel::ChannelResult<()> {
         Ok(())
+    }
+
+    fn read_write_bytes(
+        &mut self,
+        addr: u32,
+        ext_id: Option<u8>, 
+        buffer: &[u8],
+        write_timeout_ms: u32,
+        read_timeout_ms: u32,
+    ) -> ecu_diagnostics::channel::ChannelResult<Vec<u8>> {
+        self.write_bytes(addr, ext_id, buffer, write_timeout_ms)?;
+        self.read_bytes(read_timeout_ms)
     }
 }
 

@@ -1,13 +1,11 @@
 use crate::ui::status_bar::MainStatusBar;
 use crate::window::{PageAction, StatusBar};
 use backend::diag::Nag52Diag;
-use backend::ecu_diagnostics::kwp2000::Kwp2000DiagnosticServer;
 use eframe::egui::plot::{Legend, Line, Plot};
 use eframe::egui::{Color32, RichText, Ui};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub mod data;
@@ -104,7 +102,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             self.last_query_time = Instant::now();
             self.chart_idx += 100;
             if let Some(rid) = self.record_to_query {
-                match self.nag.with_kwp(|server| rid.query_ecu(server)) {
+                match self.nag.with_kwp_mut(|server| rid.query_ecu(server)) {
                     Ok(r) => self.record_data = Some(r),
                     Err(e) => {
                         eprintln!("Could not query {}", e);

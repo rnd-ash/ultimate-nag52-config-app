@@ -1,10 +1,10 @@
 use core::fmt;
 use std::{
-    borrow::BorrowMut,
+    borrow::{BorrowMut, Borrow},
     sync::{Arc, Mutex},
 };
 
-use ecu_diagnostics::channel::*;
+use ecu_diagnostics::{channel::*, dynamic_diag::{DynamicDiagSession, DiagServerBasicOptions, TimeoutConfig, DiagServerAdvancedOptions, DiagProtocol, DiagSessionMode}};
 use ecu_diagnostics::hardware::{
     passthru::*, Hardware, HardwareError, HardwareInfo, HardwareResult, HardwareScanner,
 };
@@ -84,7 +84,6 @@ impl AdapterHw {
         }
     }
 }
-
 pub trait Nag52Endpoint: Hardware {
     fn read_log_message(this: Arc<Mutex<Self>>) -> Option<EspLogMessage>;
     fn is_connected(&self) -> bool;
@@ -153,16 +152,14 @@ pub struct Nag52Diag {
     info: HardwareInfo,
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
-    server: Option<Arc<Mutex<Kwp2000DiagnosticServer>>>,
+    server: Option<Arc<Mutex<DynamicDiagSession>>>,
 }
 
 unsafe impl Sync for Nag52Diag {}
 unsafe impl Send for Nag52Diag {}
 
 impl Nag52Diag {
-    pub fn new(endpoint_type: AdapterHw) -> DiagServerResult<Self> {
-        let iso_tp = endpoint_type.create_isotp_channel()?;
-
+    pub fn new(hw: AdapterHw) -> DiagServerResult<Self> {
         let channel_cfg = IsoTPSettings {
             block_size: 0,
             st_min: 0,
@@ -172,30 +169,43 @@ impl Nag52Diag {
             can_use_ext_addr: false,
         };
 
-        let server_settings = Kwp2000ServerOptions {
+        let basic_opts = DiagServerBasicOptions {
             send_id: 0x07E1,
             recv_id: 0x07E9,
+            timeout_cfg: TimeoutConfig {
             read_timeout_ms: 2500,
             write_timeout_ms: 2500,
+            }
+        };
+
+        let adv_opts = DiagServerAdvancedOptions {
             global_tp_id: 0,
             tester_present_interval_ms: 2000,
             tester_present_require_response: true,
             global_session_control: false,
-            command_cooldown_ms: 0
+            tp_ext_id: None,
+            command_cooldown_ms: 0,
         };
 
-        let kwp = Kwp2000DiagnosticServer::new_over_iso_tp(
-            server_settings,
-            iso_tp,
+        let mut protocol = Kwp2000Protocol::default();
+        protocol.register_session_type(DiagSessionMode {
+            id: 0x93,
+            tp_require: true,
+            name: "UN52DevMode".into(),
+        });
+
+        let kwp = DynamicDiagSession::new_over_iso_tp(
+            protocol,
+            hw.create_isotp_channel()?,
             channel_cfg,
-            Kwp2000VoidHandler,
+            basic_opts,
+            Some(adv_opts)
         )?;
 
-        let info = endpoint_type.get_hw_info();
         Ok(Self {
-            info,
-            endpoint_type: endpoint_type.get_type(),
-            endpoint: Some(endpoint_type),
+            info: hw.get_hw_info(),
+            endpoint_type: hw.get_type(),
+            endpoint: Some(hw),
             server: Some(Arc::new(Mutex::new(kwp))),
         })
     }
@@ -212,11 +222,24 @@ impl Nag52Diag {
         Ok(())
     }
 
-    pub fn with_kwp<F, X>(&mut self, mut kwp_fn: F) -> DiagServerResult<X>
+    pub fn with_kwp_mut<F, X>(&mut self, mut kwp_fn: F) -> DiagServerResult<X>
     where
-        F: FnMut(&mut Kwp2000DiagnosticServer) -> DiagServerResult<X>,
+        F: FnMut(&mut DynamicDiagSession) -> DiagServerResult<X>,
     {
         match self.server.borrow_mut() {
+            None => Err(HardwareError::DeviceNotOpen.into()),
+            Some(s) => {
+                let mut lock = s.lock().unwrap();
+                kwp_fn(&mut lock)
+            }
+        }
+    }
+
+    pub fn with_kwp<F, X>(&mut self, kwp_fn: F) -> DiagServerResult<X>
+    where
+        F: Fn(&mut DynamicDiagSession) -> DiagServerResult<X>,
+    {
+        match self.server.borrow() {
             None => Err(HardwareError::DeviceNotOpen.into()),
             Some(s) => {
                 let mut lock = s.lock().unwrap();
@@ -249,7 +272,7 @@ pub mod test_diag {
         println!("{:?}", kwp.query_ecu_data());
         println!("Please unplug NAG");
         std::thread::sleep(std::time::Duration::from_millis(5000));
-        let failable = kwp.with_kwp(|k| k.read_daimler_identification());
+        let failable = kwp.with_kwp_mut(|k| k.kwp_read_daimler_identification());
         assert!(failable.is_err());
         println!("{:?}", failable);
         let e = failable.err().unwrap();
@@ -269,7 +292,7 @@ pub mod test_diag {
                 std::thread::sleep(std::time::Duration::from_millis(2000));
             }
         }
-        let must_ok = kwp.with_kwp(|k| k.read_daimler_identification());
+        let must_ok = kwp.with_kwp_mut(|k| k.kwp_read_daimler_identification());
         assert!(must_ok.is_ok());
     }
 }
