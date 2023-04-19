@@ -4,9 +4,7 @@ use eframe::egui::Color32;
 use crate::window::InterfacePage;
 
 pub mod configuration;
-pub mod crashanalyzer;
 pub mod diagnostics;
-pub mod firmware_update;
 pub mod io_maipulator;
 pub mod kwp_event;
 pub mod launcher;
