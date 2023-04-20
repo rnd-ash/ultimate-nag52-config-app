@@ -9,6 +9,8 @@ use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
 use std::borrow::Borrow;
 use std::i16::MAX;
 
+pub const RLI_QUERY_INTERVAL: u64 = 100;
+
 #[repr(u8)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub enum RecordIdents {
