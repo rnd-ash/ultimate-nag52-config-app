@@ -87,7 +87,7 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.heading("TCM Configuration");
 
         if ui.button("Read Configuration").clicked() {
-            self.nag.with_kwp_mut(|server| {
+            self.nag.with_kwp(|server| {
                 match server.kwp_read_custom_local_identifier(0xFE) {
                     Ok(res) => {
                         self.scn = Some(TcmCoreConfig::unpack_from_slice(&res).unwrap());
@@ -329,7 +329,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 let res = {
                     let mut x: Vec<u8> = vec![0x3B, 0xFE];
                     x.extend_from_slice(&scn.clone().pack_to_vec().unwrap());
-                    self.nag.with_kwp_mut(|server| {
+                    self.nag.with_kwp(|server| {
                         server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
                         server.send_byte_array_with_response(&x)?;
                         server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
@@ -416,7 +416,7 @@ impl crate::window::InterfacePage for ConfigPage {
 
                         let mut x = vec![0x3Bu8, 0xFD];
                         x.extend_from_slice(&efuse.pack_to_vec().unwrap());
-                        self.nag.with_kwp_mut(|server| {
+                        self.nag.with_kwp(|server| {
                             server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
                             server.send_byte_array_with_response(&x)?;
                             server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;

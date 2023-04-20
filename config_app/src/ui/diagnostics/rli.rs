@@ -31,7 +31,7 @@ where
 impl RecordIdents {
     pub fn query_ecu(
         &self,
-        server: &mut DynamicDiagSession,
+        server: &DynamicDiagSession,
     ) -> DiagServerResult<LocalRecordData> {
         let resp = server.kwp_read_custom_local_identifier(*self as u8)?;
         match self {

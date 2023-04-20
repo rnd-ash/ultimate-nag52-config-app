@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 #ecu_diagnostics="0.90.60"
 ecu_diagnostics = { git = "https://github.com/rnd-ash/ecu_diagnostics", branch="diag_server_unified" }
+#ecu_diagnostics = { path = "../../ecu_diagnostics" }
 serial-rs = {git="https://github.com/rnd-ash/serial-rs"}
 packed_struct="0.10.0"
 static_assertions = "1.1.0"

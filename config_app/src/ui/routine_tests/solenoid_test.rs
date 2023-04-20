@@ -164,7 +164,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                 let mut n = self.nag.clone();
                 std::thread::spawn(move || {
                     state_ref.store(1, Ordering::Relaxed);
-                    n.with_kwp_mut(|server| {
+                    n.with_kwp(|server| {
                         if let Err(e) =
                             server.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())
                         {

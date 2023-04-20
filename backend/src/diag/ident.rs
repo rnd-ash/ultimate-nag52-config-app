@@ -89,7 +89,7 @@ fn bcd_decode_to_int(u: u8) -> u32 {
 
 impl Nag52Diag {
     pub fn query_ecu_data(&mut self) -> DiagServerResult<IdentData> {
-        self.with_kwp_mut(|k| {
+        self.with_kwp(|k| {
             let ident = k.kwp_read_daimler_identification()?;
             Ok(IdentData {
                 egs_mode: EgsMode::from(ident.diag_info.get_info_id()),
@@ -109,7 +109,7 @@ impl Nag52Diag {
     }
 
     pub fn get_ecu_sn(&mut self) -> DiagServerResult<String> {
-        self.with_kwp_mut(|k| {
+        self.with_kwp(|k| {
             Ok(String::from_utf8(k.kwp_read_ecu_serial_number()?).unwrap())
         })
     }

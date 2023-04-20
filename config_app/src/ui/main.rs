@@ -20,7 +20,8 @@ pub struct MainPage {
     show_about_ui: bool,
     diag_server: &'static mut Nag52Diag,
     info: Option<IdentData>,
-    sn: Option<String>
+    sn: Option<String>,
+    first_run: bool,
 }
 
 impl MainPage {
@@ -38,13 +39,18 @@ impl MainPage {
             show_about_ui: false,
             diag_server: static_ref,
             info: None,
-            sn: None
+            sn: None,
+            first_run: false
         }
     }
 }
 
 impl InterfacePage for MainPage {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &Frame) -> crate::window::PageAction {
+        if !self.first_run {
+            self.first_run = true;
+            return PageAction::RegisterNag(self.diag_server.clone());
+        }
         // UI context menu
         egui::menu::bar(ui, |bar_ui| {
             bar_ui.menu_button("File", |x| {
@@ -183,6 +189,11 @@ impl InterfacePage for MainPage {
     fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
         Some(Box::new(self.bar.clone()))
     }
+
+    fn destroy_nag(&self) -> bool {
+        true
+    }
+
 }
 
 impl Drop for MainPage {

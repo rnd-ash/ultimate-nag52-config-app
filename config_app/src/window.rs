@@ -9,6 +9,7 @@ use crate::ui::{
     main,
     status_bar::{self},
 };
+use backend::diag::Nag52Diag;
 use eframe::{
     egui::{self, Direction, RichText, WidgetText},
     epaint::Pos2,
@@ -16,19 +17,23 @@ use eframe::{
 use egui_toast::{Toast, ToastKind, ToastOptions, Toasts};
 
 pub struct MainWindow {
+    nag: Option<Nag52Diag>,
     pages: VecDeque<Box<dyn InterfacePage>>,
     curr_title: String,
     bar: Option<Box<dyn StatusBar>>,
     show_back: bool,
+    last_repaint_time: Instant
 }
 
 impl MainWindow {
     pub fn new() -> Self {
         Self {
             pages: VecDeque::new(),
-            curr_title: "OpenVehicleDiag".into(),
+            curr_title: "Ultimate-NAG52 config app".into(),
             bar: None,
             show_back: true,
+            nag: None,
+            last_repaint_time: Instant::now()
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
@@ -61,6 +66,17 @@ impl eframe::App for MainWindow {
                                 pop_page = true;
                             }
                         }
+                        if let Some(nag) = &self.nag {
+                            let _ = nag.with_kwp(|f| {
+                                if let Some(mode) = f.get_current_diag_mode() {
+                                    row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
+                                }
+                                Ok(())
+                            });
+                        }
+                        let elapsed = self.last_repaint_time.elapsed().as_micros() as u64;
+                        self.last_repaint_time = Instant::now();
+                        row.label(format!("{} FPS", (1000*1000)/elapsed));
                     });
                     s_bar_height = nav.available_height()
                 });
@@ -80,7 +96,12 @@ impl eframe::App for MainWindow {
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui, frame) {
                     PageAction::None => {}
-                    PageAction::Destroy => self.pop_page(),
+                    PageAction::Destroy => {
+                        if self.pages[0].destroy_nag() {
+                            self.nag = None;
+                        }
+                        self.pop_page()
+                    },
                     PageAction::Add(p) => self.add_new_page(p),
                     PageAction::Overwrite(p) => {
                         self.pages[0] = p;
@@ -101,6 +122,9 @@ impl eframe::App for MainWindow {
                             },
                         });
                     }
+                    PageAction::RegisterNag(n) => {
+                        self.nag = Some(n)
+                    },
                 }
             });
             toasts.show(&ctx);
@@ -112,6 +136,7 @@ impl eframe::App for MainWindow {
 pub enum PageAction {
     None,
     Destroy,
+    RegisterNag(Nag52Diag),
     Add(Box<dyn InterfacePage>),
     Overwrite(Box<dyn InterfacePage>),
     SetBackButtonState(bool),
@@ -123,6 +148,9 @@ pub trait InterfacePage {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> PageAction;
     fn get_title(&self) -> &'static str;
     fn get_status_bar(&self) -> Option<Box<dyn StatusBar>>;
+    fn destroy_nag(&self) -> bool {
+        false
+    }
 }
 
 pub trait StatusBar {

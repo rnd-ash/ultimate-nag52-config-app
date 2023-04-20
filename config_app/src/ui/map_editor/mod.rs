@@ -124,7 +124,7 @@ impl Map {
     pub fn new(map_id: u8, mut nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
         // Read metadata
 
-        let ecu_response = nag.with_kwp_mut(|server| {
+        let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
@@ -168,7 +168,7 @@ impl Map {
         let mut eeprom: Vec<i16> = Vec::new();
 
         // Read current data
-        let ecu_response = nag.with_kwp_mut(|server| {
+        let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
@@ -193,7 +193,7 @@ impl Map {
             c_data = d;
         }
         // Read default data
-        let ecu_response = nag.with_kwp_mut(|server| {
+        let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
@@ -217,7 +217,7 @@ impl Map {
             default.push(v);
             d_data = d;
         }
-        let ecu_response = nag.with_kwp_mut(|server| {
+        let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
@@ -279,7 +279,7 @@ impl Map {
         ];
         payload.extend_from_slice(&self.data_to_byte_array(&self.data_modify));
         self.ecu_ref
-            .with_kwp_mut(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
@@ -293,7 +293,7 @@ impl Map {
             0x00,
         ];
         self.ecu_ref
-            .with_kwp_mut(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
@@ -307,7 +307,7 @@ impl Map {
             0x00,
         ];
         self.ecu_ref
-            .with_kwp_mut(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
         Ok(())
     }
 
@@ -693,7 +693,7 @@ pub struct MapEditor {
 
 impl MapEditor {
     pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
-        nag.with_kwp_mut(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
+        nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
             bar,
             nag,

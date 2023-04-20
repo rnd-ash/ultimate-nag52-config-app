@@ -49,10 +49,12 @@ impl SolenoidPage {
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
         let _ = thread::spawn(move || {
-            nag.with_kwp_mut(|server| {
-                server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))?;
-                while run_t.load(Ordering::Relaxed) {
-                    let start = Instant::now();
+            nag.with_kwp(|server| {
+                server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
+            });
+            while run_t.load(Ordering::Relaxed) {
+                let start = Instant::now();
+                nag.with_kwp(|server| {
                     if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(server) {
                         if let LocalRecordData::Solenoids(s) = r {
                             let curr = *store_t.read().unwrap();
@@ -64,13 +66,13 @@ impl SolenoidPage {
                             );
                         }
                     }
-                    let taken = start.elapsed().as_millis() as u64;
-                    if taken < UPDATE_DELAY_MS {
-                        std::thread::sleep(Duration::from_millis(UPDATE_DELAY_MS - taken));
-                    }
+                    Ok(())
+                });
+                let taken = start.elapsed().as_millis() as u64;
+                if taken < UPDATE_DELAY_MS {
+                    std::thread::sleep(Duration::from_millis(UPDATE_DELAY_MS - taken));
                 }
-                Ok(())
-            });
+            }
         });
 
         Self {

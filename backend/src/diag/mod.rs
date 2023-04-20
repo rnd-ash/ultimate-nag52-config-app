@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{BorrowMut, Borrow},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use ecu_diagnostics::{channel::*, dynamic_diag::{DynamicDiagSession, DiagServerBasicOptions, TimeoutConfig, DiagServerAdvancedOptions, DiagProtocol, DiagSessionMode}};
@@ -152,7 +152,7 @@ pub struct Nag52Diag {
     info: HardwareInfo,
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
-    server: Option<Arc<Mutex<DynamicDiagSession>>>,
+    server: Option<Arc<DynamicDiagSession>>,
 }
 
 unsafe impl Sync for Nag52Diag {}
@@ -206,7 +206,7 @@ impl Nag52Diag {
             info: hw.get_hw_info(),
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
-            server: Some(Arc::new(Mutex::new(kwp))),
+            server: Some(Arc::new(kwp)),
         })
     }
 
@@ -222,28 +222,14 @@ impl Nag52Diag {
         Ok(())
     }
 
-    pub fn with_kwp_mut<F, X>(&mut self, mut kwp_fn: F) -> DiagServerResult<X>
+    pub fn with_kwp<F, X>(&self, mut kwp_fn: F) -> DiagServerResult<X>
     where
-        F: FnMut(&mut DynamicDiagSession) -> DiagServerResult<X>,
-    {
-        match self.server.borrow_mut() {
-            None => Err(HardwareError::DeviceNotOpen.into()),
-            Some(s) => {
-                let mut lock = s.lock().unwrap();
-                kwp_fn(&mut lock)
-            }
-        }
-    }
-
-    pub fn with_kwp<F, X>(&mut self, kwp_fn: F) -> DiagServerResult<X>
-    where
-        F: Fn(&mut DynamicDiagSession) -> DiagServerResult<X>,
+        F: FnMut(&DynamicDiagSession) -> DiagServerResult<X>,
     {
         match self.server.borrow() {
             None => Err(HardwareError::DeviceNotOpen.into()),
             Some(s) => {
-                let mut lock = s.lock().unwrap();
-                kwp_fn(&mut lock)
+                kwp_fn(&s)
             }
         }
     }
@@ -272,7 +258,7 @@ pub mod test_diag {
         println!("{:?}", kwp.query_ecu_data());
         println!("Please unplug NAG");
         std::thread::sleep(std::time::Duration::from_millis(5000));
-        let failable = kwp.with_kwp_mut(|k| k.kwp_read_daimler_identification());
+        let failable = kwp.with_kwp(|k| k.kwp_read_daimler_identification());
         assert!(failable.is_err());
         println!("{:?}", failable);
         let e = failable.err().unwrap();
@@ -292,7 +278,7 @@ pub mod test_diag {
                 std::thread::sleep(std::time::Duration::from_millis(2000));
             }
         }
-        let must_ok = kwp.with_kwp_mut(|k| k.kwp_read_daimler_identification());
+        let must_ok = kwp.with_kwp(|k| k.kwp_read_daimler_identification());
         assert!(must_ok.is_ok());
     }
 }
