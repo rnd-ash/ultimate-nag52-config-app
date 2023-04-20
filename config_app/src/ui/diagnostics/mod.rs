@@ -4,6 +4,7 @@ use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use eframe::egui::plot::{Legend, Line, Plot};
 use eframe::egui::{Color32, RichText, Ui};
+use eframe::epaint::Stroke;
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
@@ -18,7 +19,7 @@ pub mod rli;
 pub mod solenoids;
 use crate::ui::diagnostics::rli::{LocalRecordData, RecordIdents};
 
-use self::rli::ChartData;
+use self::rli::{ChartData, RLI_QUERY_INTERVAL};
 
 pub enum CommandStatus {
     Ok(String),
@@ -30,6 +31,7 @@ pub struct DiagnosticsPage {
     query_ecu: Arc<AtomicBool>,
     last_update_time: Arc<AtomicU64>,
     curr_values: Arc<RwLock<Option<LocalRecordData>>>,
+    prev_values: Arc<RwLock<Option<LocalRecordData>>>,
     time_since_launch: Instant,
     record_to_query: Arc<RwLock<Option<RecordIdents>>>,
     charting_data: VecDeque<(u128, ChartData)>,
@@ -45,23 +47,28 @@ impl DiagnosticsPage {
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
 
+        let store_old = Arc::new(RwLock::new(None));
+        let store_old_t = store.clone();
+
         let to_query: Arc<RwLock<Option<RecordIdents>>> = Arc::new(RwLock::new(None));
         let to_query_t = to_query.clone();
-
-        let launch_time = Instant::now();
-        let launch_time_t = launch_time.clone();
-
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
         let _ = thread::spawn(move || {
             nag.with_kwp(|server| {
                 server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
             });
+            let launch_time = Instant::now();
             while run_t.load(Ordering::Relaxed) {
                 let start = Instant::now();
                 if let Some(to_query) = *to_query_t.read().unwrap() {
+                    let prev = store_t.read().unwrap().clone();
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
-                        Ok(r) => *store_t.write().unwrap() = Some(r),
+                        Ok(r) => {
+                            last_update_t.store(launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
+                            *store_old_t.write().unwrap() = prev;
+                            *store_t.write().unwrap() = Some(r);
+                        },
                         Err(e) => {
                             eprintln!("Could not query {}", e);
                         }
@@ -78,6 +85,7 @@ impl DiagnosticsPage {
             query_ecu: run,
             bar,
             last_update_time: last_update,
+            prev_values: store_old,
             curr_values: store,
             record_to_query: to_query,
             charting_data: VecDeque::new(),
@@ -96,30 +104,35 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
         if ui.button("Query gearbox solenoids").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::SolenoidStatus);
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
         if ui.button("Query solenoid pressures").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::PressureStatus);
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
         if ui.button("Query can Rx data").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::CanDataDump);
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
         if ui.button("Query Shift data").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::SSData);
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
 
         if ui.button("Query Performance metrics").clicked() {
@@ -127,19 +140,43 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             self.chart_idx = 0;
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
         }
 
         let current_val = self.curr_values.read().unwrap().clone();
         if let Some(data) = current_val {
+            let prev_value = self.prev_values.read().unwrap().clone().unwrap_or(data.clone());
             data.to_table(ui);
 
             let c = data.get_chart_data();
 
             if !c.is_empty() {
-                let d = &c[0];
+                let mut d = c[0].clone();
+                /*
+                // Compare to 
+                let mut prev = d.clone();
+                if let Some(p) = prev_value.get_chart_data().get(0).cloned() {
+                    if p.bounds == d.bounds && p.data.len() == d.data.len() {
+                        prev = p;
+                    }
+                }
+
+                // Linear interp
+                let now = self.time_since_launch.elapsed().as_millis() as u64;
+                let last = self.last_update_time.load(Ordering::Relaxed);
+                let time_since = now - last;
+                let p_new = time_since as f32/(RLI_QUERY_INTERVAL as f32);// Proportion of old data
+                let p_old = 1.0 - p_new; // Proportion of new data
+                
+                for idx in 0..d.data.len() {
+                    let interpolated = (prev.data[idx].1 * p_old) + (d.data[idx].1 * p_new);
+                    d.data[idx].1 = interpolated;
+                }
+                */
+
                 self.charting_data.push_back((self.chart_idx, d.clone()));
                 self.chart_idx+=1;
-                if self.charting_data.len() > (20000 / 100) {
+                if self.charting_data.len() > (50000 / 100) {
                     // 20 seconds
                     let _ = self.charting_data.pop_front();
                 }
@@ -156,11 +193,12 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     let mut key_hasher = DefaultHasher::default();
                     key.hash(&mut key_hasher);
                     let r = key_hasher.finish();
-                    lines.push(Line::new(points).name(key.clone()).color(Color32::from_rgb(
-                        (r & 0xFF) as u8,
-                        ((r >> 8) & 0xFF) as u8,
-                        ((r >> 16) & 0xFF) as u8,
-                    )))
+                    lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
+                        Color32::from_rgb(
+                            (r & 0xFF) as u8,
+                            ((r >> 8) & 0xFF) as u8,
+                            ((r >> 16) & 0xFF) as u8,
+                        ))))
                 }
 
                 let mut plot = Plot::new(d.group_name.clone())
@@ -173,7 +211,9 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                         plot = plot.include_y(*max);
                     }
                 }
-                plot = plot.include_x(200);
+                if self.chart_idx < 500 {
+                    plot = plot.include_x(500);
+                }
 
                 plot.show(ui, |plot_ui| {
                     for x in lines {
@@ -192,5 +232,11 @@ impl crate::window::InterfacePage for DiagnosticsPage {
 
     fn get_status_bar(&self) -> Option<Box<dyn StatusBar>> {
         Some(Box::new(self.bar.clone()))
+    }
+}
+
+impl Drop for DiagnosticsPage {
+    fn drop(&mut self) {
+        self.query_ecu.store(false, Ordering::Relaxed);
     }
 }

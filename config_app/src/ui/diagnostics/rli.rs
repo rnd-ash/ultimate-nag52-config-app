@@ -131,7 +131,7 @@ impl DataPressures {
                 ("MPC pressure", self.mpc_pressure as f32, None),
                 ("TCC pressure", self.tcc_pressure as f32, None),
             ],
-            Some((0.0, 0.0)),
+            Some((0.0, 7000.0)),
         )]
     }
 }
@@ -625,7 +625,7 @@ impl DataCanDump {
                 ("Driver", drv, None),
                 ("EGS Request", egs, None)
             ],
-            None,
+            Some((-100.0, self.max_torque_ms as f32)),
         )]
     }
 }
