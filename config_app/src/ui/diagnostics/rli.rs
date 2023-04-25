@@ -131,7 +131,7 @@ impl DataPressures {
                 ("MPC pressure", self.mpc_pressure as f32, None),
                 ("TCC pressure", self.tcc_pressure as f32, None),
             ],
-            Some((0.0, 7000.0)),
+            None
         )]
     }
 }
@@ -625,7 +625,7 @@ impl DataCanDump {
                 ("Driver", drv, None),
                 ("EGS Request", egs, None)
             ],
-            Some((-100.0, self.max_torque_ms as f32)),
+            None,
         )]
     }
 }
@@ -644,7 +644,6 @@ pub struct DataSysUsage {
 
 impl DataSysUsage {
     pub fn to_table(&self, ui: &mut Ui) -> InnerResponse<()> {
-        println!("{:#?}", self);
         let r_f = self.free_ram as f32;
         let r_t = self.total_ram as f32;
         let p_f = self.free_psram as f32;

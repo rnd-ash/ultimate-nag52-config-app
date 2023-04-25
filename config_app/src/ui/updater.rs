@@ -6,8 +6,6 @@ use nfd::Response;
 
 use crate::window::{InterfacePage, PageAction};
 
-use super::status_bar::MainStatusBar;
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CurrentFlashState {
     None,
@@ -46,7 +44,6 @@ impl CurrentFlashState {
 
 pub struct UpdatePage {
     nag: Nag52Diag,
-    s_bar: MainStatusBar,
     fw: Option<Firmware>,
     status: Arc<RwLock<CurrentFlashState>>,
     flash_start: Option<Instant>,
@@ -55,12 +52,11 @@ pub struct UpdatePage {
 }
 
 impl UpdatePage {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(mut nag: Nag52Diag) -> Self {
         let coredump_info = nag.get_coredump_flash_info().ok();
         let curr_fw_info = nag.get_running_fw_info().ok().zip(nag.get_running_partition_flash_info().ok());
         Self{
             nag, 
-            s_bar: bar,
             fw: None,
             status: Arc::new(RwLock::new(CurrentFlashState::None)),
             flash_start: None,
@@ -287,7 +283,7 @@ impl InterfacePage for UpdatePage {
         "Flash updater"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.s_bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

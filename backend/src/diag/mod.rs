@@ -17,8 +17,10 @@ use crate::hw::{
     usb::{EspLogMessage, Nag52USB},
     usb_scanner::Nag52UsbScanner,
 };
+
 pub mod ident;
 pub mod flash;
+pub mod settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {
@@ -173,8 +175,8 @@ impl Nag52Diag {
             send_id: 0x07E1,
             recv_id: 0x07E9,
             timeout_cfg: TimeoutConfig {
-            read_timeout_ms: 2500,
-            write_timeout_ms: 2500,
+            read_timeout_ms: 5000,
+            write_timeout_ms: 5000,
             }
         };
 

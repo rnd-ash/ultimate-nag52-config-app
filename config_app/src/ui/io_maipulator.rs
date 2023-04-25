@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{ui::status_bar::MainStatusBar, window::PageAction};
+use crate::{window::PageAction};
 
 use rli::{DataSolenoids, LocalRecordData, RecordIdents};
 
@@ -19,7 +19,6 @@ use super::diagnostics::rli;
 const UPDATE_DELAY_MS: u64 = 500;
 
 pub struct IoManipulatorPage {
-    bar: MainStatusBar,
     query_ecu: Arc<AtomicBool>,
     curr_solenoid_values: Arc<RwLock<Option<DataSolenoids>>>,
     time_since_launch: Instant,
@@ -27,7 +26,7 @@ pub struct IoManipulatorPage {
 }
 
 impl IoManipulatorPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
 
@@ -69,7 +68,6 @@ impl IoManipulatorPage {
         });
 
         Self {
-            bar,
             query_ecu: run,
             curr_solenoid_values: store,
             time_since_launch: launch_time,
@@ -120,8 +118,8 @@ impl crate::window::InterfacePage for IoManipulatorPage {
         "IO Manipulator view"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }
 

@@ -11,10 +11,10 @@ pub mod launcher;
 pub mod main;
 pub mod map_editor;
 pub mod routine_tests;
-pub mod status_bar;
 pub mod widgets;
 pub mod updater;
 pub mod param_editor;
+pub mod settings_ui_gen;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StatusText {

@@ -1,4 +1,3 @@
-use crate::ui::status_bar::MainStatusBar;
 use crate::window::{PageAction, StatusBar};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
@@ -27,7 +26,6 @@ pub enum CommandStatus {
 }
 
 pub struct DiagnosticsPage {
-    bar: MainStatusBar,
     query_ecu: Arc<AtomicBool>,
     last_update_time: Arc<AtomicU64>,
     curr_values: Arc<RwLock<Option<LocalRecordData>>>,
@@ -39,7 +37,7 @@ pub struct DiagnosticsPage {
 }
 
 impl DiagnosticsPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
@@ -48,26 +46,32 @@ impl DiagnosticsPage {
         let store_t = store.clone();
 
         let store_old = Arc::new(RwLock::new(None));
-        let store_old_t = store.clone();
+        let store_old_t = store_old.clone();
 
         let to_query: Arc<RwLock<Option<RecordIdents>>> = Arc::new(RwLock::new(None));
         let to_query_t = to_query.clone();
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
+
+        let launch_time = Instant::now();
+        let launch_time_t = launch_time.clone();
+
         let _ = thread::spawn(move || {
             nag.with_kwp(|server| {
                 server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
             });
-            let launch_time = Instant::now();
             while run_t.load(Ordering::Relaxed) {
                 let start = Instant::now();
                 if let Some(to_query) = *to_query_t.read().unwrap() {
-                    let prev = store_t.read().unwrap().clone();
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
-                            last_update_t.store(launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
-                            *store_old_t.write().unwrap() = prev;
+                            let curr = store_t.read().unwrap().clone();
+                            *store_old_t.write().unwrap() = curr;
                             *store_t.write().unwrap() = Some(r);
+                            last_update_t.store(
+                                launch_time_t.elapsed().as_millis() as u64,
+                                Ordering::Relaxed,
+                            );
                         },
                         Err(e) => {
                             eprintln!("Could not query {}", e);
@@ -83,14 +87,13 @@ impl DiagnosticsPage {
         
         Self {
             query_ecu: run,
-            bar,
             last_update_time: last_update,
             prev_values: store_old,
             curr_values: store,
             record_to_query: to_query,
             charting_data: VecDeque::new(),
             chart_idx: 0,
-            time_since_launch: Instant::now()
+            time_since_launch: launch_time_t
         }
     }
 }
@@ -152,28 +155,32 @@ impl crate::window::InterfacePage for DiagnosticsPage {
 
             if !c.is_empty() {
                 let mut d = c[0].clone();
-                /*
                 // Compare to 
                 let mut prev = d.clone();
                 if let Some(p) = prev_value.get_chart_data().get(0).cloned() {
-                    if p.bounds == d.bounds && p.data.len() == d.data.len() {
-                        prev = p;
+                    prev = p;
+                }
+                if prev != d {
+                    // Linear interp when values differ
+                    let ms_since_update = std::cmp::min(
+                        RLI_QUERY_INTERVAL,
+                        self.time_since_launch.elapsed().as_millis() as u64
+                            - self.last_update_time.load(Ordering::Relaxed),
+                    );
+                    let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
+                    let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
+                    if ms_since_update == 0 {
+                        proportion_prev = 1.0;
+                        proportion_curr = 0.0;
+                    } else if ms_since_update == RLI_QUERY_INTERVAL {
+                        proportion_prev = 0.0;
+                        proportion_curr = 1.0;
+                    }
+                    for idx in 0..d.data.len() {
+                        let interpolated = (prev.data[idx].1 * proportion_prev) + (d.data[idx].1 * proportion_curr);
+                        d.data[idx].1 = interpolated;
                     }
                 }
-
-                // Linear interp
-                let now = self.time_since_launch.elapsed().as_millis() as u64;
-                let last = self.last_update_time.load(Ordering::Relaxed);
-                let time_since = now - last;
-                let p_new = time_since as f32/(RLI_QUERY_INTERVAL as f32);// Proportion of old data
-                let p_old = 1.0 - p_new; // Proportion of new data
-                
-                for idx in 0..d.data.len() {
-                    let interpolated = (prev.data[idx].1 * p_old) + (d.data[idx].1 * p_new);
-                    d.data[idx].1 = interpolated;
-                }
-                */
-
                 self.charting_data.push_back((self.chart_idx, d.clone()));
                 self.chart_idx+=1;
                 if self.charting_data.len() > (50000 / 100) {
@@ -230,8 +237,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         "Ultimate-NAG52 diagnostics"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }
 

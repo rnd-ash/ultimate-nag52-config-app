@@ -159,7 +159,7 @@ impl InterfacePage for Launcher {
         "Ultimate-NAG52 configuration utility (Launcher)"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        None
+    fn should_show_statusbar(&self) -> bool {
+        false
     }
 }

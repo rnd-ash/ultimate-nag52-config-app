@@ -37,7 +37,6 @@ use super::{
         self,
         cfg_structs::{EngineType, TcmCoreConfig},
     },
-    status_bar::MainStatusBar,
 };
 
 #[repr(u8)]
@@ -685,17 +684,15 @@ impl MapData {
 }
 
 pub struct MapEditor {
-    bar: MainStatusBar,
     nag: Nag52Diag,
     loaded_maps: HashMap<String, Map>,
     error: Option<String>,
 }
 
 impl MapEditor {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(mut nag: Nag52Diag) -> Self {
         nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
-            bar,
             nag,
             loaded_maps: HashMap::new(),
             error: None,
@@ -754,7 +751,7 @@ impl super::InterfacePage for MapEditor {
         "Map editor"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

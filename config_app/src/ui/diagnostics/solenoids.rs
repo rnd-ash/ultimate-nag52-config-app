@@ -10,14 +10,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{ui::status_bar::MainStatusBar, window::PageAction};
+use crate::{window::PageAction};
 
 use super::rli::{DataSolenoids, LocalRecordData, RecordIdents};
 
 const UPDATE_DELAY_MS: u64 = 100;
 
 pub struct SolenoidPage {
-    bar: MainStatusBar,
     query_ecu: Arc<AtomicBool>,
     last_update_time: Arc<AtomicU64>,
     curr_values: Arc<RwLock<Option<DataSolenoids>>>,
@@ -33,7 +32,7 @@ pub enum ViewType {
 }
 
 impl SolenoidPage {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(mut nag: Nag52Diag) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
 
@@ -76,7 +75,6 @@ impl SolenoidPage {
         });
 
         Self {
-            bar,
             query_ecu: run,
             curr_values: store,
             last_update_time: last_update,
@@ -276,8 +274,8 @@ impl crate::window::InterfacePage for SolenoidPage {
         "Solenoid view"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }
 

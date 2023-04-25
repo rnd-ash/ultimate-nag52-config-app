@@ -12,3 +12,5 @@ ecu_diagnostics = { git = "https://github.com/rnd-ash/ecu_diagnostics", branch="
 serial-rs = {git="https://github.com/rnd-ash/serial-rs"}
 packed_struct="0.10.0"
 static_assertions = "1.1.0"
+serde_yaml="0.9.21"
+serde = { version = "1.0", features = ["derive"] }

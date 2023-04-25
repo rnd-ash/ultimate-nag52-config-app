@@ -19,13 +19,12 @@ use self::cfg_structs::{
     TcmCoreConfig, TcmEfuseConfig,
 };
 
-use super::{status_bar::MainStatusBar, StatusText};
+use super::{StatusText};
 
 pub mod cfg_structs;
 
 pub struct ConfigPage {
     nag: Nag52Diag,
-    bar: MainStatusBar,
     status: StatusText,
     scn: Option<TcmCoreConfig>,
     efuse: Option<TcmEfuseConfig>,
@@ -47,7 +46,7 @@ fn load_image(image: DynamicImage, name: &str) -> RetainedImage {
 }
 
 impl ConfigPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         let red_img = image::load_from_memory_with_format(
             include_bytes!("../../../res/pcb_11.jpg"),
             ImageFormat::Jpeg,
@@ -69,7 +68,6 @@ impl ConfigPage {
         let pcb_13_img = load_image(bet_img, "V13-PCB");
         Self {
             nag,
-            bar,
             status: StatusText::Ok("".into()),
             scn: None,
             efuse: None,
@@ -427,7 +425,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 })
             });
         if reload {
-            *self = Self::new(self.nag.clone(), self.bar.clone());
+            *self = Self::new(self.nag.clone());
         }
         self.show_final_warning = tmp;
 
@@ -439,7 +437,7 @@ impl crate::window::InterfacePage for ConfigPage {
         "Configuration"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

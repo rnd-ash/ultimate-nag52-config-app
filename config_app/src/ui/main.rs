@@ -1,27 +1,43 @@
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
+use backend::diag::settings::LinearInterpSettings;
+use backend::diag::settings::TcuSettings;
+use backend::diag::settings::unpack_settings;
+use backend::serde_yaml;
+use backend::serde_yaml::Mapping;
+use backend::serde_yaml::Value;
 use eframe::egui;
 use eframe::Frame;
+use eframe::egui::CollapsingHeader;
+use eframe::egui::DragValue;
+use eframe::egui::ScrollArea;
+use eframe::egui::plot::Line;
+use eframe::egui::plot::Plot;
+use eframe::egui::plot::PlotPoints;
+use serde_json::Number;
+use std::borrow::BorrowMut;
+use std::ops::RangeInclusive;
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::window::{InterfacePage, PageAction};
 
+use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
+use super::widgets::number_input::NumberInputWidget;
 use super::{
     configuration::ConfigPage,
     diagnostics::solenoids::SolenoidPage,
     io_maipulator::IoManipulatorPage, map_editor::MapEditor, routine_tests::RoutinePage,
-    status_bar::MainStatusBar,
 };
 use crate::ui::diagnostics::DiagnosticsPage;
 
 pub struct MainPage {
-    bar: MainStatusBar,
     show_about_ui: bool,
     diag_server: &'static mut Nag52Diag,
     info: Option<IdentData>,
     sn: Option<String>,
     first_run: bool,
+    cell_memory: Option<String>,
 }
 
 impl MainPage {
@@ -34,13 +50,14 @@ impl MainPage {
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
+        
         Self {
-            bar: MainStatusBar::new(),
             show_about_ui: false,
             diag_server: static_ref,
             info: None,
             sn: None,
-            first_run: false
+            first_run: false,
+            cell_memory: None
         }
     }
 }
@@ -71,50 +88,46 @@ impl InterfacePage for MainPage {
             if v.button("Updater").clicked() {
                 create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("Diagnostics").clicked() {
                 create_page = Some(PageAction::Add(Box::new(DiagnosticsPage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("Solenoid live view").clicked() {
                 create_page = Some(PageAction::Add(Box::new(SolenoidPage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("IO Manipulator").clicked() {
                 create_page = Some(PageAction::Add(Box::new(IoManipulatorPage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("Diagnostic routine executor").clicked() {
                 create_page = Some(PageAction::Add(Box::new(RoutinePage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("Map tuner").clicked() {
                 create_page = Some(PageAction::Add(Box::new(MapEditor::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
             if v.button("TCU Program settings").on_hover_text("CAUTION. DANGEROUS!").clicked() {
-                
+                create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
+                    self.diag_server.clone(),
+                ))));
             }
             if v.button("Configure drive profiles").clicked() {}
             if v.button("Configure vehicle / gearbox").clicked() {
                 create_page = Some(PageAction::Add(Box::new(ConfigPage::new(
                     self.diag_server.clone(),
-                    self.bar.clone(),
                 ))));
             }
         });
+
         if let Some(page) = create_page {
             return page;
         }
@@ -186,8 +199,8 @@ impl InterfacePage for MainPage {
         "Ultimate-Nag52 configuration utility (Home)"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 
     fn destroy_nag(&self) -> bool {

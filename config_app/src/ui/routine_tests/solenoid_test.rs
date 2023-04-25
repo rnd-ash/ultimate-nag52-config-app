@@ -22,10 +22,9 @@ use eframe::egui::{
     widgets, Color32, RichText,
 };
 
-use crate::{ui::status_bar::MainStatusBar, window::PageAction};
+use crate::{window::PageAction};
 
 pub struct SolenoidTestPage {
-    bar: MainStatusBar,
     test_state: Arc<AtomicU8>,
     test_result: Arc<RwLock<Option<TestResultsSolenoid>>>,
     test_status: Arc<RwLock<String>>,
@@ -76,9 +75,8 @@ pub struct TestResultsSolenoid {
 }
 
 impl SolenoidTestPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         Self {
-            bar,
             nag,
             test_state: Arc::new(AtomicU8::new(0)),
             test_result: Arc::new(RwLock::new(None)),
@@ -309,7 +307,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
         "IO Manipulator view"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

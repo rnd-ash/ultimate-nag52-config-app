@@ -1,26 +1,28 @@
 use std::{
-    borrow::BorrowMut,
     collections::VecDeque,
     ops::Add,
-    time::{Duration, Instant},
+    time::{Duration, Instant}, sync::Arc,
 };
 
-use crate::ui::{
-    main,
-    status_bar::{self},
-};
-use backend::diag::Nag52Diag;
+use backend::{diag::Nag52Diag, ecu_diagnostics::DiagError};
 use eframe::{
-    egui::{self, Direction, RichText, WidgetText},
-    epaint::Pos2,
+    egui::{self, Direction, RichText, WidgetText, Sense, Button},
+    epaint::{Pos2, Vec2},
 };
-use egui_toast::{Toast, ToastKind, ToastOptions, Toasts};
+use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR, SUCCESS_COLOR};
+
+#[derive(Debug, Clone)]
+pub enum PageLoadState {
+    Ok,
+    Waiting(&'static str),
+    Err(String)
+}
 
 pub struct MainWindow {
     nag: Option<Nag52Diag>,
     pages: VecDeque<Box<dyn InterfacePage>>,
     curr_title: String,
-    bar: Option<Box<dyn StatusBar>>,
+    show_sbar: bool,
     show_back: bool,
     last_repaint_time: Instant
 }
@@ -30,23 +32,21 @@ impl MainWindow {
         Self {
             pages: VecDeque::new(),
             curr_title: "Ultimate-NAG52 config app".into(),
-            bar: None,
+            show_sbar: false,
             show_back: true,
             nag: None,
             last_repaint_time: Instant::now()
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
-        if let Some(bar) = p.get_status_bar() {
-            self.bar = Some(bar)
-        }
+        self.show_sbar = p.should_show_statusbar();
         self.pages.push_front(p)
     }
 
     pub fn pop_page(&mut self) {
         self.pages.pop_front();
-        if let Some(bar) = self.pages.get_mut(0).map(|x| x.get_status_bar()) {
-            self.bar = bar
+        if let Some(pg) = self.pages.get_mut(0) {
+            self.show_sbar = pg.should_show_statusbar()
         }
     }
 }
@@ -57,19 +57,23 @@ impl eframe::App for MainWindow {
         let mut s_bar_height = 0.0;
         if stack_size > 0 {
             let mut pop_page = false;
-            if let Some(status_bar) = self.bar.borrow_mut() {
+            if self.show_sbar {
                 egui::TopBottomPanel::bottom("NAV").show(ctx, |nav| {
                     nav.horizontal(|row| {
-                        status_bar.draw(row, ctx);
-                        if stack_size > 1 && self.show_back {
-                            if row.button("Back").clicked() {
+                        egui::widgets::global_dark_light_mode_buttons(row);
+                        if stack_size > 1 {
+                            if row.add_enabled(self.show_back, Button::new("Back")).clicked() {
                                 pop_page = true;
                             }
                         }
                         if let Some(nag) = &self.nag {
                             let _ = nag.with_kwp(|f| {
-                                if let Some(mode) = f.get_current_diag_mode() {
-                                    row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
+                                if f.is_ecu_connected() {
+                                    if let Some(mode) = f.get_current_diag_mode() {
+                                        row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
+                                    } 
+                                } else {
+                                    row.label(RichText::new("Disconnected").color(ERROR_COLOR));
                                 }
                                 Ok(())
                             });
@@ -92,7 +96,7 @@ impl eframe::App for MainWindow {
                 ))
                 .align_to_end(false)
                 .direction(Direction::BottomUp);
-
+            self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui, frame) {
                     PageAction::None => {}
@@ -105,11 +109,11 @@ impl eframe::App for MainWindow {
                     PageAction::Add(p) => self.add_new_page(p),
                     PageAction::Overwrite(p) => {
                         self.pages[0] = p;
-                        self.bar = self.pages[0].get_status_bar();
+                        self.show_sbar = self.pages[0].should_show_statusbar();
                     }
                     PageAction::RePaint => ctx.request_repaint(),
-                    PageAction::SetBackButtonState(state) => {
-                        self.show_back = state;
+                    PageAction::DisableBackBtn => {
+                        self.show_back = false;
                     }
                     PageAction::SendNotification { text, kind } => {
                         println!("Pushing notification {}", text);
@@ -138,8 +142,8 @@ pub enum PageAction {
     Destroy,
     RegisterNag(Nag52Diag),
     Add(Box<dyn InterfacePage>),
+    DisableBackBtn,
     Overwrite(Box<dyn InterfacePage>),
-    SetBackButtonState(bool),
     RePaint,
     SendNotification { text: String, kind: ToastKind },
 }
@@ -147,7 +151,7 @@ pub enum PageAction {
 pub trait InterfacePage {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> PageAction;
     fn get_title(&self) -> &'static str;
-    fn get_status_bar(&self) -> Option<Box<dyn StatusBar>>;
+    fn should_show_statusbar(&self) -> bool;
     fn destroy_nag(&self) -> bool {
         false
     }

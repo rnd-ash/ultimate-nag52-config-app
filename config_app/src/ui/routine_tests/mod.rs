@@ -6,18 +6,15 @@ use crate::window::PageAction;
 
 use self::solenoid_test::SolenoidTestPage;
 
-use super::status_bar::MainStatusBar;
-
 pub mod solenoid_test;
 
 pub struct RoutinePage {
-    bar: MainStatusBar,
     nag: Nag52Diag,
 }
 
 impl RoutinePage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
-        Self { bar, nag }
+    pub fn new(nag: Nag52Diag) -> Self {
+        Self { nag }
     }
 }
 
@@ -39,8 +36,7 @@ impl crate::window::InterfacePage for RoutinePage {
 
         if ui.button("Solenoid test").clicked() {
             page_action = PageAction::Add(Box::new(SolenoidTestPage::new(
-                self.nag.clone(),
-                self.bar.clone(),
+                self.nag.clone()
             )));
         }
 
@@ -51,7 +47,7 @@ impl crate::window::InterfacePage for RoutinePage {
         "Routine executor"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

@@ -1,0 +1,120 @@
+use std::{ptr::slice_from_raw_parts};
+
+use serde::{Deserialize, Serialize};
+
+pub type UnpackResult<T> = std::result::Result<T, UnPackError>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UnPackError {
+    WrongId {
+        wanted: u8,
+        real: u8
+    },
+    InvalidLen {
+        wanted: usize,
+        len: usize
+    }
+}
+
+impl ToString for UnPackError {
+    fn to_string(&self) -> String {
+        match self {
+            UnPackError::WrongId { wanted, real } => format!("Wrong setting ID. Wanted 0x{:02X?}, got 0x{:02X?}", wanted, real),
+            UnPackError::InvalidLen { wanted, len } => format!("Wrong response length. Wanted {} bytes, got {} bytes. Maybe a config app/firmware mismatch?", wanted, len),
+        }
+    }
+}
+
+pub fn unpack_settings<T>(settings_id: u8, raw: &[u8]) -> UnpackResult<T>
+where T: Copy {
+    if settings_id != raw[0] {
+        Err(UnPackError::WrongId { wanted: settings_id, real: raw[0] })
+    } else if raw.len()-1 != std::mem::size_of::<T>() { 
+        Err(UnPackError::InvalidLen { wanted: std::mem::size_of::<T>(), len: raw.len()-1 })
+    } else {
+        let ptr: *const T = raw[1..].as_ptr() as *const T;
+        Ok(unsafe { *ptr })
+    }
+}
+
+pub fn pack_settings<T>(settings_id: u8, settings: T) -> Vec<u8>
+where T: Copy {
+    let mut ret = vec![settings_id];
+    let ptr= slice_from_raw_parts((&settings as *const T) as *const u8, std::mem::size_of::<T>());
+    ret.extend_from_slice(unsafe { &*ptr });
+    ret
+}
+
+pub trait TcuSettings<'de> :  Serialize + Deserialize<'de> where Self: Sized {
+    fn wiki_url(&self) -> Option<&'static str>;
+    fn setting_name(&self) -> &'static str;
+    fn get_revision_name(&self) -> &'static str;
+    fn get_scn_id(&self) -> u8;
+}
+
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct LinearInterpSettings {
+    pub new_min: f32,
+    pub new_max: f32,
+    pub raw_min: f32,
+    pub raw_max: f32
+}
+
+impl LinearInterpSettings {
+    // Copied from TCU source lib/core/tcu_maths.cpp - Function scale_number()
+    pub fn calc_with_value(&self, input: f32) -> f32 {
+        let raw_limited = self.raw_min.max(input.min( self.raw_max));
+        return (((self.new_max - self.new_min) * (raw_limited - self.raw_min)) / (self.raw_max - self.raw_min)) + self.new_min;
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct TccSettings {
+    pub adapt_enable: bool,
+    pub enable_d1: bool,
+    pub enable_d2: bool,
+    pub enable_d3: bool,
+    pub enable_d4: bool,
+    pub enable_d5: bool,
+    pub prefill_pressure: u16,
+    pub lock_rpm_threshold: u16,
+    pub min_locking_rpm: u16,
+    pub adjust_interval_ms: u16,
+    pub tcc_stall_speed: u16,
+    pub min_torque_adapt: u16,
+    pub max_torque_adapt: u16,
+    pub prefill_min_engine_rpm: u16,
+    pub base_pressure_offset_start_ramp: u16,
+    pub pressure_increase_ramp_settings: LinearInterpSettings,
+    pub adapt_pressure_inc: u8,
+    pub adapt_lock_detect_time: u16,
+    pub pulling_slip_rpm_low_threshold: u16,
+    pub pulling_slip_rpm_high_threhold: u16,
+    pub reaction_torque_multiplier: f32,
+    pub trq_consider_coasting: u16,
+    pub load_dampening: LinearInterpSettings,
+    pub pressure_multiplier_output_rpm: LinearInterpSettings,
+    pub max_allowed_bite_pressure: u16,
+    pub max_allowed_pressure_longterm: u16,
+}
+
+impl TcuSettings<'_> for TccSettings {
+    fn wiki_url(&self) -> Option<&'static str> {
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/tcc#revision-a2-240423")
+    }
+
+    fn setting_name(&self) -> &'static str {
+        "TCC Settings"
+    }
+
+    fn get_revision_name(&self) -> &'static str {
+        "A2 (24/03/23)"
+    }
+
+    fn get_scn_id(&self) -> u8 {
+        0x01
+    }
+}
