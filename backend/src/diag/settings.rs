@@ -1,19 +1,13 @@
-use std::{ptr::slice_from_raw_parts};
+use std::ptr::slice_from_raw_parts;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub type UnpackResult<T> = std::result::Result<T, UnPackError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UnPackError {
-    WrongId {
-        wanted: u8,
-        real: u8
-    },
-    InvalidLen {
-        wanted: usize,
-        len: usize
-    }
+    WrongId { wanted: u8, real: u8 },
+    InvalidLen { wanted: usize, len: usize },
 }
 
 impl ToString for UnPackError {
@@ -26,11 +20,19 @@ impl ToString for UnPackError {
 }
 
 pub fn unpack_settings<T>(settings_id: u8, raw: &[u8]) -> UnpackResult<T>
-where T: Copy {
+where
+    T: Copy,
+{
     if settings_id != raw[0] {
-        Err(UnPackError::WrongId { wanted: settings_id, real: raw[0] })
-    } else if raw.len()-1 != std::mem::size_of::<T>() { 
-        Err(UnPackError::InvalidLen { wanted: std::mem::size_of::<T>(), len: raw.len()-1 })
+        Err(UnPackError::WrongId {
+            wanted: settings_id,
+            real: raw[0],
+        })
+    } else if raw.len() - 1 != std::mem::size_of::<T>() {
+        Err(UnPackError::InvalidLen {
+            wanted: std::mem::size_of::<T>(),
+            len: raw.len() - 1,
+        })
     } else {
         let ptr: *const T = raw[1..].as_ptr() as *const T;
         Ok(unsafe { *ptr })
@@ -38,20 +40,27 @@ where T: Copy {
 }
 
 pub fn pack_settings<T>(settings_id: u8, settings: T) -> Vec<u8>
-where T: Copy {
+where
+    T: Copy,
+{
     let mut ret = vec![settings_id];
-    let ptr= slice_from_raw_parts((&settings as *const T) as *const u8, std::mem::size_of::<T>());
+    let ptr = slice_from_raw_parts(
+        (&settings as *const T) as *const u8,
+        std::mem::size_of::<T>(),
+    );
     ret.extend_from_slice(unsafe { &*ptr });
     ret
 }
 
-pub trait TcuSettings<'de> :  Serialize + Deserialize<'de> where Self: Sized {
-    fn wiki_url(&self) -> Option<&'static str>;
-    fn setting_name(&self) -> &'static str;
-    fn get_revision_name(&self) -> &'static str;
-    fn get_scn_id(&self) -> u8;
+pub trait TcuSettings: Serialize + DeserializeOwned
+where
+    Self: Sized,
+{
+    fn wiki_url() -> Option<&'static str>;
+    fn setting_name() -> &'static str;
+    fn get_revision_name() -> &'static str;
+    fn get_scn_id() -> u8;
 }
-
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(C, packed)]
@@ -59,14 +68,16 @@ pub struct LinearInterpSettings {
     pub new_min: f32,
     pub new_max: f32,
     pub raw_min: f32,
-    pub raw_max: f32
+    pub raw_max: f32,
 }
 
 impl LinearInterpSettings {
     // Copied from TCU source lib/core/tcu_maths.cpp - Function scale_number()
     pub fn calc_with_value(&self, input: f32) -> f32 {
-        let raw_limited = self.raw_min.max(input.min( self.raw_max));
-        return (((self.new_max - self.new_min) * (raw_limited - self.raw_min)) / (self.raw_max - self.raw_min)) + self.new_min;
+        let raw_limited = self.raw_min.max(input.min(self.raw_max));
+        return (((self.new_max - self.new_min) * (raw_limited - self.raw_min))
+            / (self.raw_max - self.raw_min))
+            + self.new_min;
     }
 }
 
@@ -101,20 +112,50 @@ pub struct TccSettings {
     pub max_allowed_pressure_longterm: u16,
 }
 
-impl TcuSettings<'_> for TccSettings {
-    fn wiki_url(&self) -> Option<&'static str> {
+impl TcuSettings for TccSettings {
+    fn wiki_url() -> Option<&'static str> {
         Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/tcc#revision-a2-240423")
     }
 
-    fn setting_name(&self) -> &'static str {
+    fn setting_name() -> &'static str {
         "TCC Settings"
     }
 
-    fn get_revision_name(&self) -> &'static str {
-        "A2 (24/03/23)"
+    fn get_revision_name() -> &'static str {
+        "A2 (24/04/23)"
     }
 
-    fn get_scn_id(&self) -> u8 {
+    fn get_scn_id() -> u8 {
         0x01
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct SolSettings {
+    min_batt_power_on_test: u16,
+    current_threshold_error: u16,
+    cc_vref_solenoid: u16,
+    cc_temp_coefficient_wires: f32,
+    cc_reference_resistance: f32,
+    cc_reference_temp: f32,
+    cc_max_adjust_per_step: f32,
+}
+
+impl TcuSettings for SolSettings {
+    fn wiki_url() -> Option<&'static str> {
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/SolenoidControlProgramSettings#revision-a0-260423")
+    }
+
+    fn setting_name() -> &'static str {
+        "Solenoid subsystem Settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A0 (26/04/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x02
     }
 }

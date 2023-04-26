@@ -11,7 +11,7 @@ use std::{
         mpsc::{self},
         Arc,
     },
-    time::{Instant, Duration},
+    time::{Duration, Instant},
 };
 
 use super::usb_scanner::Nag52UsbScanner;
@@ -219,12 +219,18 @@ impl PayloadChannel for Nag52USB {
     }
 
     fn read_bytes(&mut self, timeout_ms: u32) -> ecu_diagnostics::channel::ChannelResult<Vec<u8>> {
-        if let Ok((id, data)) = self.rx_diag.recv_timeout(Duration::from_millis(timeout_ms as u64)) {
+        if let Ok((id, data)) = self
+            .rx_diag
+            .recv_timeout(Duration::from_millis(timeout_ms as u64))
+        {
             if id == self.rx_id {
                 Ok(data)
             } else {
                 // Should NEVER happen
-                Err(ChannelError::Other(format!("Expected Rx addr 0x{:04X?} but got 0x{:04X?}", self.rx_id, id)))
+                Err(ChannelError::Other(format!(
+                    "Expected Rx addr 0x{:04X?} but got 0x{:04X?}",
+                    self.rx_id, id
+                )))
             }
         } else {
             Err(ChannelError::BufferEmpty)
@@ -273,7 +279,7 @@ impl PayloadChannel for Nag52USB {
     fn read_write_bytes(
         &mut self,
         addr: u32,
-        ext_id: Option<u8>, 
+        ext_id: Option<u8>,
         buffer: &[u8],
         write_timeout_ms: u32,
         read_timeout_ms: u32,

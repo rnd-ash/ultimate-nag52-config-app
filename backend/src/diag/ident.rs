@@ -1,8 +1,8 @@
-use std::fmt::{Display};
+use std::fmt::Display;
 
-use ecu_diagnostics::{DiagServerResult, bcd_decode_slice};
+use ecu_diagnostics::{bcd_decode_slice, DiagServerResult};
 
-use super::{Nag52Diag};
+use super::Nag52Diag;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EgsMode {
@@ -109,8 +109,6 @@ impl Nag52Diag {
     }
 
     pub fn get_ecu_sn(&mut self) -> DiagServerResult<String> {
-        self.with_kwp(|k| {
-            Ok(String::from_utf8(k.kwp_read_ecu_serial_number()?).unwrap())
-        })
+        self.with_kwp(|k| Ok(String::from_utf8(k.kwp_read_ecu_serial_number()?).unwrap()))
     }
 }

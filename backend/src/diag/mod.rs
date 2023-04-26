@@ -1,12 +1,18 @@
 use core::fmt;
 use std::{
-    borrow::{BorrowMut, Borrow},
+    borrow::{Borrow, BorrowMut},
     sync::{Arc, Mutex, RwLock},
 };
 
-use ecu_diagnostics::{channel::*, dynamic_diag::{DynamicDiagSession, DiagServerBasicOptions, TimeoutConfig, DiagServerAdvancedOptions, DiagProtocol, DiagSessionMode}};
 use ecu_diagnostics::hardware::{
     passthru::*, Hardware, HardwareError, HardwareInfo, HardwareResult, HardwareScanner,
+};
+use ecu_diagnostics::{
+    channel::*,
+    dynamic_diag::{
+        DiagProtocol, DiagServerAdvancedOptions, DiagServerBasicOptions, DiagSessionMode,
+        DynamicDiagSession, TimeoutConfig,
+    },
 };
 use ecu_diagnostics::{kwp2000::*, DiagServerResult};
 
@@ -18,8 +24,8 @@ use crate::hw::{
     usb_scanner::Nag52UsbScanner,
 };
 
-pub mod ident;
 pub mod flash;
+pub mod ident;
 pub mod settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -175,9 +181,9 @@ impl Nag52Diag {
             send_id: 0x07E1,
             recv_id: 0x07E9,
             timeout_cfg: TimeoutConfig {
-            read_timeout_ms: 5000,
-            write_timeout_ms: 5000,
-            }
+                read_timeout_ms: 5000,
+                write_timeout_ms: 5000,
+            },
         };
 
         let adv_opts = DiagServerAdvancedOptions {
@@ -201,7 +207,7 @@ impl Nag52Diag {
             hw.create_isotp_channel()?,
             channel_cfg,
             basic_opts,
-            Some(adv_opts)
+            Some(adv_opts),
         )?;
 
         Ok(Self {
@@ -230,9 +236,7 @@ impl Nag52Diag {
     {
         match self.server.borrow() {
             None => Err(HardwareError::DeviceNotOpen.into()),
-            Some(s) => {
-                kwp_fn(&s)
-            }
+            Some(s) => kwp_fn(&s),
         }
     }
 }
