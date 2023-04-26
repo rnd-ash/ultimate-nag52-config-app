@@ -1,6 +1,6 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}};
 
-use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings}, Nag52Diag}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
+use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings}, Nag52Diag}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
 use eframe::egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label};
 use nfd::Response;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
@@ -24,12 +24,30 @@ pub struct TcuAdvSettingsUi {
     start_time: Instant,
     tcc_settings: TcuSettingsWrapper<TccSettings>,
     sol_settings: TcuSettingsWrapper<SolSettings>,
+    sbs_settings: TcuSettingsWrapper<SbsSettings>,
 }
 
 pub fn make_tcu_settings_wrapper<T>() -> (TcuSettingsWrapper<T>, TcuSettingsWrapper<T>) where T: Default {
     let x = Arc::new(RwLock::new(SettingState::Unint));
     let y = x.clone();
     (x, y)
+}
+
+pub fn read_scn_settings<T>(nag: &Nag52Diag, dest: &TcuSettingsWrapper<T>)
+where T: TcuSettings {
+    match nag.with_kwp(|kwp| {
+        kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])
+    }) {
+        Ok(res) => {
+            match unpack_settings::<T>(T::get_scn_id(), &res[2..]) {
+                Ok(r) => *dest.write().unwrap() = SettingState::LoadOk(r),
+                Err(e) => *dest.write().unwrap() = SettingState::LoadErr(e.to_string()),
+            }
+        },
+        Err(e) => {
+            *dest.write().unwrap() = SettingState::LoadErr(e.to_string());
+        },
+    }
 }
 
 impl TcuAdvSettingsUi {
@@ -39,6 +57,7 @@ impl TcuAdvSettingsUi {
 
         let (tcc, tcc_t) = make_tcu_settings_wrapper::<TccSettings>();
         let (sol, sol_t) = make_tcu_settings_wrapper::<SolSettings>();
+        let (sbs, sbs_t) = make_tcu_settings_wrapper::<SbsSettings>();
         let nag_c = nag.clone();
         std::thread::spawn(move|| {
             let res = nag_c.with_kwp(|x| {
@@ -55,32 +74,9 @@ impl TcuAdvSettingsUi {
                     return;
                 },
             };
-            match nag_c.with_kwp(|kwp| {
-                kwp.send_byte_array_with_response(&[0x21, 0xFC, 0x01])
-            }) {
-                Ok(res) => {
-                    match unpack_settings::<TccSettings>(0x01, &res[2..]) {
-                        Ok(r) => *tcc_t.write().unwrap() = SettingState::LoadOk(r),
-                        Err(e) => *tcc_t.write().unwrap() = SettingState::LoadErr(e.to_string()),
-                    }
-                },
-                Err(e) => {
-                    *tcc_t.write().unwrap() = SettingState::LoadErr(e.to_string());
-                },
-            }
-            match nag_c.with_kwp(|kwp| {
-                kwp.send_byte_array_with_response(&[0x21, 0xFC, 0x02])
-            }) {
-                Ok(res) => {
-                    match unpack_settings::<SolSettings>(0x02, &res[2..]) {
-                        Ok(r) => *sol_t.write().unwrap() = SettingState::LoadOk(r),
-                        Err(e) => *sol_t.write().unwrap() = SettingState::LoadErr(e.to_string()),
-                    }
-                },
-                Err(e) => {
-                    *sol_t.write().unwrap() = SettingState::LoadErr(e.to_string());
-                },
-            }
+            read_scn_settings(&nag_c, &tcc_t);
+            read_scn_settings(&nag_c, &sol_t);
+            read_scn_settings(&nag_c, &sbs_t);
             *is_ready_t.write().unwrap() = PageLoadState::Ok;
         });
         Self {
@@ -88,126 +84,133 @@ impl TcuAdvSettingsUi {
             nag,
             start_time: Instant::now(),
             tcc_settings: tcc,
-            sol_settings: sol
+            sol_settings: sol,
+            sbs_settings: sbs
         }
     } 
 }
 
 
-pub fn make_settings_window<'de, T: TcuSettings>(nag: &Nag52Diag, settings: &mut T, ui: &mut eframe::egui::Ui) -> Option<PageAction>
+pub fn make_settings_window<'de, T: TcuSettings>(nag: &Nag52Diag, settings_ref: &TcuSettingsWrapper<T>, ui: &mut eframe::egui::Ui) -> Option<PageAction>
 where T: Clone + Copy + Serialize + DeserializeOwned {
     let mut action = None;
-    Window::new(T::setting_name()).min_width(300.0).resizable(false).show(ui.ctx(), |ui| {
-        ui.with_layout(Layout::top_down(eframe::emath::Align::Min), |ui| {
-            ScrollArea::new([false, true]).max_height(ui.available_height()/2.0).show(ui, |ui| {
-                let mut v = serde_yaml::to_value(&settings).unwrap();
+    let setting_state = settings_ref.read().unwrap().clone();
+    if let SettingState::LoadOk(mut settings) = setting_state {
+        Window::new(T::setting_name()).min_width(300.0).resizable(false).show(ui.ctx(), |ui| {
+            ui.with_layout(Layout::top_down(eframe::emath::Align::Min), |ui| {
                 ui.label(format!("Setting revision name: {}", T::get_revision_name()));
                 if let Some(url) = T::wiki_url() {
                     ui.hyperlink_to(format!("Help on {}", T::setting_name()), url);
                 }
-                make_ui_for_value(T::setting_name(), &mut v, ui);
-                if let Ok(s) = serde_yaml::from_value::<T>(v) {
-                    *settings = s;
-                }
-            });
+                ScrollArea::new([false, true]).max_height(ui.available_height()/2.0).show(ui, |ui| {
+                    let mut v = serde_yaml::to_value(&settings).unwrap();
+                    make_ui_for_value(T::setting_name(), &mut v, ui);
+                    if let Ok(s) = serde_yaml::from_value::<T>(v) {
+                        settings = s;
+                    }
+                });
 
-            let ba = pack_settings(T::get_scn_id(), *settings);
-            ui.add_space(10.0);
-            ui.label("Hex SCN coding (Display only)");
-            let w = ui.available_width();
-            ScrollArea::new([true, false]).id_source(ba.clone()).show(ui, |ui| {
-                //ui.add(Label::new(format!("{:02X?}", ba)).wrap(false));
-                let mut s = format!("{:02X?}", ba);
-                ui.add_enabled(false, TextEdit::singleline(&mut s).desired_width(f32::INFINITY));
-            });
-            ui.add_space(10.0);
-            ui.horizontal(|x| {
-                if x.button("Write settings").clicked() {
-                    let res = nag.with_kwp(|x| {
-                        let mut req = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC];
-                        req.extend_from_slice(&ba);
-                        x.send_byte_array_with_response(&req)
-                    });
-                    match res {
-                        Ok(_) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("{} write OK!", T::setting_name()), 
-                                kind: egui_toast::ToastKind::Success 
-                            })
-                        },
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Error writing {}: {}", T::setting_name(), e.to_string()), 
-                                kind: egui_toast::ToastKind::Error 
-                            })
-                        }
-                    }
-                }
-                if x.button("Reset to TCU Default").clicked() {
-                    let res = nag.with_kwp(|x| {
-                        x.send_byte_array_with_response(&[KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, T::get_scn_id(), 0x00])
-                    });
-                    match res {
-                        Ok(_) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("{} reset OK!", T::setting_name()), 
-                                kind: egui_toast::ToastKind::Success 
-                            });
-                            if let Ok(x) = nag.with_kwp(|kwp| kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])) {
-                                if let Ok(res) = unpack_settings(T::get_scn_id(), &x[2..]) {
-                                    *settings = res;
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Error resetting {}: {}", T::setting_name(), e.to_string()), 
-                                kind: egui_toast::ToastKind::Error 
-                            })
-                        }
-                    }
-                }
-                if x.button("Save to YML").clicked() {
-                    // Backup the settings to file
-                    if let Ok(dialog) = nfd::dialog_save().filter("yml").open() {
-                        if let Response::Okay(mut file) = dialog {
-                            if !file.ends_with(".yml") {
-                                file.push_str(".yml");
-                            }
-                            File::create(file.clone()).unwrap().write_all(serde_yaml::to_string(&settings).unwrap().as_bytes()).unwrap();
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("{} backup created at {}!", T::setting_name(), file), 
-                                kind: egui_toast::ToastKind::Success 
-                            });
-                        }
-                    }
-
-                }
-                if x.button("Load from YML").clicked() {
-                    // Backup the settings to file
-                    if let Ok(dialog) = nfd::open_dialog(Some("yml"), None, nfd::DialogType::SingleFile) {
-                        if let Response::Okay(file) = dialog {
-                            let mut s = String::new();
-                            let mut f = File::open(&file).unwrap();
-                            f.read_to_string(&mut s).unwrap();
-                            if let Ok(s) = serde_yaml::from_str(&s) {
-                                *settings = s;
+                let ba = pack_settings(T::get_scn_id(), settings);
+                ui.add_space(10.0);
+                ui.label("Hex SCN coding (Display only)");
+                let w = ui.available_width();
+                ScrollArea::new([true, false]).id_source(ba.clone()).show(ui, |ui| {
+                    ui.add(Label::new(format!("{:02X?}", ba)).wrap(false));
+                    //let mut s = format!("{:02X?}", ba);
+                    //ui.add_enabled(true, TextEdit::singleline(&mut s).desired_width(100000.0));
+                });
+                ui.add_space(10.0);
+                ui.horizontal(|x| {
+                    if x.button("Write settings").clicked() {
+                        let res = nag.with_kwp(|x| {
+                            let mut req = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC];
+                            req.extend_from_slice(&ba);
+                            x.send_byte_array_with_response(&req)
+                        });
+                        match res {
+                            Ok(_) => {
                                 action = Some(PageAction::SendNotification { 
-                                    text: format!("{} loaded OK from {}!", T::setting_name(), file), 
+                                    text: format!("{} write OK!", T::setting_name()), 
+                                    kind: egui_toast::ToastKind::Success 
+                                })
+                            },
+                            Err(e) => {
+                                action = Some(PageAction::SendNotification { 
+                                    text: format!("Error writing {}: {}", T::setting_name(), e.to_string()), 
+                                    kind: egui_toast::ToastKind::Error 
+                                })
+                            }
+                        }
+                    }
+                    if x.button("Reset to TCU Default").clicked() {
+                        let res = nag.with_kwp(|x| {
+                            x.send_byte_array_with_response(&[KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, T::get_scn_id(), 0x00])
+                        });
+                        match res {
+                            Ok(_) => {
+                                action = Some(PageAction::SendNotification { 
+                                    text: format!("{} reset OK!", T::setting_name()), 
                                     kind: egui_toast::ToastKind::Success 
                                 });
-                            } else {
+                                if let Ok(x) = nag.with_kwp(|kwp| kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])) {
+                                    if let Ok(res) = unpack_settings(T::get_scn_id(), &x[2..]) {
+                                        settings = res;
+                                    }
+                                }
+                            },
+                            Err(e) => {
                                 action = Some(PageAction::SendNotification { 
-                                    text: format!("Cannot load {}. Invalid settings YML!", file), 
+                                    text: format!("Error resetting {}: {}", T::setting_name(), e.to_string()), 
                                     kind: egui_toast::ToastKind::Error 
-                                });
+                                })
                             }
                         }
                     }
-                }
+                    if x.button("Save to YML").clicked() {
+                        // Backup the settings to file
+                        if let Ok(dialog) = nfd::dialog_save().filter("yml").open() {
+                            if let Response::Okay(mut file) = dialog {
+                                if !file.ends_with(".yml") {
+                                    file.push_str(".yml");
+                                }
+                                File::create(file.clone()).unwrap().write_all(serde_yaml::to_string(&settings).unwrap().as_bytes()).unwrap();
+                                action = Some(PageAction::SendNotification { 
+                                    text: format!("{} backup created at {}!", T::setting_name(), file), 
+                                    kind: egui_toast::ToastKind::Success 
+                                });
+                            }
+                        }
+
+                    }
+                    if x.button("Load from YML").clicked() {
+                        // Backup the settings to file
+                        if let Ok(dialog) = nfd::open_dialog(Some("yml"), None, nfd::DialogType::SingleFile) {
+                            if let Response::Okay(file) = dialog {
+                                let mut s = String::new();
+                                let mut f = File::open(&file).unwrap();
+                                f.read_to_string(&mut s).unwrap();
+                                if let Ok(s) = serde_yaml::from_str(&s) {
+                                    settings = s;
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("{} loaded OK from {}!", T::setting_name(), file), 
+                                        kind: egui_toast::ToastKind::Success 
+                                    });
+                                } else {
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("Cannot load {}. Invalid settings YML!", file), 
+                                        kind: egui_toast::ToastKind::Error 
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
             });
         });
-    });
+        *settings_ref.write().unwrap() = SettingState::LoadOk(settings);
+    } else if let SettingState::LoadErr(e) = setting_state {
+        ui.label(format!("{} could not be read: {}", T::setting_name(), e));
+    }
     return action;
 }
 
@@ -234,23 +237,14 @@ impl InterfacePage for TcuAdvSettingsUi {
         }
 
         // Continues if OK
-        let tcc = self.tcc_settings.read().unwrap().clone();
         let mut action = None;
-        if let SettingState::LoadOk(mut settings) = tcc {
-            action = make_settings_window(&self.nag, &mut settings, ui);
-            *self.tcc_settings.write().unwrap() = SettingState::LoadOk(settings);
-        } else if let SettingState::LoadErr(e) = tcc {
-            ui.label(format!("Tcc settings could not be read: {}", e));
+        action = make_settings_window(&self.nag, &self.tcc_settings, ui);
+        if action.is_none() {
+            action = make_settings_window(&self.nag, &self.sol_settings, ui);
         }
-
-        let sol = self.sol_settings.read().unwrap().clone();
-        if let SettingState::LoadOk(mut settings) = sol {
-            action = make_settings_window(&self.nag, &mut settings, ui);
-            *self.sol_settings.write().unwrap() = SettingState::LoadOk(settings);
-        } else if let SettingState::LoadErr(e) = sol {
-            ui.label(format!("Solenoid settings could not be read: {}", e));
+        if action.is_none() {
+            action = make_settings_window(&self.nag, &self.sbs_settings, ui);
         }
-
         if let Some(act) = action {
             act
         } else {

@@ -52,7 +52,7 @@ where
     ret
 }
 
-pub trait TcuSettings: Serialize + DeserializeOwned
+pub trait TcuSettings: Copy + Clone + Serialize + DeserializeOwned
 where
     Self: Sized,
 {
@@ -157,5 +157,43 @@ impl TcuSettings for SolSettings {
 
     fn get_scn_id() -> u8 {
         0x02
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub  struct SbsSettings {
+    shift_solenoid_pwm_reduction_time: u16,
+    delta_rpm_flare_detect: u16,
+    f_shown_if_flare: bool,
+    torque_request_upshift: bool,
+    torque_request_downshift: bool,
+    upshift_use_driver_torque_as_input: bool,
+    downshift_use_driver_torque_as_input: bool,
+    torque_request_downramp_percent: u16,
+    torque_request_hold_percent: u16,
+    torque_reduction_factor_input_torque: LinearInterpSettings,
+    torque_reduction_factor_shift_speed: LinearInterpSettings,
+    min_spc_delta_mpc: u16,
+    stationary_shift_hold_time: u16,
+    shift_timeout_pulling: u16,
+    shift_timeout_coasting: u16,
+}
+
+impl TcuSettings for SbsSettings {
+    fn wiki_url() -> Option<&'static str> {
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/ShiftProgramBasicSettings#revision-a0-260423")
+    }
+
+    fn setting_name() -> &'static str {
+        "Shift program basic Settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A0 (26/04/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x03
     }
 }
