@@ -1,3 +1,3 @@
 [workspace]
-members=["backend","config_app"]
+members=["backend","config_app", "config_app_macros"]
 resolver="2"

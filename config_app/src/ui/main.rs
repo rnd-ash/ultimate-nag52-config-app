@@ -6,19 +6,21 @@ use backend::diag::settings::unpack_settings;
 use backend::serde_yaml;
 use backend::serde_yaml::Mapping;
 use backend::serde_yaml::Value;
+use config_app_macros::include_base64;
 use eframe::egui;
 use eframe::Frame;
 use eframe::egui::CollapsingHeader;
 use eframe::egui::DragValue;
+use eframe::egui::RichText;
 use eframe::egui::ScrollArea;
 use eframe::egui::plot::Line;
 use eframe::egui::plot::Plot;
 use eframe::egui::plot::PlotPoints;
+use eframe::epaint::Color32;
 use serde_json::Number;
 use std::borrow::BorrowMut;
 use std::ops::RangeInclusive;
 use std::sync::{mpsc, Arc, Mutex};
-
 use crate::window::{InterfacePage, PageAction};
 
 use super::settings_ui_gen::TcuAdvSettingsUi;
@@ -68,23 +70,33 @@ impl InterfacePage for MainPage {
             self.first_run = true;
             return PageAction::RegisterNag(self.diag_server.clone());
         }
-        // UI context menu
-        egui::menu::bar(ui, |bar_ui| {
-            bar_ui.menu_button("File", |x| {
-                if x.button("Quit").clicked() {
-                    //TODO
-                }
-                if x.button("About").clicked() {
-                    self.info = self.diag_server.query_ecu_data().ok();
-                    self.sn = self.diag_server.get_ecu_sn().ok();
-                    self.show_about_ui = true;
-                }
-            })
+        ui.vertical_centered(|x| {
+            x.heading("Welcome to the Ultimate-NAG52 configuration app!");
+            if env!("GIT_BUILD").ends_with("-dirty") {
+                x.label(format!("Config app version {} (Build {})", env!("CARGO_PKG_VERSION"), env!("GIT_BUILD")));
+                x.label(RichText::new("Warning. You have a modified copy of the config app! Bugs may be present!").color(Color32::RED));
+            } else {
+                x.label(format!("Config app version {} (Build {})", env!("CARGO_PKG_VERSION"), env!("GIT_BUILD")));
+            }
         });
+        ui.separator();
+        ui.label(r#"
+            This application lets you do many things with the TCU!
+            If you are lost or need help, you can always consult the wiki below,
+            or join the Ultimate-NAG52 discussions Telegram group!
+        "#);
+        ui.heading("Useful links");
+        // Weblinks are base64 encoded to avoid potential scraping
+        ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
+        ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
+        ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
+        ui.label("Code repositories");
+        ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
+        ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
         ui.add(egui::Separator::default());
         let mut create_page = None;
-        ui.vertical(|v| {
-            v.heading("Utilities");
+        ui.vertical_centered(|v| {
+            v.heading("Tools");
             if v.button("Updater").clicked() {
                 create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
                     self.diag_server.clone(),
@@ -110,7 +122,7 @@ impl InterfacePage for MainPage {
                     self.diag_server.clone(),
                 ))));
             }
-            if v.button("Map tuner").clicked() {
+            if v.button("Map Tuner").clicked() {
                 create_page = Some(PageAction::Add(Box::new(MapEditor::new(
                     self.diag_server.clone(),
                 ))));
@@ -120,7 +132,14 @@ impl InterfacePage for MainPage {
                     self.diag_server.clone(),
                 ))));
             }
-            if v.button("Configure drive profiles").clicked() {}
+            if v.button("Configure drive profiles").clicked() {
+                create_page = Some(
+                    PageAction::SendNotification { 
+                        text: "You have found a unimplemented feature!".into(), 
+                        kind: egui_toast::ToastKind::Info 
+                    }
+                );
+            }
             if v.button("Configure vehicle / gearbox").clicked() {
                 create_page = Some(PageAction::Add(Box::new(ConfigPage::new(
                     self.diag_server.clone(),
