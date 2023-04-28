@@ -168,7 +168,7 @@ unsafe impl Send for Nag52Diag {}
 
 impl Nag52Diag {
     pub fn new(hw: AdapterHw) -> DiagServerResult<Self> {
-        let channel_cfg = IsoTPSettings {
+        let mut channel_cfg = IsoTPSettings {
             block_size: 0,
             st_min: 0,
             extended_addresses: None,
@@ -177,12 +177,18 @@ impl Nag52Diag {
             can_use_ext_addr: false,
         };
 
+        #[cfg(unix)]
+        if let AdapterHw::SocketCAN(_) = hw {
+            channel_cfg.block_size = 8;
+            channel_cfg.st_min = 0x20;
+        }
+
         let basic_opts = DiagServerBasicOptions {
             send_id: 0x07E1,
             recv_id: 0x07E9,
             timeout_cfg: TimeoutConfig {
-                read_timeout_ms: 5000,
-                write_timeout_ms: 5000,
+                read_timeout_ms: 10000,
+                write_timeout_ms: 10000,
             },
         };
 
