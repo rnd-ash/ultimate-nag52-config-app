@@ -1,6 +1,6 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}};
 
-use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings}, Nag52Diag}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
+use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings}, Nag52Diag}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
 use eframe::egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label};
 use nfd::Response;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
@@ -25,6 +25,7 @@ pub struct TcuAdvSettingsUi {
     tcc_settings: TcuSettingsWrapper<TccSettings>,
     sol_settings: TcuSettingsWrapper<SolSettings>,
     sbs_settings: TcuSettingsWrapper<SbsSettings>,
+    nag_settings: TcuSettingsWrapper<NagSettings>,
 }
 
 pub fn make_tcu_settings_wrapper<T>() -> (TcuSettingsWrapper<T>, TcuSettingsWrapper<T>) where T: Default {
@@ -58,6 +59,7 @@ impl TcuAdvSettingsUi {
         let (tcc, tcc_t) = make_tcu_settings_wrapper::<TccSettings>();
         let (sol, sol_t) = make_tcu_settings_wrapper::<SolSettings>();
         let (sbs, sbs_t) = make_tcu_settings_wrapper::<SbsSettings>();
+        let (gbs, gbs_t) = make_tcu_settings_wrapper::<NagSettings>();
         let nag_c = nag.clone();
         std::thread::spawn(move|| {
             let res = nag_c.with_kwp(|x| {
@@ -77,6 +79,7 @@ impl TcuAdvSettingsUi {
             read_scn_settings(&nag_c, &tcc_t);
             read_scn_settings(&nag_c, &sol_t);
             read_scn_settings(&nag_c, &sbs_t);
+            read_scn_settings(&nag_c, &gbs_t);
             *is_ready_t.write().unwrap() = PageLoadState::Ok;
         });
         Self {
@@ -85,7 +88,8 @@ impl TcuAdvSettingsUi {
             start_time: Instant::now(),
             tcc_settings: tcc,
             sol_settings: sol,
-            sbs_settings: sbs
+            sbs_settings: sbs,
+            nag_settings: gbs
         }
     } 
 }
@@ -96,7 +100,7 @@ where T: Clone + Copy + Serialize + DeserializeOwned {
     let mut action = None;
     let setting_state = settings_ref.read().unwrap().clone();
     if let SettingState::LoadOk(mut settings) = setting_state {
-        Window::new(T::setting_name()).min_width(300.0).resizable(false).show(ui.ctx(), |ui| {
+        Window::new(T::setting_name()).min_width(300.0).resizable(true).collapsible(true).show(ui.ctx(), |ui| {
             ui.with_layout(Layout::top_down(eframe::emath::Align::Min), |ui| {
                 ui.label(format!("Setting revision name: {}", T::get_revision_name()));
                 if let Some(url) = T::wiki_url() {
@@ -129,10 +133,17 @@ where T: Clone + Copy + Serialize + DeserializeOwned {
                         });
                         match res {
                             Ok(_) => {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} write OK!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Success 
-                                })
+                                if T::effect_immediate() {
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("{} write OK!", T::setting_name()), 
+                                        kind: egui_toast::ToastKind::Success 
+                                    });
+                                } else {
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("{} write OK, but changes are only applied after a restart!", T::setting_name()), 
+                                        kind: egui_toast::ToastKind::Warning 
+                                    });
+                                }
                             },
                             Err(e) => {
                                 action = Some(PageAction::SendNotification { 
@@ -148,10 +159,17 @@ where T: Clone + Copy + Serialize + DeserializeOwned {
                         });
                         match res {
                             Ok(_) => {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} reset OK!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Success 
-                                });
+                                if T::effect_immediate() {
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("{} reset OK!", T::setting_name()), 
+                                        kind: egui_toast::ToastKind::Success 
+                                    });
+                                } else {
+                                    action = Some(PageAction::SendNotification { 
+                                        text: format!("{} reset OK, but changes are only applied after a restart!", T::setting_name()), 
+                                        kind: egui_toast::ToastKind::Warning 
+                                    });
+                                }
                                 if let Ok(x) = nag.with_kwp(|kwp| kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])) {
                                     if let Ok(res) = unpack_settings(T::get_scn_id(), &x[2..]) {
                                         settings = res;
@@ -245,6 +263,9 @@ impl InterfacePage for TcuAdvSettingsUi {
         if action.is_none() {
             action = make_settings_window(&self.nag, &self.sbs_settings, ui);
         }
+        if action.is_none() {
+            action = make_settings_window(&self.nag, &self.nag_settings, ui);
+        }
         if let Some(act) = action {
             act
         } else {
@@ -278,7 +299,7 @@ fn make_ui_for_mapping(setting_name: &'static str, v: &mut Mapping, ui: &mut egu
     .striped(true)
     .min_col_width(100.0)
     .show(ui, |ui| {
-        ui.heading("Key name");
+        ui.heading("Variable");
         ui.heading("Value");
         ui.end_row();
         for (i, v) in v.iter_mut() {
@@ -311,26 +332,25 @@ fn make_ui_for_mapping(setting_name: &'static str, v: &mut Mapping, ui: &mut egu
                             .show(sub, |p| {
                                 p.line(line)
                             });
-                    
                     }
                     make_ui_for_mapping(setting_name,&mut v.as_mapping_mut().unwrap(), sub);
                 });
                 ui.end_row();
             } else if v.is_bool() {
-                ui.label(key);
+                ui.code(format!("{key}"));
                 let mut o = v.as_bool().unwrap();
                 ui.checkbox(&mut o, "");
                 *v = Value::from(o);
                 ui.end_row();
             } else if v.is_f64() {
-                ui.label(format!("{key}: "));
+                ui.code(format!("{key}: "));
                 let mut o = v.as_f64().unwrap();
                 let d = DragValue::new(&mut o).max_decimals(3).speed(0);
                 ui.add(d);
                 *v = Value::from(o);
                 ui.end_row();
             } else if v.is_u64(){
-                ui.label(format!("{key}: "));
+                ui.code(format!("{key}: "));
                 let mut o = v.as_u64().unwrap();
                 let d = DragValue::new(&mut o).max_decimals(0).speed(0).clamp_range(RangeInclusive::new(0, i32::MAX));
                 ui.add(d);

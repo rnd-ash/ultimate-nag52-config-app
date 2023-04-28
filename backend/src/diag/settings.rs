@@ -60,6 +60,9 @@ where
     fn setting_name() -> &'static str;
     fn get_revision_name() -> &'static str;
     fn get_scn_id() -> u8;
+    fn effect_immediate() -> bool {
+        true
+    }
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -195,5 +198,61 @@ impl TcuSettings for SbsSettings {
 
     fn get_scn_id() -> u8 {
         0x03
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct GearboxInfo {
+    max_torque: u16,
+    ratio_1: f32,
+    ratio_2: f32,
+    ratio_3: f32,
+    ratio_4: f32,
+    ratio_5: f32,
+    ratio_r1: f32,
+    ratio_r2: f32,
+    power_loss_1: u8,
+    power_loss_2: u8,
+    power_loss_3: u8,
+    power_loss_4: u8,
+    power_loss_5: u8,
+    power_loss_r1: u8,
+    power_loss_r2: u8,
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct NagSettings {
+    max_drift_1: u8,
+    max_drift_2: u8,
+    max_drift_3: u8,
+    max_drift_4: u8,
+    max_drift_5: u8,
+    max_drift_r1: u8,
+    max_drift_r2: u8,
+    small_nag: GearboxInfo,
+    large_nag: GearboxInfo,
+}
+
+impl TcuSettings for NagSettings {
+    fn wiki_url() -> Option<&'static str> {
+        None
+    }
+
+    fn setting_name() -> &'static str {
+        "NAG Settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A0 (28/04/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x04
+    }
+
+    fn effect_immediate() -> bool {
+        false
     }
 }
