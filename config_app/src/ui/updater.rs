@@ -106,24 +106,28 @@ impl InterfacePage for UpdatePage {
         let mut read_partition: Option<(PartitionInfo, String)> = None;
         ui.heading("Coredump info");
         if let Some(coredump) = &self.coredump {
-            egui::Grid::new("cdumpinfo").striped(true).show(ui, |ui| {
-                ui.label("Address");
-                ui.label(format!("0x{:08X?}", coredump.address));
-                ui.end_row();
+            if coredump.size != 0 {
+                egui::Grid::new("cdumpinfo").striped(true).show(ui, |ui| {
+                    ui.label("Address");
+                    ui.label(format!("0x{:08X?}", coredump.address));
+                    ui.end_row();
 
-                ui.label("Size");
-                ui.label(format!("{:.1}Kb", (coredump.size as f32)/1024.0));
-                ui.end_row();
-            });
-            if ui.button("Read coredump").clicked() {
-                read_partition = Some((coredump.clone(), "un52_coredump.elf".to_string()))
+                    ui.label("Size");
+                    ui.label(format!("{:.1}Kb", (coredump.size as f32)/1024.0));
+                    ui.end_row();
+                });
+                if ui.button("Read coredump").clicked() {
+                    read_partition = Some((coredump.clone(), "un52_coredump.elf".to_string()))
+                }
+            } else {
+                ui.label("No coredump stored on this TCU!");
             }
         } else {
             ui.label("No coredump found");
         }
         ui.separator();
         if let Some((info, part_info)) = &self.old_fw {
-            ui.label("Current Firmware");
+            ui.heading("Current Firmware");
             make_fw_info(ui, "cfw", &info, Some(part_info));
             if ui.button("Backup current firmware").clicked() {
                 read_partition = Some((part_info.clone(), format!("un52_fw_{}_backup.bin", info.get_date())))
@@ -133,23 +137,21 @@ impl InterfacePage for UpdatePage {
             read_partition = Some((PartitionInfo { address: 0, size: 0x400000  } , "un52_flash_backup.bin".to_string()))
         }
         ui.separator();
+        ui.heading("Update to new Firmware");
         if ui.button("Load FW").clicked() {
             match nfd::open_file_dialog(Some("bin"), None) {
-                Ok(f) => {
-                    if let Response::Okay(path) = f {
-                        match load_binary(path) {
-                            Ok(f) => self.fw = Some(f),
-                            Err(e) => {
-                                eprintln!("E loading binary! {:?}", e)
-                            }
+                Ok(Response::Okay(path)) => {
+                    match load_binary(path) {
+                        Ok(f) => self.fw = Some(f),
+                        Err(e) => {
+                            eprintln!("E loading binary! {:?}", e)
                         }
                     }
                 }
-                Err(_) => {}
+                _ => {}
             }
         }
         if let Some(fw) = &self.fw {
-            ui.label("New Firmware");
             make_fw_info(ui, "nfw",&fw.header, None);
             if ui.button("Flash new FW").clicked() {
                 let mut ng = self.nag.clone();
@@ -157,7 +159,7 @@ impl InterfacePage for UpdatePage {
                 let state_c = self.status.clone();
                 std::thread::spawn(move || {
                     *state_c.write().unwrap() = CurrentFlashState::Prepare;
-                    let (mut start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
+                    let (start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
                         Ok((a, b)) => (a, b),
                         Err(e) => {
                             *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to prepare for update. {}", e));
@@ -192,13 +194,11 @@ impl InterfacePage for UpdatePage {
             let mut ng = self.nag.clone();
             let state_c = self.status.clone();
             let mut save_path = None;
-            if let Ok(f) = nfd::open_pick_folder(None) {
-                if let nfd::Response::Okay(p) = f {
-                    save_path = Some(PathBuf::from(p).join(save_name));
-                } else {
-                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
-                    return PageAction::None;
-                }
+            if let Ok(nfd::Response::Okay(p)) = nfd::open_pick_folder(None) {
+                save_path = Some(PathBuf::from(p).join(save_name));
+            } else {
+                *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
+                return PageAction::None;
             }
             let read_op_c = read_op.clone();
             std::thread::spawn(move || {
