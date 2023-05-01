@@ -32,7 +32,9 @@ pub struct TcmCoreConfig {
     // Only for HFM CAN mode
     pub throttle_max_open_angle: u8,
     // Value here is 1000x value ECU uses (Like diff ratio)
-    pub c_eng: u16
+    pub c_eng: u16,
+    // Value here is 10x value ECU uses
+    pub engine_drag_torque: u16
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]

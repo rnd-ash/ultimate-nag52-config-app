@@ -221,6 +221,15 @@ impl crate::window::InterfacePage for ConfigPage {
                     ui.end_row();
                 }
 
+                let mut buffer =
+                        format!("{:.1}", scn.engine_drag_torque as f32 / 10.0);
+                    ui.label("Engine drag torque");
+                    ui.text_edit_singleline(&mut buffer);
+                    if let Ok(drg) = buffer.parse::<f32>() {
+                        scn.engine_drag_torque = (drg * 10.0) as u16;
+                    }
+                    ui.end_row();
+
                 ui.label("EGS CAN Layer: ");
                 let mut can = scn.egs_can_type;
                 egui::ComboBox::from_id_source("can_layer")
