@@ -1,6 +1,6 @@
 use std::{
     borrow::BorrowMut,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, ops::RemAssign,
 };
 
 use crate::window::PageAction;
@@ -8,6 +8,7 @@ use backend::{
     diag::Nag52Diag, ecu_diagnostics::kwp2000::{ResetType, KwpSessionType},
 };
 use chrono::{Datelike, Weekday};
+use config_app_macros::include_base64;
 use eframe::egui::Ui;
 use eframe::egui::{self, *};
 use egui_extras::RetainedImage;
@@ -85,11 +86,16 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.heading("TCM Configuration");
 
         if ui.button("Read Configuration").clicked() {
-            self.nag.with_kwp(|server| {
+            let _ = self.nag.with_kwp(|server| {
                 match server.kwp_read_custom_local_identifier(0xFE) {
                     Ok(res) => {
-                        self.scn = Some(TcmCoreConfig::unpack_from_slice(&res).unwrap());
-                        self.status = StatusText::Ok(format!("Read OK!"));
+                        match TcmCoreConfig::unpack_from_slice(&res) {
+                            Ok(res) => {
+                                self.status = StatusText::Ok(format!("Read OK!"));
+                                self.scn = Some(res)
+                            },
+                            Err(_) => self.status = StatusText::Err(format!("TCM Config size is invalid. Maybe you have mismatched TCU firmware and config app version?"))
+                        }
                     }
                     Err(e) => {
                         self.status =
@@ -98,12 +104,15 @@ impl crate::window::InterfacePage for ConfigPage {
                 }
                 match server.kwp_read_custom_local_identifier(0xFD) {
                     Ok(res) => {
-                        let tmp = TcmEfuseConfig::unpack_from_slice(&res).unwrap();
-                        if tmp.board_ver == BoardType::Unknown {
-                            self.show_efuse = true;
+                        match TcmEfuseConfig::unpack_from_slice(&res) {
+                            Ok(tmp) => {
+                                if tmp.board_ver == BoardType::Unknown {
+                                    self.show_efuse = true;
+                                }
+                                self.efuse = Some(tmp);
+                            },
+                            Err(_) => self.status = StatusText::Err(format!("TCM EFUSE size is invalid. Maybe you have mismatched TCU firmware and config app version?"))
                         }
-                        self.efuse = Some(tmp);
-                        self.status = StatusText::Ok(format!("Read OK!"));
                     }
                     Err(e) => {
                         self.status =
@@ -120,6 +129,10 @@ impl crate::window::InterfacePage for ConfigPage {
             .map(|x| x.board_ver)
             .unwrap_or(BoardType::Unknown);
         if let Some(scn) = self.scn.borrow_mut() {
+
+            ui.hyperlink_to("See getting started for more info", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkI2l2ZS1yZWNlaXZlZC1hbi1hc3NlbWJsZWQtdGN1"));
+            ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
+
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
                 let mut x = scn.is_large_nag == 1;
                 ui.label("Using large 722.6");
