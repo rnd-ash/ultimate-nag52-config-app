@@ -334,6 +334,9 @@ impl Map {
         };
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
+        if self.meta.reset_adaptation {
+            raw_ui.strong("Warning. Modifying this map resets adaptation!");
+        }
         if !self.meta.x_desc.is_empty() {
             raw_ui.label(format!("X: {}", self.meta.x_desc));
         }
@@ -652,6 +655,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     show_help: bool,
+    reset_adaptation: bool
 }
 
 impl MapData {
@@ -666,6 +670,7 @@ impl MapData {
         value_unit: &'static str,
         x_replace: Option<&'static [&'static str]>,
         y_replace: Option<&'static [&'static str]>,
+        reset_adaptation: bool,
     ) -> Self {
         Self {
             id,
@@ -679,6 +684,7 @@ impl MapData {
             x_replace,
             y_replace,
             show_help: false,
+            reset_adaptation
         }
     }
 }
