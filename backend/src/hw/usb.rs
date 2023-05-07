@@ -8,7 +8,7 @@ use std::{
     panic::catch_unwind,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self},
+        mpsc::{self, Receiver},
         Arc,
     },
     time::{Duration, Instant},
@@ -22,7 +22,6 @@ pub enum EspLogLevel {
     Info,
     Warn,
     Error,
-    Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +44,18 @@ pub struct Nag52USB {
 
 unsafe impl Sync for Nag52USB {}
 unsafe impl Send for Nag52USB {}
+
+fn between<'a>(source: &'a str, start: &'a str, end: &'a str) -> &'a str {
+    let start_position = source.find(start);
+
+    if start_position.is_some() {
+        let start_position = start_position.unwrap() + start.len();
+        let source = &source[start_position..];
+        let end_position = source.find(end).unwrap_or_default();
+        return &source[..end_position];
+    }
+    return "";
+}
 
 impl Nag52USB {
     pub fn new(path: &str, _info: PortInfo) -> HardwareResult<Self> {
@@ -84,7 +95,6 @@ impl Nag52USB {
                     if line.is_empty() {
                         continue;
                     }
-                    //println!("LINE: {}", line);
                     if line.starts_with("#") || line.starts_with("07E9") {
                         // First char is #, diag message
                         // Diag message
@@ -107,7 +117,32 @@ impl Nag52USB {
                         }
                     } else {
                         println!("{}", line);
-                        //read_tx_log.send(msg);
+                        let lvl = match line.chars().next().unwrap_or(' ') {
+                            'I' => EspLogLevel::Info,
+                            'W' => EspLogLevel::Warn,
+                            'E' => EspLogLevel::Error,
+                            'D' => EspLogLevel::Debug,
+                            _ => {
+                                println!("Malformed log line {line}");
+                                continue
+                            }
+                        };
+                        let timestamp = match u32::from_str_radix(between(&line, "(", ")"), 10) {
+                            Ok(ts) => ts,
+                            Err(_) => {
+                                println!("Malformed log line {line}");
+                                continue
+                            }
+                        };
+
+                        let tag = between(&line, ") ", ": ");
+                        let msg = &line[line.find(&format!("{tag}: ")).unwrap()+(tag.len()+2)..];
+                        let _ = read_tx_log.send(EspLogMessage { 
+                            lvl, 
+                            timestamp: timestamp as u128, 
+                            tag: tag.to_string(), 
+                            msg: msg.to_string()
+                        });
                     }
                     line.clear();
                 }
@@ -146,8 +181,8 @@ impl Nag52USB {
         self.is_running.load(Ordering::Relaxed)
     }
 
-    pub fn get_log_msg(&mut self) -> Option<EspLogMessage> {
-        self.rx_log.take().and_then(|rx| rx.try_recv().ok())
+    pub fn consume_log_receiver(&mut self) -> Arc<Option<Receiver<EspLogMessage>>> {
+        Arc::new(self.rx_log.take())
     }
 }
 

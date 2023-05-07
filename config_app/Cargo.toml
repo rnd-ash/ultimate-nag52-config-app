@@ -28,3 +28,4 @@ nom="7.1.1"
 plotters-backend="0.3.4"
 plotters={version="0.3.4", default_features = false, features=["surface_series"]}
 packed_struct="0.10.0"
+ehttp="0.2.0"

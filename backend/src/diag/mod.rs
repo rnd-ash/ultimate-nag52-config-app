@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{Borrow, BorrowMut},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}},
 };
 
 use ecu_diagnostics::hardware::{
@@ -34,6 +34,27 @@ pub enum AdapterType {
     Passthru,
     #[cfg(unix)]
     SocketCAN,
+}
+
+#[derive(Debug, Clone)]
+pub enum DataState<T> {
+    LoadOk(T),
+    Unint,
+    LoadErr(String)
+}
+
+impl<T> DataState<T> {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Self::LoadOk(_))
+    }
+
+    pub fn get_err(&self) -> String {
+        match self {
+            DataState::LoadOk(_) => "".into(),
+            DataState::Unint => "Uninitialized".into(),
+            DataState::LoadErr(e) => e.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -93,7 +114,7 @@ impl AdapterHw {
     }
 }
 pub trait Nag52Endpoint: Hardware {
-    fn read_log_message(this: Arc<Mutex<Self>>) -> Option<EspLogMessage>;
+    fn read_log_message(this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>>;
     fn is_connected(&self) -> bool;
     fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>>;
     fn get_device_desc(this: Arc<Mutex<Self>>) -> String;
@@ -101,8 +122,8 @@ pub trait Nag52Endpoint: Hardware {
 
 #[cfg(unix)]
 impl Nag52Endpoint for SocketCanDevice {
-    fn read_log_message(_this: Arc<Mutex<Self>>) -> Option<EspLogMessage> {
-        None
+    fn read_log_message(_this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
+        Arc::new(None)
     }
 
     fn is_connected(&self) -> bool {
@@ -119,8 +140,8 @@ impl Nag52Endpoint for SocketCanDevice {
 }
 
 impl Nag52Endpoint for PassthruDevice {
-    fn read_log_message(_this: Arc<Mutex<Self>>) -> Option<EspLogMessage> {
-        None
+    fn read_log_message(_this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
+        Arc::new(None)
     }
 
     fn is_connected(&self) -> bool {
@@ -137,8 +158,8 @@ impl Nag52Endpoint for PassthruDevice {
 }
 
 impl Nag52Endpoint for Nag52USB {
-    fn read_log_message(this: Arc<Mutex<Self>>) -> Option<EspLogMessage> {
-        this.lock().unwrap().get_log_msg()
+    fn read_log_message(this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
+        this.lock().unwrap().consume_log_receiver()
     }
 
     fn is_connected(&self) -> bool {
@@ -161,6 +182,7 @@ pub struct Nag52Diag {
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
     server: Option<Arc<DynamicDiagSession>>,
+    log_receiver: Arc<Option<Receiver<EspLogMessage>>>
 }
 
 unsafe impl Sync for Nag52Diag {}
@@ -168,6 +190,7 @@ unsafe impl Send for Nag52Diag {}
 
 impl Nag52Diag {
     pub fn new(hw: AdapterHw) -> DiagServerResult<Self> {
+
         let mut channel_cfg = IsoTPSettings {
             block_size: 0,
             st_min: 0,
@@ -216,11 +239,18 @@ impl Nag52Diag {
             Some(adv_opts),
         )?;
 
+        let logger = if let AdapterHw::Usb(usb) = &hw {
+            usb.lock().unwrap().consume_log_receiver()
+        } else {
+            Arc::new(None)
+        };
+
         Ok(Self {
             info: hw.get_hw_info(),
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
+            log_receiver: logger,
         })
     }
 
@@ -230,6 +260,7 @@ impl Nag52Diag {
             let _ = self.endpoint.take();
         }
         // Now try to reconnect
+
         println!("Trying to find {}", self.info.name);
         let dev = AdapterHw::try_connect(&self.info, self.endpoint_type)?;
         *self = Self::new(dev)?;
@@ -245,6 +276,19 @@ impl Nag52Diag {
             Some(s) => kwp_fn(&s),
         }
     }
+
+    pub fn can_read_log(&self) -> bool {
+        self.log_receiver.is_some()
+    }
+
+    pub fn read_log_msg(&self) -> Option<EspLogMessage> {
+        if let Some(receiver) = &self.log_receiver.borrow() {
+            receiver.try_recv().ok()
+        } else {
+            None
+        }
+    }
+
 }
 
 #[cfg(test)]

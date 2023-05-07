@@ -26,7 +26,7 @@ impl Nag52Diag {
         }
     }
 
-    pub fn get_coredump_flash_info(&mut self) -> DiagServerResult<PartitionInfo> {
+    pub fn get_coredump_flash_info(&self) -> DiagServerResult<PartitionInfo> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x29).map(|res| {
                 PartitionInfo::unpack_from_slice(&res).map_err(|_| DiagError::InvalidResponseLength)
@@ -34,7 +34,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn get_running_partition_flash_info(&mut self) -> DiagServerResult<PartitionInfo> {
+    pub fn get_running_partition_flash_info(&self) -> DiagServerResult<PartitionInfo> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x2A).map(|res| {
                 PartitionInfo::unpack_from_slice(&res).map_err(|_| DiagError::InvalidResponseLength)
@@ -42,7 +42,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn get_next_ota_partition_flash_info(&mut self) -> DiagServerResult<PartitionInfo> {
+    pub fn get_next_ota_partition_flash_info(&self) -> DiagServerResult<PartitionInfo> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x2B).map(|res| {
                 PartitionInfo::unpack_from_slice(&res).map_err(|_| DiagError::InvalidResponseLength)
@@ -50,7 +50,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn get_running_fw_info(&mut self) -> DiagServerResult<FirmwareHeader> {
+    pub fn get_running_fw_info(&self) -> DiagServerResult<FirmwareHeader> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x28).map(|res| {
                 println!("{:02X?}", res);
@@ -60,7 +60,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn begin_ota(&mut self, image_len: u32) -> DiagServerResult<(u32, u16)> {
+    pub fn begin_ota(&self, image_len: u32) -> DiagServerResult<(u32, u16)> {
         let part_info_next = self.get_next_ota_partition_flash_info()?;
         let res = self.with_kwp(|server| {
             server.kwp_set_session(KwpSessionTypeByte::Standard(
@@ -79,7 +79,7 @@ impl Nag52Diag {
         res
     }
 
-    pub fn begin_download(&mut self, partition_info: &PartitionInfo) -> DiagServerResult<u16> {
+    pub fn begin_download(&self, partition_info: &PartitionInfo) -> DiagServerResult<u16> {
         let res = self.with_kwp(|server| {
             server.kwp_set_session(KwpSessionTypeByte::Standard(
                 kwp2000::KwpSessionType::Reprogramming,
@@ -96,7 +96,7 @@ impl Nag52Diag {
         res
     }
 
-    pub fn transfer_data(&mut self, blk_id: u8, data: &[u8]) -> DiagServerResult<()> {
+    pub fn transfer_data(&self, blk_id: u8, data: &[u8]) -> DiagServerResult<()> {
         self.with_kwp(|server| {
             let mut req = vec![0x36, blk_id];
             req.extend_from_slice(data);
@@ -104,7 +104,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn read_data(&mut self, blk_id: u8) -> DiagServerResult<Vec<u8>> {
+    pub fn read_data(&self, blk_id: u8) -> DiagServerResult<Vec<u8>> {
         self.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[0x36, blk_id])
@@ -112,7 +112,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn end_ota(&mut self, reboot: bool) -> DiagServerResult<()> {
+    pub fn end_ota(&self, reboot: bool) -> DiagServerResult<()> {
         self.with_kwp(|server| {
             server.send_byte_array_with_response(&[0x37])?;
             let status = server.send_byte_array_with_response(&[0x31, 0xE1])?;

@@ -8,6 +8,9 @@
     2. Write/Read program settings
     3. Wiki integration
 * Add support for ResponsePending ECU response (useful when flashing)
+* Fix bug where App would crash on invalid TCU Config size (Instead present the user with some help)
+* Give the home page a makeover!
+* Add useful wiki links for configuration page
 
 
 # 1.0.3 (27/2/23)

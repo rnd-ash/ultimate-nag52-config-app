@@ -54,7 +54,6 @@ where
 
 pub trait TcuSettings: Copy + Clone + Serialize + DeserializeOwned
 where
-    Self: Sized,
 {
     fn wiki_url() -> Option<&'static str>;
     fn setting_name() -> &'static str;
@@ -166,7 +165,7 @@ impl TcuSettings for SolSettings {
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(C, packed)]
 pub  struct SbsSettings {
-    shift_solenoid_pwm_reduction_time: u16,
+    shift_solenoid_pwm_reduction_time: u32,
     delta_rpm_flare_detect: u16,
     f_shown_if_flare: bool,
     torque_request_upshift: bool,

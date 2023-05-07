@@ -1,3 +1,4 @@
+use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
 use backend::diag::settings::LinearInterpSettings;
@@ -17,6 +18,7 @@ use eframe::egui::plot::Line;
 use eframe::egui::plot::Plot;
 use eframe::egui::plot::PlotPoints;
 use eframe::epaint::Color32;
+use eframe::epaint::mutex::RwLock;
 use serde_json::Number;
 use std::borrow::BorrowMut;
 use std::ops::RangeInclusive;
@@ -36,10 +38,9 @@ use crate::ui::diagnostics::DiagnosticsPage;
 pub struct MainPage {
     show_about_ui: bool,
     diag_server: &'static mut Nag52Diag,
-    info: Option<IdentData>,
-    sn: Option<String>,
-    first_run: bool,
-    cell_memory: Option<String>,
+    info: Arc<RwLock<DataState<IdentData>>>,
+    sn: Arc<RwLock<DataState<String>>>,
+    first_run: bool
 }
 
 impl MainPage {
@@ -56,10 +57,9 @@ impl MainPage {
         Self {
             show_about_ui: false,
             diag_server: static_ref,
-            info: None,
-            sn: None,
+            info: Arc::new(RwLock::new(DataState::Unint)),
+            sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
-            cell_memory: None
         }
     }
 }
@@ -68,15 +68,29 @@ impl InterfacePage for MainPage {
     fn make_ui(&mut self, ui: &mut egui::Ui, frame: &Frame) -> crate::window::PageAction {
         if !self.first_run {
             self.first_run = true;
-            return PageAction::RegisterNag(self.diag_server.clone());
+            return PageAction::RegisterNag(Arc::new(self.diag_server.clone()));
         }
         ui.vertical_centered(|x| {
             x.heading("Welcome to the Ultimate-NAG52 configuration app!");
+            let os_logo = if cfg!(windows) {
+                egui::special_emojis::OS_WINDOWS
+            } else if cfg!(unix) {
+                egui::special_emojis::OS_LINUX
+            } else {
+                egui::special_emojis::OS_APPLE
+            };
+            x.label(format!("Config app version {} for {} (Build {})", env!("CARGO_PKG_VERSION"), os_logo, env!("GIT_BUILD")));
             if env!("GIT_BUILD").ends_with("-dirty") {
-                x.label(format!("Config app version {} (Build {})", env!("CARGO_PKG_VERSION"), env!("GIT_BUILD")));
                 x.label(RichText::new("Warning. You have a modified copy of the config app! Bugs may be present!").color(Color32::RED));
             } else {
-                x.label(format!("Config app version {} (Build {})", env!("CARGO_PKG_VERSION"), env!("GIT_BUILD")));
+                // Check for updates
+                if env!("GIT_BRANCH") == "main" {
+                    
+                } else {
+                    // Check dev branch
+
+                }
+                
             }
         });
         ui.separator();
@@ -147,70 +161,42 @@ impl InterfacePage for MainPage {
             }
         });
 
+
         if let Some(page) = create_page {
             return page;
         }
 
-        if self.show_about_ui {
-            egui::containers::Window::new("About")
-                .resizable(false)
-                .collapsible(false)
-                .default_pos(&[400f32, 300f32])
-                .show(ui.ctx(), |win| {
-                    win.vertical(|about_cols| {
-                        about_cols.heading("Version data");
-                        about_cols.label(format!(
-                            "Configuration app version: {}",
-                            env!("CARGO_PKG_VERSION")
-                        ));
-                        about_cols.separator();
-                        if let Some(ident) = self.info {
-                            about_cols.heading("TCU Data");
-                            about_cols.label(format!(
-                                "ECU Serial number: {}",
-                                self.sn.clone().unwrap_or("Unknown".into())
-                            ));
-                            about_cols.label(format!(
-                                "PCB Version: {} (HW date: {} week 20{})",
-                                ident.board_ver, ident.hw_week, ident.hw_year
-                            ));
-                            about_cols.label(format!(
-                                "PCB Production date: {}/{}/20{}",
-                                ident.manf_day, ident.manf_month, ident.manf_year
-                            ));
-                            about_cols.label(format!(
-                                "PCB Software date: week {} of 20{}",
-                                ident.sw_week, ident.sw_year
-                            ));
-                            about_cols
-                                .label(format!("EGS CAN Matrix selected: {}", ident.egs_mode));
-                        } else {
-                            about_cols.heading("Could not read TCU Ident data");
+        let info_state = self.info.read().clone();
+        match info_state {
+            DataState::Unint => { ui.spinner(); },
+            DataState::LoadErr(e) => { ui.label(format!("Could not query ECU Ident data: {e}")); },
+            DataState::LoadOk(info) => {
+                ui.collapsing("Show TCU Info", |ui| {
+                    ui.label(format!(
+                        "ECU Serial number: {}",
+                        match self.sn.read().clone() {
+                            DataState::LoadOk(s) => s,
+                            DataState::Unint => "...".to_string(),
+                            DataState::LoadErr(_) => "Unknown".to_string(),
                         }
-
-                        about_cols.separator();
-                        about_cols.heading("Open source");
-                        about_cols.add(egui::Hyperlink::from_label_and_url(
-                            "Github repository (Configuration utility)",
-                            "https://github.com/rnd-ash/ultimate-nag52-config-app",
-                        ));
-                        about_cols.add(egui::Hyperlink::from_label_and_url(
-                            "Github repository (TCM source code)",
-                            "https://github.com/rnd-ash/ultimate-nag52-fw",
-                        ));
-                        about_cols.separator();
-                        about_cols.heading("Author");
-                        about_cols.add(egui::Hyperlink::from_label_and_url(
-                            "rnd-ash",
-                            "https://github.com/rnd-ash",
-                        ));
-                        if about_cols.button("Close").clicked() {
-                            self.show_about_ui = false;
-                        }
-                    })
+                    ));
+                    ui.label(format!(
+                        "PCB Version: {} (HW date: {} week 20{})",
+                        info.board_ver, info.hw_week, info.hw_year
+                    ));
+                    ui.label(format!(
+                        "PCB Production date: {}/{}/20{}",
+                        info.manf_day, info.manf_month, info.manf_year
+                    ));
+                    ui.label(format!(
+                        "PCB Software date: week {} of 20{}",
+                        info.sw_week, info.sw_year
+                    ));
+                    ui
+                        .label(format!("EGS CAN Matrix selected: {}", info.egs_mode));
                 });
+            }
         }
-
         PageAction::None
     }
 
@@ -224,6 +210,26 @@ impl InterfacePage for MainPage {
 
     fn destroy_nag(&self) -> bool {
         true
+    }
+
+    fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>) {
+        println!("OnLoad called");
+        let tcu = self.diag_server.clone();
+        let setting_lock = self.info.clone();
+        let sn_lock = self.sn.clone();
+        std::thread::spawn(move|| {
+            println!("Querying TCU");
+            let state = match tcu.query_ecu_data() {
+                Ok(info) => DataState::LoadOk(info),
+                Err(err) => DataState::LoadErr(err.to_string()),
+            };
+            *setting_lock.write() = state;
+            let state: DataState<String> = match tcu.get_ecu_sn() {
+                Ok(sn) => DataState::LoadOk(sn),
+                Err(err) => DataState::LoadErr(err.to_string()),
+            };
+            *sn_lock.write() = state;
+        });
     }
 
 }
