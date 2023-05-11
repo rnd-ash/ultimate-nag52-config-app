@@ -144,14 +144,14 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
     MapData::new(
         0x0B,
         "Clutch filling pressure",
-        "C",
+        "%",
         "",
-        "",
+        "Input torque load",
         "Clutch",
         "filling pressure in millibar",
         "mBar",
         None,
-        Some(&["K1", "K2", "K3", "B1", "B2"]),
+        Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
         true
         //None
     ),
