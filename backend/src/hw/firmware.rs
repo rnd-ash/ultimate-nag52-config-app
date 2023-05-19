@@ -1,5 +1,6 @@
 use std::{fs::File, io::Read};
 
+use chrono::{DateTime, TimeZone, NaiveDateTime};
 use packed_struct::{prelude::PackedStruct, PackedStructSlice};
 use static_assertions::assert_eq_size;
 
@@ -57,6 +58,11 @@ impl FirmwareHeader {
             .unwrap_or("UNKNOWN".into())
             .trim_matches(char::from(0))
             .to_string()
+    }
+
+    pub fn get_build_timestamp(&self) -> Option<NaiveDateTime> {
+        let str = format!("{} {}", self.get_date(), self.get_time().split("+").next().unwrap());
+        NaiveDateTime::parse_from_str(&str, "%d %b %Y %H:%M:%S").ok()
     }
 }
 
