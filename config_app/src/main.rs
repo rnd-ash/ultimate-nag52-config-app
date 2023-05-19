@@ -27,6 +27,7 @@ fn main() {
     let mut app = window::MainWindow::new();
     app.add_new_page(Box::new(Launcher::new()));
     let mut native_options = NativeOptions::default();
+    native_options.vsync = true;
     native_options.icon_data = Some(IconData {
         rgba: icon.into_raw(),
         width: icon_w,

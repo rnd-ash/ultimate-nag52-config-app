@@ -29,3 +29,7 @@ plotters-backend="0.3.4"
 plotters={version="0.3.4", default_features = false, features=["surface_series"]}
 packed_struct="0.10.0"
 ehttp="0.2.0"
+octocrab = {git = "https://github.com/XAMPPRocky/octocrab", commit="7061b48c9bb799cb7effa0ecb8fd366a23f13de2"}
+tokio = { version = "1.17.0", features = ["full"] }
+zip="0.6.6"
+curl = "0.4.43"

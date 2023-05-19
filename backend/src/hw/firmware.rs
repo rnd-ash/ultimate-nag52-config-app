@@ -84,10 +84,7 @@ impl From<std::io::Error> for FirmwareLoadError {
     }
 }
 
-pub fn load_binary(path: String) -> FirwmareLoadResult<Firmware> {
-    let mut f = File::open(path)?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)?;
+pub fn load_binary(buf: Vec<u8>) -> FirwmareLoadResult<Firmware> {
     // Todo find a nicer way to do this!
     let mut header_start_idx = 0;
     loop {
@@ -113,4 +110,11 @@ pub fn load_binary(path: String) -> FirwmareLoadResult<Firmware> {
         FirmwareHeader::unpack_from_slice(&buf[header_start_idx..header_start_idx + HEADER_SIZE])
             .unwrap();
     Ok(Firmware { raw: buf, header })
+}
+
+pub fn load_binary_from_path(path: String) -> FirwmareLoadResult<Firmware> {
+    let mut f = File::open(path)?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    load_binary(buf)
 }
