@@ -59,8 +59,20 @@ jobs:
           name: config-app-${{env.BRANCH_NAME}}-exe
           path: target/i686-pc-windows-msvc/release/*.exe
 
+  OSX-app:
+    runs-on: macos-latest # X86 since M1 can use rosetta to run this
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build executable
+        working-directory: ./config_app
+        run: cargo build --verbose --release
+      - uses: actions/upload-artifact@v3
+        with:
+          name: config-app-${{env.BRANCH_NAME}}-osx
+          path: target/release/config_app
+
   Create-Upload:
-    needs: [Windows-App, Linux-App]
+    needs: [Windows-App, Linux-App, OSX-app]
     runs-on: [ubuntu-latest]
     steps:
     - name: Download all artifacts
@@ -88,6 +100,7 @@ jobs:
         files: |
           config-app-${{env.BRANCH_NAME}}-exe/*.exe
           config-app-${{env.BRANCH_NAME}}-appimage/*.AppImage
+          config-app-${{env.BRANCH_NAME}}-osx/config_app
       
           
        
