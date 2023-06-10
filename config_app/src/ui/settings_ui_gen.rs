@@ -73,7 +73,7 @@ where T: TcuSettings {
 
 impl TcuAdvSettingsUi {
     pub fn new(nag: Nag52Diag) -> Self {
-        let is_ready = Arc::new(RwLock::new(PageLoadState::Waiting("Initializing")));
+        let is_ready = Arc::new(RwLock::new(PageLoadState::waiting("Initializing")));
         let is_ready_t = is_ready.clone();
 
         let (tcc, tcc_t) = TcuSettingsWrapper::new_pair();
@@ -83,13 +83,13 @@ impl TcuAdvSettingsUi {
         let nag_c = nag.clone();
         std::thread::spawn(move|| {
             let res = nag_c.with_kwp(|x| {
-                *is_ready_t.write().unwrap() = PageLoadState::Waiting("Setting TCU diag mode");
+                *is_ready_t.write().unwrap() = PageLoadState::waiting("Setting TCU diag mode");
                 x.kwp_set_session(0x93.into())
             });
 
             match res {
                 Ok(_) => {
-                    *is_ready_t.write().unwrap() = PageLoadState::Waiting("Reading TCC Settings")
+                    *is_ready_t.write().unwrap() = PageLoadState::waiting("Reading TCC Settings")
                 },
                 Err(e) => {
                     *is_ready_t.write().unwrap() = PageLoadState::Err(e.to_string());

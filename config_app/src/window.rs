@@ -15,8 +15,14 @@ use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR, SUCCESS_CO
 #[derive(Debug, Clone)]
 pub enum PageLoadState {
     Ok,
-    Waiting(&'static str),
+    Waiting(String),
     Err(String)
+}
+
+impl PageLoadState {
+    pub fn waiting<T: Into<String>>(s: T) -> Self {
+        Self::Waiting(s.into())
+    }
 }
 
 pub struct MainWindow {

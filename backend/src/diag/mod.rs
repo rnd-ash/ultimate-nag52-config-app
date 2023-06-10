@@ -27,6 +27,7 @@ use crate::hw::{
 pub mod flash;
 pub mod ident;
 pub mod settings;
+pub mod nvs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {

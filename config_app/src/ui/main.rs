@@ -25,6 +25,7 @@ use std::ops::RangeInclusive;
 use std::sync::{mpsc, Arc, Mutex};
 use crate::window::{InterfacePage, PageAction};
 
+use super::nvs_editor::NvsEditor;
 use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
 use super::widgets::number_input::NumberInputWidget;
@@ -143,6 +144,11 @@ impl InterfacePage for MainPage {
             }
             if v.button("TCU Program settings").on_hover_text("CAUTION. DANGEROUS!").clicked() {
                 create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
+                    self.diag_server.clone(),
+                ))));
+            }
+            if v.button("NVS Editor").on_hover_text("CAUTION. DANGEROUS!").clicked() {
+                create_page = Some(PageAction::Add(Box::new(NvsEditor::new(
                     self.diag_server.clone(),
                 ))));
             }

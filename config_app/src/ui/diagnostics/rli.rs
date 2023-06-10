@@ -89,35 +89,85 @@ pub struct DataPressures {
     pub spc_pwm: u16,
     pub mpc_pwm: u16,
     pub tcc_pwm: u16,
-    pub spc_pressure: u16,
-    pub mpc_pressure: u16,
-    pub tcc_pressure: u16,
+    pub ss_flag: u8,
+    pub spc_sol_pressure: u16,
+    pub mpc_sol_pressure: u16,
+    pub spc_clutch_pressure: u16,
+    pub mpc_clutch_pressure: u16,
+    pub tcc_clutch_pressure: u16,
+    pub line_pressure: u16
 }
 
 impl DataPressures {
     pub fn to_table(&self, ui: &mut Ui) -> InnerResponse<()> {
         egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-            ui.label("Shift pressure");
-            ui.label(if self.spc_pressure == u16::MAX {
+            ui.label("Shift solenoid pressure");
+            ui.label(if self.spc_sol_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.spc_pressure), false)
+                make_text(format!("{} mBar", self.spc_sol_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Modulating pressure");
-            ui.label(if self.mpc_pressure == u16::MAX {
+            ui.label("Modulating solenoid pressure");
+            ui.label(if self.mpc_sol_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.mpc_pressure), false)
+                make_text(format!("{} mBar", self.mpc_sol_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Torque converter pressure");
-            ui.label(if self.tcc_pressure == u16::MAX {
+            ui.label("Torque converter solenoid pressure");
+            ui.label(if self.tcc_clutch_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.tcc_pressure), false)
+                make_text(format!("{} mBar", self.tcc_clutch_pressure), false)
+            });
+            ui.end_row();
+
+            ui.label("Modulating solenoid clutch apply pressure");
+            ui.label(if self.mpc_clutch_pressure == u16::MAX {
+                make_text("ERROR", true)
+            } else {
+                make_text(format!("{} mBar", self.mpc_clutch_pressure), false)
+            });
+            ui.end_row();
+
+            ui.label("Shift solenoid clutch apply pressure");
+            ui.label(if self.spc_clutch_pressure == u16::MAX {
+                make_text("ERROR", true)
+            } else if self.ss_flag != 0 {
+                make_text(format!("{} mBar", self.spc_clutch_pressure), false)
+            } else {
+                make_text("0 mBar", false)
+            });
+            ui.end_row();
+
+            ui.label("Line pressure");
+            ui.label(if self.line_pressure == u16::MAX {
+                make_text("ERROR", true)
+            } else if self.ss_flag != 0 {
+                make_text(format!("{} mBar", self.line_pressure), false)
+            } else {
+                make_text("0 mBar", false)
+            });
+            ui.end_row();
+
+            ui.label("Active shift circuits");
+            ui.label(if self.ss_flag == 0 {
+                make_text("None", false)
+            } else {
+                let mut s: Vec<&'static str> = Vec::new();
+                if (self.ss_flag & (1 << 0)) != 0 {
+                    s.push("1-2");
+                }
+                if (self.ss_flag & (1 << 1)) != 0 {
+                    s.push("2-3");
+                }
+                if (self.ss_flag & (1 << 2)) != 0 {
+                    s.push("3-4");
+                }
+                make_text(format!("{:?}", s), false)
             });
             ui.end_row();
         })
@@ -125,11 +175,14 @@ impl DataPressures {
 
     pub fn to_chart_data(&self) -> Vec<ChartData> {
         vec![ChartData::new(
-            "Requested pressures".into(),
+            "Gearbox Pressures".into(),
             vec![
-                ("SPC pressure", self.spc_pressure as f32, None),
-                ("MPC pressure", self.mpc_pressure as f32, None),
-                ("TCC pressure", self.tcc_pressure as f32, None),
+                ("Shift clutch pressure", if self.ss_flag == 0 {0.0} else { self.spc_clutch_pressure as f32 }, None),
+                ("Modulating clutch pressure", if self.ss_flag == 0 {0.0} else { self.mpc_clutch_pressure as f32 }, None),
+                ("Shift solenoid pressure", self.spc_sol_pressure as f32, None),
+                ("Modulating solenoid pressure", self.mpc_sol_pressure as f32, None),
+                ("TCC clutch pressure", self.tcc_clutch_pressure as f32, None),
+                ("Line pressure", self.line_pressure as f32, None)
             ],
             None
         )]
