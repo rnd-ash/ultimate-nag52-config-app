@@ -34,6 +34,7 @@ pub struct DiagnosticsPage {
     record_to_query: Arc<RwLock<Option<RecordIdents>>>,
     charting_data: VecDeque<(u128, ChartData)>,
     chart_idx: u128,
+    read_error: Arc<RwLock<Option<String>>>
 }
 
 impl DiagnosticsPage {
@@ -56,6 +57,9 @@ impl DiagnosticsPage {
         let launch_time = Instant::now();
         let launch_time_t = launch_time.clone();
 
+        let err_text = Arc::new(RwLock::new(None));
+        let err_text_t = err_text.clone();
+
         let _ = thread::spawn(move || {
             nag.with_kwp(|server| {
                 server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
@@ -65,6 +69,7 @@ impl DiagnosticsPage {
                 if let Some(to_query) = *to_query_t.read().unwrap() {
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
+                            *err_text_t.write().unwrap() = None;
                             let curr = store_t.read().unwrap().clone();
                             *store_old_t.write().unwrap() = curr;
                             *store_t.write().unwrap() = Some(r);
@@ -74,6 +79,7 @@ impl DiagnosticsPage {
                             );
                         },
                         Err(e) => {
+                            *err_text_t.write().unwrap() = Some(e.to_string());
                             eprintln!("Could not query {}", e);
                         }
                     }
@@ -93,7 +99,8 @@ impl DiagnosticsPage {
             record_to_query: to_query,
             charting_data: VecDeque::new(),
             chart_idx: 0,
-            time_since_launch: launch_time_t
+            time_since_launch: launch_time_t,
+            read_error: err_text
         }
     }
 }
@@ -144,6 +151,10 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             self.charting_data.clear();
             *self.curr_values.write().unwrap() = None;
             *self.prev_values.write().unwrap() = None;
+        }
+
+        if let Some(e) = self.read_error.read().unwrap().clone() {
+            ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
         }
 
         let current_val = self.curr_values.read().unwrap().clone();
