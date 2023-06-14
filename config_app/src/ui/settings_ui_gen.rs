@@ -1,6 +1,6 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}};
 
-use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
+use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings, PrmSettings, AdpSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::Color32};
 use egui_extras::{TableBuilder, Column};
 use nfd::Response;
@@ -40,7 +40,9 @@ pub enum OpenSetting {
     Tcc,
     Sol,
     Sbs,
-    Nag
+    Nag,
+    Prm,
+    Adp
 }
 
 pub struct TcuAdvSettingsUi {
@@ -51,6 +53,8 @@ pub struct TcuAdvSettingsUi {
     sol_settings: TcuSettingsWrapper<SolSettings>,
     sbs_settings: TcuSettingsWrapper<SbsSettings>,
     nag_settings: TcuSettingsWrapper<NagSettings>,
+    prm_settings: TcuSettingsWrapper<PrmSettings>,
+    adp_settings: TcuSettingsWrapper<AdpSettings>,
     open_settings: OpenSetting
 }
 
@@ -80,6 +84,8 @@ impl TcuAdvSettingsUi {
         let (sol, sol_t) = TcuSettingsWrapper::new_pair();
         let (sbs, sbs_t) = TcuSettingsWrapper::new_pair();
         let (gbs, gbs_t) = TcuSettingsWrapper::new_pair();
+        let (prm, prm_t) = TcuSettingsWrapper::new_pair();
+        let (adp, adp_t) = TcuSettingsWrapper::new_pair();
         let nag_c = nag.clone();
         std::thread::spawn(move|| {
             let res = nag_c.with_kwp(|x| {
@@ -100,6 +106,8 @@ impl TcuAdvSettingsUi {
             read_scn_settings(&nag_c, &sol_t);
             read_scn_settings(&nag_c, &sbs_t);
             read_scn_settings(&nag_c, &gbs_t);
+            read_scn_settings(&nag_c, &prm_t);
+            read_scn_settings(&nag_c, &adp_t);
             *is_ready_t.write().unwrap() = PageLoadState::Ok;
         });
         Self {
@@ -110,6 +118,8 @@ impl TcuAdvSettingsUi {
             sol_settings: sol,
             sbs_settings: sbs,
             nag_settings: gbs,
+            prm_settings: prm,
+            adp_settings: adp,
             open_settings: OpenSetting::None
         }
     } 
@@ -294,6 +304,16 @@ impl InterfacePage for TcuAdvSettingsUi {
             } else {
                 load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
             }
+            if self.prm_settings.loaded_ok() {
+                ui.selectable_value(&mut self.open_settings, OpenSetting::Prm, self.prm_settings.get_name());
+            } else {
+                load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
+            }
+            if self.adp_settings.loaded_ok() {
+                ui.selectable_value(&mut self.open_settings, OpenSetting::Adp, self.adp_settings.get_name());
+            } else {
+                load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
+            }
         });
         ui.separator();
         ui.strong("Load status");
@@ -311,6 +331,8 @@ impl InterfacePage for TcuAdvSettingsUi {
             OpenSetting::Sol => make_settings_ui(&self.nag, &self.sol_settings, ui),
             OpenSetting::Sbs => make_settings_ui(&self.nag, &self.sbs_settings, ui),
             OpenSetting::Nag => make_settings_ui(&self.nag, &self.nag_settings, ui),
+            OpenSetting::Prm => make_settings_ui(&self.nag, &self.prm_settings, ui),
+            OpenSetting::Adp => make_settings_ui(&self.nag, &self.adp_settings, ui),
         };
         if let Some(act) = action {
             act

@@ -86,32 +86,26 @@ impl LinearInterpSettings {
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(C, packed)]
 pub struct TccSettings {
-    pub adapt_enable: bool,
-    pub enable_d1: bool,
-    pub enable_d2: bool,
-    pub enable_d3: bool,
-    pub enable_d4: bool,
-    pub enable_d5: bool,
-    pub prefill_pressure: u16,
-    pub lock_rpm_threshold: u16,
-    pub min_locking_rpm: u16,
-    pub adjust_interval_ms: u16,
-    pub tcc_stall_speed: u16,
-    pub min_torque_adapt: u16,
-    pub max_torque_adapt: u16,
-    pub prefill_min_engine_rpm: u16,
-    pub base_pressure_offset_start_ramp: u16,
-    pub pressure_increase_ramp_settings: LinearInterpSettings,
-    pub adapt_pressure_inc: u8,
-    pub adapt_lock_detect_time: u16,
-    pub pulling_slip_rpm_low_threshold: u16,
-    pub pulling_slip_rpm_high_threhold: u16,
-    pub reaction_torque_multiplier: f32,
-    pub trq_consider_coasting: u16,
-    pub load_dampening: LinearInterpSettings,
-    pub pressure_multiplier_output_rpm: LinearInterpSettings,
-    pub max_allowed_bite_pressure: u16,
-    pub max_allowed_pressure_longterm: u16,
+    adapt_enable: bool,
+    enable_d1: bool,
+    enable_d2: bool,
+    enable_d3: bool,
+    enable_d4: bool,
+    enable_d5: bool,
+    prefill_pressure: u16,
+    min_locking_rpm: u16,
+    adapt_test_interval_ms: u16,
+    tcc_stall_speed: u16,
+    min_torque_adapt: u16,
+    max_torque_adapt: u16,
+    prefill_min_engine_rpm: u16,
+    max_slip_max_adapt_trq: u16,
+    min_slip_max_adapt_trq: u16,
+    max_slip_min_adapt_trq: u16,
+    min_slip_min_adapt_trq: u16,
+    pressure_increase_step: u8,
+    adapt_pressure_step: u8,
+    pressure_multiplier_output_rpm: LinearInterpSettings
 }
 
 impl TcuSettings for TccSettings {
@@ -124,7 +118,7 @@ impl TcuSettings for TccSettings {
     }
 
     fn get_revision_name() -> &'static str {
-        "A2 (24/04/23)"
+        "A3 (14/06/23)"
     }
 
     fn get_scn_id() -> u8 {
@@ -165,21 +159,14 @@ impl TcuSettings for SolSettings {
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(C, packed)]
 pub  struct SbsSettings {
-    shift_solenoid_pwm_reduction_time: u16,
     delta_rpm_flare_detect: u16,
+    min_upshift_end_rpm: u16,
     f_shown_if_flare: bool,
-    torque_request_upshift: bool,
-    torque_request_downshift: bool,
-    upshift_use_driver_torque_as_input: bool,
-    downshift_use_driver_torque_as_input: bool,
-    torque_request_downramp_percent: u16,
-    torque_request_hold_percent: u16,
     torque_reduction_factor_input_torque: LinearInterpSettings,
     torque_reduction_factor_shift_speed: LinearInterpSettings,
-    min_spc_delta_mpc: u16,
     stationary_shift_hold_time: u16,
     shift_timeout_pulling: u16,
-    shift_timeout_coasting: u16,
+    shift_timeout_coasting: u16
 }
 
 impl TcuSettings for SbsSettings {
@@ -192,7 +179,7 @@ impl TcuSettings for SbsSettings {
     }
 
     fn get_revision_name() -> &'static str {
-        "A0 (26/04/23)"
+        "A1 (14/06/23)"
     }
 
     fn get_scn_id() -> u8 {
@@ -253,5 +240,76 @@ impl TcuSettings for NagSettings {
 
     fn effect_immediate() -> bool {
         false
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct PrmSettings {
+    max_spc_pressure: u16,
+    max_mpc_pressure: u16,
+    max_line_pressure: u16,
+    engine_rpm_pressure_multi: LinearInterpSettings,
+    k1_pressure_multi: f32,
+    shift_solenoid_pwm_reduction_time: u16,
+}
+
+impl TcuSettings for PrmSettings {
+    fn wiki_url() -> Option<&'static str> {
+        None
+    }
+
+    fn setting_name() -> &'static str {
+        "Pressure Manager Settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A1 (14/06/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x05
+    }
+
+    fn effect_immediate() -> bool {
+        true
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct AdpSettings {
+    min_atf_temp: i16,
+    max_atf_temp: i16,
+    min_input_rpm: u16,
+    max_input_rpm: u16,
+    prefill_adapt_k1: bool,
+    prefill_adapt_k2: bool,
+    prefill_adapt_k3: bool,
+    prefill_adapt_b1: bool,
+    prefill_adapt_b2: bool,
+    prefill_max_pressure_delta: u16,
+    prefill_max_time_delta: u16,
+}
+
+impl TcuSettings for AdpSettings {
+    fn wiki_url() -> Option<&'static str> {
+        None
+    }
+
+    fn setting_name() -> &'static str {
+        "Adaptation Manager Settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A1 (14/06/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x06
+    }
+
+    fn effect_immediate() -> bool {
+        true
     }
 }
