@@ -140,7 +140,6 @@ impl eframe::App for MainWindow {
                         self.pages[0].on_load(self.nag.clone());
                         self.show_sbar = self.pages[0].should_show_statusbar();
                     }
-                    PageAction::RePaint => ctx.request_repaint(),
                     PageAction::DisableBackBtn => {
                         self.show_back = false;
                     }
@@ -223,7 +222,7 @@ impl eframe::App for MainWindow {
                 });
             }
         }
-        ctx.request_repaint();
+        ctx.request_repaint_after(Duration::from_millis(1000/60));
     }
 }
 
@@ -234,7 +233,6 @@ pub enum PageAction {
     Add(Box<dyn InterfacePage>),
     DisableBackBtn,
     Overwrite(Box<dyn InterfacePage>),
-    RePaint,
     SendNotification { text: String, kind: ToastKind },
 }
 

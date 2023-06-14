@@ -266,7 +266,6 @@ impl crate::window::InterfacePage for SolenoidPage {
                 plot_ui.bar_chart(BarChart::new(vec![bar]))
             }
         });
-        ui.ctx().request_repaint();
         PageAction::None
     }
 
