@@ -1,6 +1,6 @@
-use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}};
+use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any};
 
-use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings, PrmSettings, AdpSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
+use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings, PrmSettings, AdpSettings, EtsSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::Color32};
 use egui_extras::{TableBuilder, Column};
 use nfd::Response;
@@ -42,7 +42,8 @@ pub enum OpenSetting {
     Sbs,
     Nag,
     Prm,
-    Adp
+    Adp,
+    Ets
 }
 
 pub struct TcuAdvSettingsUi {
@@ -55,6 +56,7 @@ pub struct TcuAdvSettingsUi {
     nag_settings: TcuSettingsWrapper<NagSettings>,
     prm_settings: TcuSettingsWrapper<PrmSettings>,
     adp_settings: TcuSettingsWrapper<AdpSettings>,
+    ets_settings: TcuSettingsWrapper<EtsSettings>,
     open_settings: OpenSetting
 }
 
@@ -86,6 +88,7 @@ impl TcuAdvSettingsUi {
         let (gbs, gbs_t) = TcuSettingsWrapper::new_pair();
         let (prm, prm_t) = TcuSettingsWrapper::new_pair();
         let (adp, adp_t) = TcuSettingsWrapper::new_pair();
+        let (ets, ets_t) = TcuSettingsWrapper::new_pair();
         let nag_c = nag.clone();
         std::thread::spawn(move|| {
             let res = nag_c.with_kwp(|x| {
@@ -108,6 +111,7 @@ impl TcuAdvSettingsUi {
             read_scn_settings(&nag_c, &gbs_t);
             read_scn_settings(&nag_c, &prm_t);
             read_scn_settings(&nag_c, &adp_t);
+            read_scn_settings(&nag_c, &ets_t);
             *is_ready_t.write().unwrap() = PageLoadState::Ok;
         });
         Self {
@@ -120,6 +124,7 @@ impl TcuAdvSettingsUi {
             nag_settings: gbs,
             prm_settings: prm,
             adp_settings: adp,
+            ets_settings: ets,
             open_settings: OpenSetting::None
         }
     } 
@@ -247,9 +252,14 @@ where T: Clone + Copy + Serialize + DeserializeOwned {
             ui.add_space(10.0);
             ScrollArea::new([false, true]).show(ui, |ui| {
                 let mut v = serde_yaml::to_value(&settings).unwrap();
-                make_ui_for_value(T::setting_name(), &mut v, ui);
-                if let Ok(s) = serde_yaml::from_value::<T>(v) {
-                    settings = s;
+                make_ui_for_value::<T>(T::setting_name(), &mut v, ui);
+                match serde_yaml::from_value::<T>(v) {
+                    Ok(s) => {
+                        settings = s;
+                    },
+                    Err(e) => {
+                        action = Some(PageAction::SendNotification { text: format!("Error setting setting: {}", e.to_string()), kind: egui_toast::ToastKind::Error });
+                    }
                 }
             });
         });
@@ -307,12 +317,17 @@ impl InterfacePage for TcuAdvSettingsUi {
             if self.prm_settings.loaded_ok() {
                 ui.selectable_value(&mut self.open_settings, OpenSetting::Prm, self.prm_settings.get_name());
             } else {
-                load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
+                load_errors.push((self.prm_settings.get_name(), self.prm_settings.get_err_msg()))
             }
             if self.adp_settings.loaded_ok() {
                 ui.selectable_value(&mut self.open_settings, OpenSetting::Adp, self.adp_settings.get_name());
             } else {
-                load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
+                load_errors.push((self.adp_settings.get_name(), self.adp_settings.get_err_msg()))
+            }
+            if self.ets_settings.loaded_ok() {
+                ui.selectable_value(&mut self.open_settings, OpenSetting::Ets, self.ets_settings.get_name());
+            } else {
+                load_errors.push((self.ets_settings.get_name(), self.ets_settings.get_err_msg()))
             }
         });
         ui.separator();
@@ -333,6 +348,7 @@ impl InterfacePage for TcuAdvSettingsUi {
             OpenSetting::Nag => make_settings_ui(&self.nag, &self.nag_settings, ui),
             OpenSetting::Prm => make_settings_ui(&self.nag, &self.prm_settings, ui),
             OpenSetting::Adp => make_settings_ui(&self.nag, &self.adp_settings, ui),
+            OpenSetting::Ets => make_settings_ui(&self.nag, &self.ets_settings, ui),
         };
         if let Some(act) = action {
             act
@@ -356,13 +372,13 @@ impl Drop for TcuAdvSettingsUi {
     }
 }
 
-fn make_ui_for_value(setting_name: &'static str, v: &mut Value, ui: &mut egui::Ui) {
+fn make_ui_for_value<T: TcuSettings>(setting_name: &'static str, v: &mut Value, ui: &mut egui::Ui) {
     if v.is_mapping() {
-        make_ui_for_mapping(setting_name, &mut v.as_mapping_mut().unwrap(), ui)
+        make_ui_for_mapping::<T>(setting_name, &mut v.as_mapping_mut().unwrap(), ui)
     }
 }
 
-fn make_ui_for_mapping(setting_name: &'static str, v: &mut Mapping, ui: &mut egui::Ui) {
+fn make_ui_for_mapping<T: TcuSettings>(setting_name: &'static str, v: &mut Mapping, ui: &mut egui::Ui) {
     egui::Grid::new(format!("Grid-{}", setting_name))
     .striped(true)
     .min_col_width(100.0)
@@ -401,7 +417,7 @@ fn make_ui_for_mapping(setting_name: &'static str, v: &mut Mapping, ui: &mut egu
                                 p.line(line)
                             });
                     }
-                    make_ui_for_mapping(setting_name,&mut v.as_mapping_mut().unwrap(), sub);
+                    make_ui_for_mapping::<T>(setting_name,&mut v.as_mapping_mut().unwrap(), sub);
                 });
                 ui.end_row();
             } else if v.is_bool() {
@@ -423,6 +439,27 @@ fn make_ui_for_mapping(setting_name: &'static str, v: &mut Mapping, ui: &mut egu
                 let d = DragValue::new(&mut o).max_decimals(0).speed(0).clamp_range(RangeInclusive::new(0, i32::MAX));
                 ui.add(d);
                 *v = Value::from(o);
+                ui.end_row();
+            } else if v.is_string() {
+                let mut s = v.as_str().unwrap().to_string();
+                if let Some(valid_options) = T::get_enum_entries(&key) {
+                    ui.code(format!("{key}: "));
+                    egui::ComboBox::from_id_source(format!("selector-{key}"))
+                        .selected_text(s.clone())
+                        .show_ui(ui, |cb_ui| {
+                            for entry in valid_options {
+                                let x = entry.clone();
+                                cb_ui.selectable_value(
+                                    &mut s,
+                                    x,
+                                    entry,
+                                );
+                            }
+                        });
+                        *v = Value::from(s);
+                } else {
+                    ui.label(format!("Unknown enum Ty for {i:?}"));
+                }
                 ui.end_row();
             } else {
                 ui.label(format!("FIXME: {:?} - {:?}", i, v));

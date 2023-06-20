@@ -1,6 +1,8 @@
 use std::ptr::slice_from_raw_parts;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 pub type UnpackResult<T> = std::result::Result<T, UnPackError>;
 
@@ -52,6 +54,18 @@ where
     ret
 }
 
+fn enum_to_str_list<T>(x: Vec<T>) -> Vec<String>
+where T: Serialize + DeserializeOwned {
+    let mut res = vec![];
+
+    for entry in x {
+        let e = serde_json::to_string(&entry).unwrap();
+        res.push(e.replace("\"", ""));
+    }
+    res
+}
+
+
 pub trait TcuSettings: Copy + Clone + Serialize + DeserializeOwned
 where
 {
@@ -61,6 +75,9 @@ where
     fn get_scn_id() -> u8;
     fn effect_immediate() -> bool {
         true
+    }
+    fn get_enum_entries(key: &str) -> Option<Vec<String>> {
+        None
     }
 }
 
@@ -311,5 +328,76 @@ impl TcuSettings for AdpSettings {
 
     fn effect_immediate() -> bool {
         true
+    }
+}
+
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(u8)]
+enum EwmSelectorType {
+    None = 0,
+    Button = 1,
+    Switch = 2
+}
+
+impl Default for EwmSelectorType {
+    fn default() -> Self {
+        Self::Button
+    }
+}
+
+
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(u8)]
+
+enum AutoProfile {
+    Sport = 0,
+    Comfort = 1,
+    Agility = 2,
+    Winter = 3
+}
+
+impl Default for AutoProfile {
+    fn default() -> Self {
+        Self::Sport
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(C, packed)]
+pub struct EtsSettings {
+    trrs_has_profile_selector: bool,
+    ewm_selector_type: EwmSelectorType,
+    profile_idx_top: AutoProfile,
+    profile_idx_buttom: AutoProfile
+}
+
+impl TcuSettings for EtsSettings {
+    fn wiki_url() -> Option<&'static str> {
+        None
+    }
+
+    fn setting_name() -> &'static str {
+        "Electronic gear selector settings"
+    }
+
+    fn get_revision_name() -> &'static str {
+        "A1 (20/06/23)"
+    }
+
+    fn get_scn_id() -> u8 {
+        0x07
+    }
+
+    fn effect_immediate() -> bool {
+        true
+    }
+
+    fn get_enum_entries(key: &str) -> Option<Vec<String>> {
+        match key {
+            "ewm_selector_type" => Some(enum_to_str_list(EwmSelectorType::iter().collect())),
+            "profile_idx_top" => Some(enum_to_str_list(AutoProfile::iter().collect())),
+            "profile_idx_buttom" => Some(enum_to_str_list(AutoProfile::iter().collect())),
+            _ => None
+        }
     }
 }

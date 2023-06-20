@@ -153,6 +153,14 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             *self.prev_values.write().unwrap() = None;
         }
 
+        if ui.button("Query Clutch speeds").clicked() {
+            *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchSpeeds);
+            self.chart_idx = 0;
+            self.charting_data.clear();
+            *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
+        }
+
         if let Some(e) = self.read_error.read().unwrap().clone() {
             ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
         }

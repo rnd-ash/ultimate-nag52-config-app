@@ -20,6 +20,7 @@ pub enum RecordIdents {
     SysUsage = 0x23,
     PressureStatus = 0x25,
     SSData = 0x27,
+    ClutchSpeeds = 0x29,
 }
 
 
@@ -42,7 +43,8 @@ impl RecordIdents {
             Self::CanDataDump => Ok(LocalRecordData::Canbus(read_struct(&resp)?)),
             Self::SysUsage => Ok(LocalRecordData::SysUsage(read_struct(&resp)?)),
             Self::PressureStatus => Ok(LocalRecordData::Pressures(read_struct(&resp)?)),
-            Self::SSData => Ok(LocalRecordData::ShiftMonitorLive(read_struct(&resp)?))
+            Self::SSData => Ok(LocalRecordData::ShiftMonitorLive(read_struct(&resp)?)),
+            Self::ClutchSpeeds => Ok(LocalRecordData::ClutchSpeeds(read_struct(&resp)?))
         }
     }
 }
@@ -55,6 +57,7 @@ pub enum LocalRecordData {
     SysUsage(DataSysUsage),
     Pressures(DataPressures),
     ShiftMonitorLive(DataShiftManager),
+    ClutchSpeeds(DataClutchSpeeds),
 }
 
 impl LocalRecordData {
@@ -66,6 +69,7 @@ impl LocalRecordData {
             LocalRecordData::SysUsage(s) => s.to_table(ui),
             LocalRecordData::Pressures(s) => s.to_table(ui),
             LocalRecordData::ShiftMonitorLive(s) => s.to_table(ui),
+            LocalRecordData::ClutchSpeeds(s) => s.to_table(ui),
             _ => egui::Grid::new("DGS").striped(true).show(ui, |ui| {}),
         }
     }
@@ -78,6 +82,7 @@ impl LocalRecordData {
             LocalRecordData::SysUsage(s) => s.to_chart_data(),
             LocalRecordData::Pressures(s) => s.to_chart_data(),
             LocalRecordData::ShiftMonitorLive(s) => s.to_chart_data(),
+            LocalRecordData::ClutchSpeeds(s) => s.to_chart_data(),
             _ => vec![],
         }
     }
@@ -832,6 +837,62 @@ impl DataShiftManager {
             vec![
                 ("Input", self.input_rpm as f32, None),
                 ("Engine", self.engine_rpm as f32, None),
+            ],
+            None,
+        )]
+    }
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
+#[packed_struct(endian="lsb")]
+pub struct DataClutchSpeeds {
+    turbine: u16,
+    k1: u16,
+    k2: u16,
+    k3: u16,
+    b1: u16,
+    b2: u16,
+}
+
+impl DataClutchSpeeds {
+    pub fn to_table(&self, ui: &mut Ui) -> InnerResponse<()> {
+        egui::Grid::new("SM").striped(true).show(ui, |ui| {
+            ui.label("Turbine speed");
+            ui.label(format!("{} RPM", self.turbine));
+            ui.end_row();
+
+            ui.label("K1 speed");
+            ui.label(format!("{} RPM", self.k1));
+            ui.end_row();
+
+            ui.label("K2 speed");
+            ui.label(format!("{} RPM", self.k2));
+            ui.end_row();
+
+            ui.label("K3 speed");
+            ui.label(format!("{} RPM", self.k3));
+            ui.end_row();
+
+            ui.label("B1 speed");
+            ui.label(format!("{} RPM", self.b1));
+            ui.end_row();
+
+            ui.label("B2 speed");
+            ui.label(format!("{} RPM", self.b2));
+            ui.end_row();
+        })
+    }
+
+    pub fn to_chart_data(&self) -> Vec<ChartData> {
+        vec![ChartData::new(
+            "RPMs".into(),
+            vec![
+                ("Turbine", self.turbine as f32, None),
+                ("K1", self.k1 as f32, None),
+                ("K2", self.k2 as f32, None),
+                ("K3", self.k3 as f32, None),
+                ("B1", self.b1 as f32, None),
+                ("B2", self.b2 as f32, None),
             ],
             None,
         )]
