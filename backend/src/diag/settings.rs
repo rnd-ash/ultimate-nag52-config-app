@@ -273,7 +273,7 @@ pub struct PrmSettings {
 
 impl TcuSettings for PrmSettings {
     fn wiki_url() -> Option<&'static str> {
-        None
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/prm#revision-a1-140623")
     }
 
     fn setting_name() -> &'static str {
@@ -311,7 +311,7 @@ pub struct AdpSettings {
 
 impl TcuSettings for AdpSettings {
     fn wiki_url() -> Option<&'static str> {
-        None
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/adp#revision-a1-140623")
     }
 
     fn setting_name() -> &'static str {
@@ -368,12 +368,12 @@ pub struct EtsSettings {
     trrs_has_profile_selector: bool,
     ewm_selector_type: EwmSelectorType,
     profile_idx_top: AutoProfile,
-    profile_idx_buttom: AutoProfile
+    profile_idx_bottom: AutoProfile
 }
 
 impl TcuSettings for EtsSettings {
     fn wiki_url() -> Option<&'static str> {
-        None
+        Some("https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/ets#revision-a1-200623")
     }
 
     fn setting_name() -> &'static str {
