@@ -161,6 +161,14 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             *self.prev_values.write().unwrap() = None;
         }
 
+        if ui.button("Query shift clutch velocities").clicked() {
+            *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchVelocities);
+            self.chart_idx = 0;
+            self.charting_data.clear();
+            *self.curr_values.write().unwrap() = None;
+            *self.prev_values.write().unwrap() = None;
+        }
+
         if let Some(e) = self.read_error.read().unwrap().clone() {
             ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
         }
@@ -168,8 +176,6 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         let current_val = self.curr_values.read().unwrap().clone();
         if let Some(data) = current_val {
             let prev_value = self.prev_values.read().unwrap().clone().unwrap_or(data.clone());
-            data.to_table(ui);
-
             let c = data.get_chart_data();
 
             if !c.is_empty() {
@@ -210,7 +216,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                 // Can guarantee everything in `self.charting_data` will have the SAME length
                 // as `d`
                 let mut lines = Vec::new();
-                let legend = Legend::default();
+                let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
                 for (idx, (key, _, _)) in d.data.iter().enumerate() {
                     let mut points: Vec<[f64; 2]> = Vec::new();
                     for (timestamp, point) in &self.charting_data {
@@ -240,11 +246,16 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                 if self.chart_idx < 500 {
                     plot = plot.include_x(500);
                 }
-
-                plot.show(ui, |plot_ui| {
-                    for x in lines {
-                        plot_ui.line(x)
-                    }
+                let h = ui.available_height();
+                ui.horizontal(|row| {
+                    row.collapsing("Show table", |c| {
+                        data.to_table(c);
+                    });
+                    plot.height(h).show(row, |plot_ui| {
+                        for x in lines {
+                            plot_ui.line(x)
+                        }
+                    });
                 });
             }
         }
