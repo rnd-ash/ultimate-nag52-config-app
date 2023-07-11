@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     panic::catch_unwind,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, Ordering, AtomicU32},
         mpsc::{self, Receiver},
         Arc,
     },
@@ -40,6 +40,8 @@ pub struct Nag52USB {
     is_running: Arc<AtomicBool>,
     tx_id: u32,
     rx_id: u32,
+    pub tx_bytes: Arc<AtomicU32>,
+    pub rx_bytes: Arc<AtomicU32>
 }
 
 unsafe impl Sync for Nag52USB {}
@@ -83,6 +85,12 @@ impl Nag52USB {
         port.clear_output_buffer();
         let mut port_clone = port.try_clone().unwrap();
 
+        let tx_bytes = Arc::new(AtomicU32::new(0));
+        let rx_bytes = Arc::new(AtomicU32::new(0));
+
+        let tx_bytes_t = tx_bytes.clone();
+        let rx_bytes_t = rx_bytes.clone();
+
         // Create 2 threads, one to read the port, one to write to it
         let reader_thread = std::thread::spawn(move || {
             println!("Serial reader start");
@@ -91,6 +99,7 @@ impl Nag52USB {
             while is_running_r.load(Ordering::Relaxed) {
                 line.clear();
                 if reader.read_line(&mut line).is_ok() {
+                    rx_bytes_t.fetch_add(line.len() as u32, Ordering::Relaxed);
                     line.pop();
                     if line.is_empty() {
                         continue;
@@ -174,6 +183,8 @@ impl Nag52USB {
             rx_log: Some(read_rx_log),
             tx_id: 0,
             rx_id: 0,
+            tx_bytes,
+            rx_bytes
         })
     }
 
@@ -291,6 +302,7 @@ impl PayloadChannel for Nag52USB {
                 to_write.extend_from_slice(&buffer);
                 p.write_all(&to_write)
                     .map_err(|e| ChannelError::IOError(e))?;
+                self.tx_bytes.fetch_add(to_write.len() as u32, Ordering::Relaxed);
                 Ok(())
             }
             None => Err(ChannelError::InterfaceNotOpen),

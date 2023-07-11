@@ -7,7 +7,7 @@ use std::{
 use backend::{diag::Nag52Diag, ecu_diagnostics::DiagError, hw::usb::{EspLogMessage, EspLogLevel}};
 use eframe::{
     egui::{self, Direction, RichText, WidgetText, Sense, Button, ScrollArea},
-    epaint::{Pos2, Vec2, Color32},
+    epaint::{Pos2, Vec2, Color32, Rect, Rounding, FontId}, emath::Align2,
 };
 use egui_extras::{TableBuilder, Column};
 use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR, SUCCESS_COLOR};
@@ -34,6 +34,9 @@ pub struct MainWindow {
     last_repaint_time: Instant,
     logs: VecDeque<EspLogMessage>,
     show_logger: bool,
+    last_data_query_time: Instant,
+    last_tx_rate: u32,
+    last_rx_rate: u32
 }
 
 impl MainWindow {
@@ -46,7 +49,10 @@ impl MainWindow {
             nag: None,
             last_repaint_time: Instant::now(),
             logs: VecDeque::new(),
-            show_logger: false
+            show_logger: false,
+            last_data_query_time: Instant::now(),
+            last_tx_rate: 0,
+            last_rx_rate: 0
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
@@ -64,6 +70,8 @@ impl MainWindow {
     }
 }
 
+pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
+
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         let stack_size = self.pages.len();
@@ -79,9 +87,6 @@ impl eframe::App for MainWindow {
                                 pop_page = true;
                             }
                         }
-                        let elapsed = self.last_repaint_time.elapsed().as_micros() as u64;
-                        self.last_repaint_time = Instant::now();
-                        row.label(format!("{} FPS", (1000*1000)/elapsed));
                         if let Some(nag) = &self.nag {
                             let _ = nag.with_kwp(|f| {
                                 if f.is_ecu_connected() {
@@ -106,7 +111,57 @@ impl eframe::App for MainWindow {
                             } else {
                                 row.label("Log view disabled (Connection is not USB)");
                             }
+
+                            let height = row.available_height();
+                            
+                            let (s_tx_resp, p_tx) = row.allocate_painter(Vec2::new(height, height), Sense::hover());
+                            row.add_space(2.0);
+                            let (s_rx_resp, p_rx) = row.allocate_painter(Vec2::new(height, height), Sense::hover());
+
+                            let r_tx = s_tx_resp.rect;
+                            let r_rx = s_rx_resp.rect;
+                            
+                            if self.last_data_query_time.elapsed().as_millis() > 250 {
+                                if let Some((tx, rx)) = nag.get_data_rate() {
+                                    self.last_tx_rate = tx;
+                                    self.last_rx_rate = rx;
+                                }
+                                self.last_data_query_time = Instant::now();
+                            }
+
+                            let mut a_tx = (self.last_tx_rate as f32 / MAX_BANDWIDTH as f32) * 255.0;
+                            if a_tx > 255.0 {
+                                a_tx = 255.0
+                            } else if a_tx > 0.0 && a_tx < 10.0 {
+                                a_tx = 10.0
+                            }
+
+                            let mut a_rx = (self.last_rx_rate as f32 / MAX_BANDWIDTH as f32) * 255.0;
+                            if a_rx > 255.0 {
+                                a_rx = 255.0
+                            } else if a_rx > 0.0 && a_rx < 10.0 {
+                                a_rx = 10.0
+                            }
+
+                            let c_tx = Color32::from_rgba_unmultiplied(0, 255, 0, a_tx as u8);
+                            let c_rx = Color32::from_rgba_unmultiplied(255, 0, 0, a_rx as u8);
+
+                            p_tx.rect_filled(r_tx, Rounding::none(), c_tx);
+                            p_rx.rect_filled(r_rx, Rounding::none(), c_rx);
+                            p_tx.text(r_tx.center(), Align2::CENTER_CENTER, "Tx", FontId::monospace(10.0), Color32::WHITE);
+                            p_rx.text(r_rx.center(), Align2::CENTER_CENTER, "Rx", FontId::monospace(10.0), Color32::WHITE);
+
+                            s_tx_resp.on_hover_ui(|h| {
+                                h.label(format!("{} B/s", self.last_tx_rate));
+                            });
+
+                            s_rx_resp.on_hover_ui(|h| {
+                                h.label(format!("{} B/s", self.last_rx_rate));
+                            });
                         }
+                        let elapsed = self.last_repaint_time.elapsed().as_micros() as u64;
+                        self.last_repaint_time = Instant::now();
+                        row.label(format!("{:.3} FPS", (1000*1000)/elapsed));
                     });
                     s_bar_height = nav.available_height()
                 });

@@ -113,19 +113,27 @@ impl AdapterHw {
             Self::SocketCAN(s) => s.lock().unwrap().get_info().clone(),
         }
     }
+
+    pub fn get_data_rate(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Usb(u) => u.lock().unwrap().get_data_rate(),
+            Self::Passthru(p) => p.lock().unwrap().get_data_rate(),
+            #[cfg(unix)]
+            Self::SocketCAN(s) => s.lock().unwrap().get_data_rate(),
+        }
+    }
 }
 pub trait Nag52Endpoint: Hardware {
-    fn read_log_message(this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>>;
     fn is_connected(&self) -> bool;
     fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>>;
     fn get_device_desc(this: Arc<Mutex<Self>>) -> String;
+    fn get_data_rate(&self) -> Option<(u32, u32)> {
+        None
+    }
 }
 
 #[cfg(unix)]
 impl Nag52Endpoint for SocketCanDevice {
-    fn read_log_message(_this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
-        Arc::new(None)
-    }
 
     fn is_connected(&self) -> bool {
         self.is_iso_tp_channel_open()
@@ -141,9 +149,6 @@ impl Nag52Endpoint for SocketCanDevice {
 }
 
 impl Nag52Endpoint for PassthruDevice {
-    fn read_log_message(_this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
-        Arc::new(None)
-    }
 
     fn is_connected(&self) -> bool {
         self.is_iso_tp_channel_open()
@@ -159,9 +164,6 @@ impl Nag52Endpoint for PassthruDevice {
 }
 
 impl Nag52Endpoint for Nag52USB {
-    fn read_log_message(this: Arc<Mutex<Self>>) -> Arc<Option<Receiver<EspLogMessage>>> {
-        this.lock().unwrap().consume_log_receiver()
-    }
 
     fn is_connected(&self) -> bool {
         self.is_connected()
@@ -174,6 +176,15 @@ impl Nag52Endpoint for Nag52USB {
     fn get_device_desc(this: Arc<Mutex<Self>>) -> String {
         let info_name = this.lock().unwrap().get_info().name.clone();
         format!("Ultimate-NAG52 USB on {}", info_name)
+    }
+
+    fn get_data_rate(&self) -> Option<(u32, u32)> {
+        Some(
+            (
+                self.tx_bytes.swap(0, std::sync::atomic::Ordering::Relaxed),
+                self.rx_bytes.swap(0, std::sync::atomic::Ordering::Relaxed)
+            )
+        )
     }
 }
 
@@ -288,6 +299,10 @@ impl Nag52Diag {
         } else {
             None
         }
+    }
+
+    pub fn get_data_rate(&self) -> Option<(u32, u32)> {
+        self.endpoint.as_ref().map(|x| x.get_data_rate()).unwrap_or_else(|| None)
     }
 
 }
