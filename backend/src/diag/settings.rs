@@ -176,14 +176,22 @@ impl TcuSettings for SolSettings {
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(C, packed)]
 pub  struct SbsSettings {
-    delta_rpm_flare_detect: u16,
     min_upshift_end_rpm: u16,
     f_shown_if_flare: bool,
+    debug_show_up_down_arrows_in_r: bool,
     torque_reduction_factor_input_torque: LinearInterpSettings,
     torque_reduction_factor_shift_speed: LinearInterpSettings,
     stationary_shift_hold_time: u16,
     shift_timeout_pulling: u16,
-    shift_timeout_coasting: u16
+    shift_timeout_coasting: u16,
+    smooth_shifting_spc_multi_too_slow: f32,
+    smooth_shifting_spc_multi_too_fast: f32,
+    upshift_trq_max_reduction_at: u16,
+    downshift_trq_max_reduction_at: u16,
+    spc_multi_overlap_shift_speed: LinearInterpSettings,
+    spc_multi_overlap_zero_trq: f32,
+    spc_multi_overlap_max_trq: f32,
+    garage_shift_max_timeout_engine: u16,
 }
 
 impl TcuSettings for SbsSettings {
@@ -196,7 +204,7 @@ impl TcuSettings for SbsSettings {
     }
 
     fn get_revision_name() -> &'static str {
-        "A1 (14/06/23)"
+        "A2 (11/07/23)"
     }
 
     fn get_scn_id() -> u8 {
