@@ -122,7 +122,10 @@ pub struct TccSettings {
     min_slip_min_adapt_trq: u16,
     pressure_increase_step: u8,
     adapt_pressure_step: u8,
-    pressure_multiplier_output_rpm: LinearInterpSettings
+    pressure_multiplier_output_rpm: LinearInterpSettings,
+    sailing_mode_active_rpm: u16,
+    force_lock_min_output_rpm: u16,
+    locking_pedal_pos_max: u8
 }
 
 impl TcuSettings for TccSettings {
