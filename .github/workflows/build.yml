@@ -17,6 +17,9 @@ jobs:
     - uses: actions/checkout@v3
     - name: Install deps
       run: sudo apt-get install -y binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
+    - name: Get app version
+      run : |
+        echo "APP_VERSION=$(cat config_app/Cargo.toml | grep "^version = " | tr -d \" | cut -d " " -f3)" >> $GITHUB_ENV
     - name: Download appimagekit
       run: sudo wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
     - name: Make appimagetool exec
@@ -32,7 +35,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: config-app-${{env.BRANCH_NAME}}-appimage
-        path: *.AppImage
+        path: config_app-${{env.APP_VERSION}}-x86_64.AppImage 
 
         
   Windows-App:
