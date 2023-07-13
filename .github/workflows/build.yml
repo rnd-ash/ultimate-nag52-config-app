@@ -37,10 +37,10 @@ jobs:
       working-directory: ./config_app
       run: cargo appimage
     - name: Test
-      run: ls config-app/ -aslh
+      run: ls config_app/ -aslh
     - uses: actions/upload-artifact@v3
       with:
-        path: config-app/
+        path: config_app/
         name: config_app-${{env.APP_VERSION}}-x86_64.AppImage 
 
         
