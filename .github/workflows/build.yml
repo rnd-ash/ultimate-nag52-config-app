@@ -38,8 +38,8 @@ jobs:
       run: cargo appimage
     - uses: actions/upload-artifact@v3
       with:
-        name: config-app-${{env.BRANCH_NAME}}-appimage
-        path: config_app-${{env.APP_VERSION}}-x86_64.AppImage 
+        path: config-app/
+        name: config_app-${{env.APP_VERSION}}-x86_64.AppImage 
 
         
   Windows-App:
