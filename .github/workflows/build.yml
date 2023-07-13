@@ -36,6 +36,8 @@ jobs:
     - name: Build appimage
       working-directory: ./config_app
       run: cargo appimage
+    - name: Test
+    - run: ls -aslh
     - uses: actions/upload-artifact@v3
       with:
         path: config-app/
