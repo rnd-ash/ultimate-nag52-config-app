@@ -1,7 +1,7 @@
 use std::{sync::{Arc, RwLock}, time::Instant};
 
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, nvs::NvsPartition}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagServerResult}};
-use eframe::egui::ProgressBar;
+use eframe::egui::{ProgressBar, widgets, ScrollArea};
 
 use crate::window::{PageLoadState, InterfacePage, PageAction};
 
@@ -12,7 +12,7 @@ pub struct NvsEditor {
     ready: Arc<RwLock<PageLoadState>>,
     start_time: Instant,
     nag: Nag52Diag,
-    nvs_part_data:  Arc<RwLock<Option<Vec<u8>>>>
+    nvs_part_data:  Arc<RwLock<Option<NvsPartition>>>
 }
 
 
@@ -29,7 +29,7 @@ impl NvsEditor {
                     address: NVS_PART_OFFSET,
                     size: NVS_PART_LEN,
                 };
-                *s.write().unwrap() = PageLoadState::waiting("Begining download");
+                *s.write().unwrap() = PageLoadState::waiting("Beginning download");
                 let bs = n.begin_download(&part_info)?;
                 let mut res: Vec<u8> = vec![];
                 let mut blk_id = 1u8;
@@ -46,8 +46,7 @@ impl NvsEditor {
             match download(n_c, state_c.clone()) {
                 Ok(res) => {
                     *state_c.write().unwrap() = PageLoadState::Ok;
-                    NvsPartition::new(res.clone());
-                    *nvs_t.write().unwrap() = Some(res);
+                    *nvs_t.write().unwrap() = Some(NvsPartition::new(res.clone()));
                 },
                 Err(e) => {
                     *state_c.write().unwrap() = PageLoadState::Err(format!("{:?}", e));
@@ -87,7 +86,19 @@ impl InterfacePage for NvsEditor {
             },
         }
         let part_data = self.nvs_part_data.read().unwrap().clone().unwrap();
-        ui.label(format!("NVS partition is {} bytes", part_data.len()));
+        ScrollArea::new([false, true]).show(ui, |scroll|
+            for page in &part_data.pages {
+                scroll.collapsing(format!("Page {}", unsafe { page.seqnr }), |pg_ui| {
+                    for (id, blk) in page.entries.iter().enumerate() {
+                        //let bm = (blk.bitmap[i / 4] >> ((i % 4) * 2)) & 0x03;
+                        pg_ui.collapsing(format!("Block {}", id), |blk_ui| {
+                            blk_ui.code(format!("{:#02X?}", blk));
+                        });
+                    }
+                });
+            }
+        );
+        
         PageAction::None
     }
 

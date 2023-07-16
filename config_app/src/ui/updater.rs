@@ -3,7 +3,6 @@ use std::{sync::{Arc, RwLock}, time::Instant, path::PathBuf, fs::File, io::{Writ
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
 use eframe::egui::{self, ScrollArea};
-use nfd::Response;
 use octocrab::{models::repos::Release, repos::releases::ListReleasesBuilder};
 use tokio::runtime::Runtime;
 
@@ -136,7 +135,7 @@ impl InterfacePage for UpdatePage {
     fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
         ui.heading("Updater and dumper (New)");
         let state = self.status.read().unwrap().clone();
-        let mut read_partition: Option<(PartitionInfo, String)> = None;
+        let mut read_partition: Option<PartitionInfo> = None;
         ui.heading("Coredump info");
         if let Some(coredump) = &self.coredump {
             if coredump.size != 0 {
@@ -150,7 +149,7 @@ impl InterfacePage for UpdatePage {
                     ui.end_row();
                 });
                 if ui.button("Read coredump").clicked() {
-                    read_partition = Some((coredump.clone(), "un52_coredump.elf".to_string()))
+                    read_partition = Some(coredump.clone())
                 }
             } else {
                 ui.label("No coredump stored on this TCU!");
@@ -163,11 +162,11 @@ impl InterfacePage for UpdatePage {
             ui.heading("Current Firmware");
             make_fw_info(ui, "cfw", &info, Some(part_info));
             if ui.button("Backup current firmware").clicked() {
-                read_partition = Some((part_info.clone(), format!("un52_fw_{}_backup.bin", info.get_date())))
+                read_partition = Some(part_info.clone())
             }
         }
         if ui.button("Backup entire flash (WARNING. SLOW)").clicked() {
-            read_partition = Some((PartitionInfo { address: 0, size: 0x400000  } , "un52_flash_backup.bin".to_string()))
+            read_partition = Some(PartitionInfo { address: 0, size: 0x400000  })
         }
         ui.separator();
         ui.heading("Update to new Firmware");
@@ -272,16 +271,16 @@ impl InterfacePage for UpdatePage {
         //}
 
         if ui.button("Load FW").clicked() {
-            match nfd::open_file_dialog(Some("bin"), None) {
-                Ok(Response::Okay(path)) => {
-                    match load_binary_from_path(path) {
-                        Ok(f) => *self.fw.write().unwrap() = Some(f),
-                        Err(e) => {
-                            eprintln!("E loading binary! {:?}", e)
-                        }
+            if let Some(bin_path) = rfd::FileDialog::new()
+                .add_filter("Firmware bin", &["bin"])
+                .pick_file() {
+                match load_binary_from_path(bin_path.into_os_string().into_string().unwrap()) {
+
+                    Ok(f) => *self.fw.write().unwrap() = Some(f),
+                    Err(e) => {
+                        eprintln!("E loading binary! {:?}", e)
                     }
                 }
-                _ => {}
             }
         }
         let c_fw = self.fw.clone().read().unwrap().clone();
@@ -346,12 +345,14 @@ impl InterfacePage for UpdatePage {
             }
         }
         // Check for read operation
-        if let Some((read_op, save_name)) = &read_partition {
+        if let Some(read_op) = &read_partition {
             let mut ng = self.nag.clone();
             let state_c = self.status.clone();
             let mut save_path = None;
-            if let Ok(nfd::Response::Okay(p)) = nfd::open_pick_folder(None) {
-                save_path = Some(PathBuf::from(p).join(save_name));
+            if let Some(f) = rfd::FileDialog::new()
+                .add_filter(".bin", &["bin"])
+                .save_file() {
+                    save_path = Some(f);
             } else {
                 *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
                 return PageAction::None;

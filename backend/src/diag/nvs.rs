@@ -1,4 +1,4 @@
-use std::{ffi::CString, mem::size_of, fs::File, io::Write};
+use std::{ffi::CString, fs::File, io::Write, mem::size_of};
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum DataType {
     U8(u8),
@@ -13,13 +13,13 @@ pub enum DataType {
         size: u32,
         chunk_count: u8,
         chunk_start: u8,
-        rsv: u16
+        rsv: u16,
     },
     VariableData {
         size: u16,
         rsv: u16,
-        crc32: u32
-    }
+        crc32: u32,
+    },
 }
 
 impl DataType {
@@ -32,22 +32,18 @@ impl DataType {
             0x04 => Self::U32((raw & 0xFFFFFFFF) as u32),
             0x14 => Self::I32((raw & 0xFFFFFFFF) as i32),
             0x18 => Self::I64(raw as i64),
-            0x42 | 0x21 => {
-                Self::VariableData { 
-                    size: ((raw) & 0xFFFF) as u16, 
-                    rsv: ((raw >> 16) & 0xFFFF) as u16, 
-                    crc32: ((raw >> 32) & 0xFFFFFFFF) as u32 
-                }
+            0x42 | 0x21 => Self::VariableData {
+                size: ((raw) & 0xFFFF) as u16,
+                rsv: ((raw >> 16) & 0xFFFF) as u16,
+                crc32: ((raw >> 32) & 0xFFFFFFFF) as u32,
             },
-            0x48 => {
-                Self::BlobIndex { 
-                    size: ((raw) & 0xFFFFFFFF) as u32,  
-                    chunk_count: ((raw >> 32) & 0xFF) as u8, 
-                    chunk_start: ((raw >> 40) & 0xFF) as u8, 
-                    rsv: ((raw >> 48) & 0xFFFF) as u16 
-                }
-            }
-            _ => Self::U64(raw)
+            0x48 => Self::BlobIndex {
+                size: ((raw) & 0xFFFFFFFF) as u32,
+                chunk_count: ((raw >> 32) & 0xFF) as u8,
+                chunk_start: ((raw >> 40) & 0xFF) as u8,
+                rsv: ((raw >> 48) & 0xFFFF) as u16,
+            },
+            _ => Self::U64(raw),
         }
     }
 }
@@ -55,13 +51,13 @@ impl DataType {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, packed)]
 pub struct NvsEntry {
-    ns: u8,
-    ty: u8,
-    span: u8,
-    chunk_index: u8,
-    crc: u32,
-    key: [u8; 16],
-    data: u64
+    pub ns: u8,
+    pub ty: u8,
+    pub span: u8,
+    pub chunk_index: u8,
+    pub crc: u32,
+    pub key: [u8; 16],
+    pub data: u64,
 }
 
 impl NvsEntry {
@@ -73,16 +69,17 @@ impl NvsEntry {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, packed)]
 pub struct NvsPage {
-    state: u32,
-    seqnr: u32,
-    unused: [u32; 5],
-    crc: u32,
-    bitmap: [u8; 32],
-    entries: [NvsEntry; 126]
+    pub state: u32,
+    pub seqnr: u32,
+    pub unused: [u32; 5],
+    pub crc: u32,
+    pub bitmap: [u8; 32],
+    pub entries: [NvsEntry; 126],
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct NvsPartition {
-    data: Vec<u8>
+    pub pages: Vec<NvsPage>,
 }
 
 impl NvsPartition {
@@ -92,27 +89,35 @@ impl NvsPartition {
         let mut offset = 0;
         let mut page_n = 0;
         println!("{:02X?}", &data[0..20]);
+        let mut pages = Vec::new();
         while offset < data.len() {
             println!("Reading page {}", page_n);
-            let blk: [u8; size_of::<NvsPage>()] = data[offset..offset+size_of::<NvsPage>()].try_into().unwrap();
-            let page: NvsPage = unsafe {
-                std::mem::transmute(blk)
-            };
-            println!("page state {:02X}", unsafe{page.state});
+            let blk: [u8; size_of::<NvsPage>()] = data[offset..offset + size_of::<NvsPage>()]
+                .try_into()
+                .unwrap();
+            let page: NvsPage = unsafe { std::mem::transmute(blk) };
+            println!("page state {:02X}", unsafe { page.state });
+            pages.push(page);
             offset += size_of::<NvsPage>();
             let mut i = 0;
             while i < 126 {
-                let bm = (page.bitmap[i/4] >> ((i % 4) * 2)) & 0x03;
+                let bm = (page.bitmap[i / 4] >> ((i % 4) * 2)) & 0x03;
                 if bm == 2 {
-                    println!("Key {} in page {}. Ty {:02X}, Span {} entries. ChkIdx: {}", page.entries[i].get_key(), page_n, page.entries[i].ty, page.entries[i].span, page.entries[i].chunk_index);
+                    println!(
+                        "Key {} in page {}. Ty {:02X}, Span {} entries. ChkIdx: {}",
+                        page.entries[i].get_key(),
+                        page_n,
+                        page.entries[i].ty,
+                        page.entries[i].span,
+                        page.entries[i].chunk_index
+                    );
                     let ty = DataType::from_entry(page.entries[i].ty, page.entries[i].data);
 
                     if let DataType::VariableData { size, rsv, crc32 } = ty {
                         let mut blob: Vec<u8> = vec![];
                         for child in 1..=page.entries[i].span as usize {
-                            let re_interp: [u8; size_of::<NvsEntry>()] = unsafe {
-                                std::mem::transmute(page.entries[i+child])
-                            };
+                            let re_interp: [u8; size_of::<NvsEntry>()] =
+                                unsafe { std::mem::transmute(page.entries[i + child]) };
                             blob.extend_from_slice(&re_interp);
                         }
                         blob.resize(size as usize, 0);
@@ -127,8 +132,6 @@ impl NvsPartition {
             offset += size_of::<NvsPage>();
             page_n += 1;
         }
-        Self {
-            data
-        }
+        Self { pages }
     }
 }

@@ -15,7 +15,7 @@ serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
 config_app_macros={path="../config_app_macros/"}
 image = "0.24.5"
-nfd="0.0.4"
+rfd="0.11.4"
 pollster = "0.3.0"
 eframe = {default-features=false, version="0.21.0", features=["dark-light", "wgpu", "default_fonts"]}
 egui_extras = "0.21.0"
@@ -33,3 +33,6 @@ octocrab = {git = "https://github.com/XAMPPRocky/octocrab", commit="7061b48c9bb7
 tokio = { version = "1.17.0", features = ["full"] }
 zip="0.6.6"
 curl = "0.4.43"
+
+[patch.crates-io]
+winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }

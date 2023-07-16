@@ -3,7 +3,6 @@ use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instan
 use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings, PrmSettings, AdpSettings, EtsSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::Color32};
 use egui_extras::{TableBuilder, Column};
-use nfd::Response;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 use crate::window::{InterfacePage, PageLoadState, PageAction};
@@ -212,39 +211,36 @@ where T: Clone + Copy + Serialize + DeserializeOwned {
                 }
                 if x.button("Save to YML").clicked() {
                     // Backup the settings to file
-                    if let Ok(dialog) = nfd::dialog_save().filter("yml").open() {
-                        if let Response::Okay(mut file) = dialog {
-                            if !file.ends_with(".yml") {
-                                file.push_str(".yml");
-                            }
-                            File::create(file.clone()).unwrap().write_all(serde_yaml::to_string(&settings).unwrap().as_bytes()).unwrap();
+                    if let Some(save_path) = rfd::FileDialog::new()
+                    .add_filter("config yaml", &["yml"])
+                    .save_file() {
+                            File::create(&save_path).unwrap().write_all(serde_yaml::to_string(&settings).unwrap().as_bytes()).unwrap();
                             action = Some(PageAction::SendNotification { 
-                                text: format!("{} backup created at {}!", T::setting_name(), file), 
+                                text: format!("{} backup created at {}!", T::setting_name(), save_path.into_os_string().into_string().unwrap()), 
                                 kind: egui_toast::ToastKind::Success 
                             });
                         }
-                    }
 
                 }
                 if x.button("Load from YML").clicked() {
                     // Backup the settings to file
-                    if let Ok(dialog) = nfd::open_dialog(Some("yml"), None, nfd::DialogType::SingleFile) {
-                        if let Response::Okay(file) = dialog {
-                            let mut s = String::new();
-                            let mut f = File::open(&file).unwrap();
-                            f.read_to_string(&mut s).unwrap();
-                            if let Ok(s) = serde_yaml::from_str(&s) {
-                                settings = s;
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} loaded OK from {}!", T::setting_name(), file), 
-                                    kind: egui_toast::ToastKind::Success 
-                                });
-                            } else {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("Cannot load {}. Invalid settings YML!", file), 
-                                    kind: egui_toast::ToastKind::Error 
-                                });
-                            }
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("config yml", &["yml"])
+                        .pick_file() {
+                        let mut s = String::new();
+                        let mut f = File::open(&path).unwrap();
+                        f.read_to_string(&mut s).unwrap();
+                        if let Ok(s) = serde_yaml::from_str(&s) {
+                            settings = s;
+                            action = Some(PageAction::SendNotification { 
+                                text: format!("{} loaded OK from {:?}!", T::setting_name(), path), 
+                                kind: egui_toast::ToastKind::Success 
+                            });
+                        } else {
+                            action = Some(PageAction::SendNotification { 
+                                text: format!("Cannot load {:?}. Invalid settings YML!", path), 
+                                kind: egui_toast::ToastKind::Error 
+                            });
                         }
                     }
                 }
