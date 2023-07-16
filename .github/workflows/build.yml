@@ -59,6 +59,7 @@ jobs:
           del rustup-init.exe
           rustup target add i686-pc-windows-msvc
         shell: powershell
+      - uses: Swatinem/rust-cache@v2
       - name: Build executable
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
@@ -72,6 +73,10 @@ jobs:
     runs-on: macos-latest # X86 since M1 can use rosetta to run this
     steps:
       - uses: actions/checkout@v3
+      - run: |
+          rustup set auto-self-update disable
+          rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
       - name: Build executable
         working-directory: ./config_app
         run: cargo build --verbose --release
