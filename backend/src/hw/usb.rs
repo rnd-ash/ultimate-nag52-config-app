@@ -68,7 +68,8 @@ impl Nag52USB {
                     .baud(921600)
                     .read_timeout(Some(500))
                     .write_timeout(Some(500))
-                    .set_flow_control(FlowControl::None),
+                    .set_flow_control(FlowControl::None)
+                    .set_blocking(false),
             ),
         )
         .map_err(|e| HardwareError::APIError {
@@ -94,16 +95,31 @@ impl Nag52USB {
         // Create 2 threads, one to read the port, one to write to it
         let reader_thread = std::thread::spawn(move || {
             println!("Serial reader start");
-            let mut reader = BufReader::new(&mut port_clone);
-            let mut line = String::new();
+            let mut read_buf = Vec::new();
             while is_running_r.load(Ordering::Relaxed) {
-                line.clear();
-                if reader.read_line(&mut line).is_ok() {
-                    rx_bytes_t.fetch_add(line.len() as u32, Ordering::Relaxed);
-                    line.pop();
-                    if line.is_empty() {
-                        continue;
+                let btr = port_clone.bytes_to_read().unwrap_or_default();
+                if btr == 0 && read_buf.len() == 0 { // No work to do
+                    std::thread::sleep(Duration::from_millis(20));
+                } else {
+                    let mut r = vec![0x00; btr];
+                    let actual_read = port_clone.read(&mut r).unwrap_or_default();
+                    rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
+                    read_buf.extend_from_slice(&r[0..actual_read]);
+                }
+                if read_buf.len() == 0 {
+                    continue;
+                }
+
+                let mut read_idx = usize::MAX;
+                for x in 0..read_buf.len() {
+                    if read_buf[x] == 0x0A { // \n
+                        read_idx = x;
+                        break;
                     }
+                }
+                if read_idx != usize::MAX {
+                    let mut line = String::from_utf8_lossy(&read_buf[0..read_idx]).to_string();
+                    read_buf = read_buf[read_idx+1..].to_vec();
                     if line.starts_with("#") || line.starts_with("07E9") {
                         // First char is #, diag message
                         // Diag message
@@ -153,7 +169,6 @@ impl Nag52USB {
                             msg: msg.to_string()
                         });
                     }
-                    line.clear();
                 }
             }
             println!("Serial reader stop");

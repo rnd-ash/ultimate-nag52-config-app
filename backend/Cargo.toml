@@ -9,7 +9,7 @@ edition = "2021"
 ecu_diagnostics="0.91.1"
 #ecu_diagnostics = { git = "https://github.com/rnd-ash/ecu_diagnostics", branch="diag_server_unified" }
 #ecu_diagnostics = { path = "../../ecu_diagnostics" }
-serial-rs = {git="https://github.com/rnd-ash/serial-rs"}
+serial-rs = "0.2.1"
 packed_struct="0.10.0"
 static_assertions = "1.1.0"
 serde_yaml="0.9.21"
