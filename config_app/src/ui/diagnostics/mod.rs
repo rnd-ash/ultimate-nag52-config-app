@@ -18,7 +18,9 @@ pub mod rli;
 pub mod solenoids;
 use crate::ui::diagnostics::rli::{LocalRecordData, RecordIdents};
 
-use self::rli::{ChartData, RLI_QUERY_INTERVAL};
+use self::rli::{ChartData, RLI_QUERY_INTERVAL, RLI_PLOT_INTERVAL};
+
+const RLI_CHART_DISPLAY_TIME: u128 = 10000;
 
 pub enum CommandStatus {
     Ok(String),
@@ -27,14 +29,14 @@ pub enum CommandStatus {
 
 pub struct DiagnosticsPage {
     query_ecu: Arc<AtomicBool>,
-    last_update_time: Arc<AtomicU64>,
     curr_values: Arc<RwLock<Option<LocalRecordData>>>,
     prev_values: Arc<RwLock<Option<LocalRecordData>>>,
-    time_since_launch: Instant,
     record_to_query: Arc<RwLock<Option<RecordIdents>>>,
-    charting_data: VecDeque<(u128, ChartData)>,
+    charting_data: Arc<RwLock<VecDeque<(u128, ChartData)>>>,
     chart_idx: u128,
-    read_error: Arc<RwLock<Option<String>>>
+    read_error: Arc<RwLock<Option<String>>>,
+    rli_start_time: Arc<AtomicU64>,
+    launch_time: Instant
 }
 
 impl DiagnosticsPage {
@@ -42,20 +44,31 @@ impl DiagnosticsPage {
         
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
+        let run_tt = run.clone();
 
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
+        let store_tt = store.clone();
 
         let store_old = Arc::new(RwLock::new(None));
         let store_old_t = store_old.clone();
+        let store_old_tt = store_old.clone();
 
         let to_query: Arc<RwLock<Option<RecordIdents>>> = Arc::new(RwLock::new(None));
         let to_query_t = to_query.clone();
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
+        let last_update_tt = last_update.clone();
 
         let launch_time = Instant::now();
         let launch_time_t = launch_time.clone();
+        let launch_time_tt = launch_time.clone();
+
+        let rli_start_time = Arc::new(AtomicU64::new(0));
+        let rli_start_time_t = rli_start_time.clone();
+
+        let charting_data = Arc::new(RwLock::new(VecDeque::new()));
+        let charting_data_t = charting_data.clone();
 
         let err_text = Arc::new(RwLock::new(None));
         let err_text_t = err_text.clone();
@@ -85,22 +98,68 @@ impl DiagnosticsPage {
                     }
                 }
                 let taken = start.elapsed().as_millis() as u64;
-                if taken < rli::RLI_QUERY_INTERVAL {
-                    std::thread::sleep(Duration::from_millis(rli::RLI_QUERY_INTERVAL - taken));
+                if taken < RLI_QUERY_INTERVAL {
+                    std::thread::sleep(Duration::from_millis(RLI_QUERY_INTERVAL - taken));
+                }
+            }
+        });
+
+        let _ = thread::spawn(move || {
+            while run_tt.load(Ordering::Relaxed) {
+                let start = Instant::now();
+                let taken = start.elapsed().as_millis() as u64;
+                if taken < RLI_PLOT_INTERVAL {
+                    let ms_since_update = std::cmp::min(
+                        RLI_QUERY_INTERVAL,
+                        launch_time_tt.elapsed().as_millis() as u64
+                            - last_update_tt.load(Ordering::Relaxed),
+                    );
+
+                    let old = store_old_tt.read().unwrap().clone();
+                    let new = store_tt.read().unwrap().clone();
+
+                    if let (Some(o), Some(n)) = (old, new) {
+                        let co = o.get_chart_data()[0].clone();
+                        let mut cn = n.get_chart_data()[0].clone();
+                        if co.group_name == cn.group_name {
+                            let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
+                            let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
+                            if ms_since_update == 0 {
+                                proportion_prev = 1.0;
+                                proportion_curr = 0.0;
+                            } else if ms_since_update == RLI_QUERY_INTERVAL {
+                                proportion_prev = 0.0;
+                                proportion_curr = 1.0;
+                            }
+                            for idx in 0..co.data.len() {
+                                let interpolated = (co.data[idx].1 * proportion_prev) + (cn.data[idx].1 * proportion_curr);
+                                cn.data[idx].1 = interpolated;
+                            }
+
+                            let mut lck = charting_data_t.write().unwrap();
+                            lck.push_back((launch_time_tt.elapsed().as_millis() as u128 - rli_start_time_t.load(Ordering::Relaxed) as u128, cn));
+                            let timestamp_to_remove_before = lck.back().unwrap().0.saturating_sub(RLI_CHART_DISPLAY_TIME);
+                            if lck[0].0 < timestamp_to_remove_before {
+                                lck.pop_front();
+                            }
+                            drop(lck);
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL - taken));
                 }
             }
         });
         
         Self {
             query_ecu: run,
-            last_update_time: last_update,
             prev_values: store_old,
             curr_values: store,
             record_to_query: to_query,
-            charting_data: VecDeque::new(),
+            charting_data,
             chart_idx: 0,
-            time_since_launch: launch_time_t,
-            read_error: err_text
+            read_error: err_text,
+            rli_start_time,
+            launch_time
         }
     }
 }
@@ -108,65 +167,46 @@ impl DiagnosticsPage {
 impl crate::window::InterfacePage for DiagnosticsPage {
     fn make_ui(&mut self, ui: &mut Ui, _frame: &eframe::Frame) -> PageAction {
         ui.heading("This is experimental, use with MOST up-to-date firmware");
-
+        let mut rli_reset = false;
         if ui.button("Query gearbox sensor").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::GearboxSensors);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
         if ui.button("Query gearbox solenoids").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::SolenoidStatus);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
         if ui.button("Query solenoid pressures").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::PressureStatus);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
         if ui.button("Query can Rx data").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::CanDataDump);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
         if ui.button("Query Shift data").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::SSData);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
-
         if ui.button("Query Performance metrics").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::SysUsage);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
-
         if ui.button("Query Clutch speeds").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchSpeeds);
-            self.chart_idx = 0;
-            self.charting_data.clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
+            rli_reset = true;
         }
-
         if ui.button("Query shift clutch velocities").clicked() {
             *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchVelocities);
+            rli_reset = true;
+        }
+
+        if rli_reset {
             self.chart_idx = 0;
-            self.charting_data.clear();
+            self.charting_data.write().unwrap().clear();
             *self.curr_values.write().unwrap() = None;
             *self.prev_values.write().unwrap() = None;
+            self.rli_start_time.store(self.launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
         }
 
         if let Some(e) = self.read_error.read().unwrap().clone() {
@@ -175,89 +215,49 @@ impl crate::window::InterfacePage for DiagnosticsPage {
 
         let current_val = self.curr_values.read().unwrap().clone();
         if let Some(data) = current_val {
-            let prev_value = self.prev_values.read().unwrap().clone().unwrap_or(data.clone());
-            let c = data.get_chart_data();
+            let d = data.get_chart_data()[0].clone();
 
-            if !c.is_empty() {
-                let mut d = c[0].clone();
-                // Compare to 
-                let mut prev = d.clone();
-                if let Some(p) = prev_value.get_chart_data().get(0).cloned() {
-                    prev = p;
+            // Can guarantee everything in `self.charting_data` will have the SAME length
+            // as `d`
+            let mut lines = Vec::new();
+            let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
+            for (idx, (key, _, _)) in d.data.iter().enumerate() {
+                let mut points: Vec<[f64; 2]> = Vec::new();
+                for (timestamp, point) in self.charting_data.read().unwrap().clone() {
+                    points.push([timestamp as f64, point.data[idx].1 as f64])
                 }
-                if prev != d {
-                    // Linear interp when values differ
-                    let ms_since_update = std::cmp::min(
-                        RLI_QUERY_INTERVAL,
-                        self.time_since_launch.elapsed().as_millis() as u64
-                            - self.last_update_time.load(Ordering::Relaxed),
-                    );
-                    let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
-                    let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
-                    if ms_since_update == 0 {
-                        proportion_prev = 1.0;
-                        proportion_curr = 0.0;
-                    } else if ms_since_update == RLI_QUERY_INTERVAL {
-                        proportion_prev = 0.0;
-                        proportion_curr = 1.0;
-                    }
-                    for idx in 0..d.data.len() {
-                        let interpolated = (prev.data[idx].1 * proportion_prev) + (d.data[idx].1 * proportion_curr);
-                        d.data[idx].1 = interpolated;
-                    }
-                }
-                self.charting_data.push_back((self.chart_idx, d.clone()));
-                self.chart_idx+=1;
-                if self.charting_data.len() > (50000 / 100) {
-                    // 20 seconds
-                    let _ = self.charting_data.pop_front();
-                }
-
-                // Can guarantee everything in `self.charting_data` will have the SAME length
-                // as `d`
-                let mut lines = Vec::new();
-                let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
-                for (idx, (key, _, _)) in d.data.iter().enumerate() {
-                    let mut points: Vec<[f64; 2]> = Vec::new();
-                    for (timestamp, point) in &self.charting_data {
-                        points.push([*timestamp as f64, point.data[idx].1 as f64])
-                    }
-                    let mut key_hasher = DefaultHasher::default();
-                    key.hash(&mut key_hasher);
-                    let r = key_hasher.finish();
-                    lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
-                        Color32::from_rgb(
-                            (r & 0xFF) as u8,
-                            ((r >> 8) & 0xFF) as u8,
-                            ((r >> 16) & 0xFF) as u8,
-                        ))))
-                }
-
-                let mut plot = Plot::new(d.group_name.clone())
-                    .allow_drag(false)
-                    .legend(legend);
-                if let Some((min, max)) = &d.bounds {
-                    plot = plot.include_y(*min);
-                    if *max > 0.1 {
-                        // 0.0 check
-                        plot = plot.include_y(*max);
-                    }
-                }
-                if self.chart_idx < 500 {
-                    plot = plot.include_x(500);
-                }
-                let h = ui.available_height();
-                ui.horizontal(|row| {
-                    row.collapsing("Show table", |c| {
-                        data.to_table(c);
-                    });
-                    plot.height(h).show(row, |plot_ui| {
-                        for x in lines {
-                            plot_ui.line(x)
-                        }
-                    });
-                });
+                let mut key_hasher = DefaultHasher::default();
+                key.hash(&mut key_hasher);
+                let r = key_hasher.finish();
+                lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
+                    Color32::from_rgb(
+                        (r & 0xFF) as u8,
+                        ((r >> 8) & 0xFF) as u8,
+                        ((r >> 16) & 0xFF) as u8,
+                    ))))
             }
+
+            let mut plot = Plot::new(d.group_name.clone())
+                .allow_drag(false)
+                .legend(legend);
+            if let Some((min, max)) = &d.bounds {
+                plot = plot.include_y(*min);
+                if *max > 0.1 {
+                    // 0.0 check
+                    plot = plot.include_y(*max);
+                }
+            }
+            let h = ui.available_height();
+            ui.horizontal(|row| {
+                row.collapsing("Show table", |c| {
+                    data.to_table(c);
+                });
+                plot.height(h).show(row, |plot_ui| {
+                    for x in lines {
+                        plot_ui.line(x)
+                    }
+                });
+            });
         }
 
         PageAction::None

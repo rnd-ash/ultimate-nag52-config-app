@@ -6,10 +6,9 @@ use backend::ecu_diagnostics::{DiagError, DiagServerResult};
 use eframe::egui::{self, Color32, InnerResponse, RichText, Ui};
 use packed_struct::PackedStructSlice;
 use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
-use std::borrow::Borrow;
-use std::i16::MAX;
 
 pub const RLI_QUERY_INTERVAL: u64 = 100;
+pub const RLI_PLOT_INTERVAL: u64 = 1000/60;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
