@@ -28,7 +28,6 @@ impl PageLoadState {
 pub struct MainWindow {
     nag: Option<Arc<Nag52Diag>>,
     pages: VecDeque<Box<dyn InterfacePage>>,
-    curr_title: String,
     show_sbar: bool,
     show_back: bool,
     last_repaint_time: Instant,
@@ -43,7 +42,6 @@ impl MainWindow {
     pub fn new() -> Self {
         Self {
             pages: VecDeque::new(),
-            curr_title: "Ultimate-NAG52 config app".into(),
             show_sbar: false,
             show_back: true,
             nag: None,
@@ -91,6 +89,7 @@ impl eframe::App for MainWindow {
                             }
                         }
                         if let Some(nag) = &self.nag {
+
                             let _ = nag.with_kwp(|f| {
                                 if f.is_ecu_connected() {
                                     if let Some(mode) = f.get_current_diag_mode() {
@@ -101,8 +100,9 @@ impl eframe::App for MainWindow {
                                 }
                                 Ok(())
                             });
-                            if nag.can_read_log() {
-                                while let Some(msg) = nag.read_log_msg() {
+
+                            if nag.has_logger() {
+                                if let Some(msg) = nag.read_log_msg() {
                                     self.logs.push_back(msg);
                                     if self.logs.len() > 1000 {
                                         self.logs.pop_front();

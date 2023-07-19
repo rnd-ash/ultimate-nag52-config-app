@@ -1,5 +1,5 @@
 use ecu_diagnostics::{
-    channel::{ChannelError, IsoTPChannel, PayloadChannel},
+    channel::{ChannelError, IsoTPChannel, PayloadChannel, CanChannel},
     hardware::{HardwareError, HardwareInfo, HardwareResult},
 };
 use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
@@ -9,7 +9,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering, AtomicU32},
         mpsc::{self, Receiver},
-        Arc,
+        Arc, RwLock, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -32,11 +32,12 @@ pub struct EspLogMessage {
     pub msg: String,
 }
 
+#[derive(Clone)]
 pub struct Nag52USB {
-    port: Option<Box<dyn SerialPort>>,
+    port: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
     info: HardwareInfo,
-    rx_diag: mpsc::Receiver<(u32, Vec<u8>)>,
-    rx_log: Option<mpsc::Receiver<EspLogMessage>>,
+    rx_diag: Arc<mpsc::Receiver<(u32, Vec<u8>)>>,
+    rx_log: Arc<mpsc::Receiver<EspLogMessage>>,
     is_running: Arc<AtomicBool>,
     tx_id: u32,
     rx_id: u32,
@@ -82,44 +83,21 @@ impl Nag52USB {
 
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_r = is_running.clone();
+        let is_running_rr = is_running.clone();
         port.clear_input_buffer();
         port.clear_output_buffer();
         let mut port_clone = port.try_clone().unwrap();
 
         let tx_bytes = Arc::new(AtomicU32::new(0));
         let rx_bytes = Arc::new(AtomicU32::new(0));
-
-        let tx_bytes_t = tx_bytes.clone();
         let rx_bytes_t = rx_bytes.clone();
 
-        // Create 2 threads, one to read the port, one to write to it
-        let reader_thread = std::thread::spawn(move || {
-            println!("Serial reader start");
-            let mut read_buf = Vec::new();
-            while is_running_r.load(Ordering::Relaxed) {
-                let btr = port_clone.bytes_to_read().unwrap_or_default();
-                if btr == 0 && read_buf.len() == 0 { // No work to do
-                    std::thread::sleep(Duration::from_millis(20));
-                } else {
-                    let mut r = vec![0x00; btr];
-                    let actual_read = port_clone.read(&mut r).unwrap_or_default();
-                    rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
-                    read_buf.extend_from_slice(&r[0..actual_read]);
-                }
-                if read_buf.len() == 0 {
-                    continue;
-                }
 
-                let mut read_idx = usize::MAX;
-                for x in 0..read_buf.len() {
-                    if read_buf[x] == 0x0A { // \n
-                        read_idx = x;
-                        break;
-                    }
-                }
-                if read_idx != usize::MAX {
-                    let mut line = String::from_utf8_lossy(&read_buf[0..read_idx]).to_string();
-                    read_buf = read_buf[read_idx+1..].to_vec();
+        let (tx_line, rx_line) = mpsc::channel::<String>();
+
+        let process_thread = std::thread::spawn(move || {
+            while is_running_rr.load(Ordering::Relaxed) {
+                for mut line in rx_line.iter() {
                     if line.starts_with("#") || line.starts_with("07E9") {
                         // First char is #, diag message
                         // Diag message
@@ -171,11 +149,42 @@ impl Nag52USB {
                     }
                 }
             }
+        });
+
+        // Create 2 threads, one to read the port, one to write to it
+        let reader_thread = std::thread::spawn(move || {
+            println!("Serial reader start");
+            let mut read_buf = Vec::new();
+            while is_running_r.load(Ordering::Relaxed) {
+                // read again in case value changed
+                let btr = port_clone.bytes_to_read().unwrap_or_default();
+                let mut r = vec![0x00; btr];
+                let actual_read = port_clone.read(&mut r[..btr]).unwrap_or_default();
+                rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
+                read_buf.extend_from_slice(&r[0..actual_read]);
+                if read_buf.len() == 0 {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+
+                let mut read_idx = usize::MAX;
+                for x in 0..read_buf.len() {
+                    if read_buf[x] == 0x0A { // \n
+                        read_idx = x;
+                        break;
+                    }
+                }
+                if read_idx != usize::MAX {
+                    let line = String::from_utf8_lossy(&read_buf[0..read_idx]).to_string();
+                    read_buf = read_buf[read_idx+1..].to_vec();
+                    tx_line.send(line).unwrap();
+                }
+            }
             println!("Serial reader stop");
         });
 
         Ok(Self {
-            port: Some(port),
+            port: Arc::new(Mutex::new(Some(port))),
             is_running,
             info: HardwareInfo {
                 name: path.to_string(),
@@ -194,8 +203,8 @@ impl Nag52USB {
                     ip: false,
                 },
             },
-            rx_diag: read_rx_diag,
-            rx_log: Some(read_rx_log),
+            rx_diag: Arc::new(read_rx_diag),
+            rx_log: Arc::new(read_rx_log),
             tx_id: 0,
             rx_id: 0,
             tx_bytes,
@@ -207,28 +216,26 @@ impl Nag52USB {
         self.is_running.load(Ordering::Relaxed)
     }
 
-    pub fn consume_log_receiver(&mut self) -> Arc<Option<Receiver<EspLogMessage>>> {
-        Arc::new(self.rx_log.take())
+    pub fn read_msg(&self) -> Option<EspLogMessage> {
+        self.rx_log.try_recv().ok()
     }
 }
 
 impl Drop for Nag52USB {
     fn drop(&mut self) {
-        self.is_running.store(false, Ordering::Relaxed);
+        if Arc::strong_count(&self.port) <= 1 {
+            self.is_running.store(false, Ordering::Relaxed);
+        }
     }
 }
 
 impl ecu_diagnostics::hardware::Hardware for Nag52USB {
-    fn create_iso_tp_channel(
-        this: std::sync::Arc<std::sync::Mutex<Self>>,
-    ) -> ecu_diagnostics::hardware::HardwareResult<Box<dyn ecu_diagnostics::channel::IsoTPChannel>>
+    fn create_iso_tp_channel(&mut self) -> HardwareResult<Box<dyn IsoTPChannel>>
     {
-        Ok(Box::new(this.clone()))
+        Ok(Box::new(self.clone()))
     }
 
-    fn create_can_channel(
-        _this: std::sync::Arc<std::sync::Mutex<Self>>,
-    ) -> ecu_diagnostics::hardware::HardwareResult<Box<dyn ecu_diagnostics::channel::CanChannel>>
+    fn create_can_channel(&mut self) -> HardwareResult<Box<dyn CanChannel>>
     {
         Err(HardwareError::ChannelNotSupported)
     }
@@ -260,14 +267,14 @@ impl ecu_diagnostics::hardware::Hardware for Nag52USB {
 
 impl PayloadChannel for Nag52USB {
     fn open(&mut self) -> ecu_diagnostics::channel::ChannelResult<()> {
-        match self.port {
+        match *self.port.lock().unwrap() {
             Some(_) => Ok(()),
             None => Err(ChannelError::InterfaceNotOpen),
         }
     }
 
     fn close(&mut self) -> ecu_diagnostics::channel::ChannelResult<()> {
-        match self.port {
+        match *self.port.lock().unwrap() {
             Some(_) => Ok(()),
             None => Err(ChannelError::InterfaceNotOpen),
         }
@@ -306,7 +313,7 @@ impl PayloadChannel for Nag52USB {
         _timeout_ms: u32,
     ) -> ecu_diagnostics::channel::ChannelResult<()> {
         // Just write buffer
-        match self.port.as_mut() {
+        match self.port.lock().unwrap().as_mut() {
             Some(p) => {
                 let mut to_write = Vec::with_capacity(buffer.len() + 4);
                 let size: u16 = (buffer.len() + 2) as u16;
@@ -325,7 +332,7 @@ impl PayloadChannel for Nag52USB {
     }
 
     fn clear_rx_buffer(&mut self) -> ecu_diagnostics::channel::ChannelResult<()> {
-        match self.port.is_some() {
+        match self.port.lock().unwrap().is_some() {
             true => {
                 while self.rx_diag.try_recv().is_ok() {} // Clear rx_diag too!
                 Ok(())

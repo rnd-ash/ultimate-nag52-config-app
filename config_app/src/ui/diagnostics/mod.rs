@@ -79,12 +79,10 @@ impl DiagnosticsPage {
             });
             while run_t.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                if let Some(to_query) = *to_query_t.read().unwrap() {
+                if let Some(to_query) = to_query_t.read().unwrap().clone() {
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
-                            *err_text_t.write().unwrap() = None;
-                            let curr = store_t.read().unwrap().clone();
-                            *store_old_t.write().unwrap() = curr;
+                            *store_old_t.write().unwrap() = store_t.read().unwrap().clone();
                             *store_t.write().unwrap() = Some(r);
                             last_update_t.store(
                                 launch_time_t.elapsed().as_millis() as u64,
@@ -107,44 +105,46 @@ impl DiagnosticsPage {
         let _ = thread::spawn(move || {
             while run_tt.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                let taken = start.elapsed().as_millis() as u64;
-                if taken < RLI_PLOT_INTERVAL {
+                let ltime = launch_time_tt.elapsed().as_millis() as u128;
+
+                let old = store_old_tt.try_read().unwrap().clone();
+                let new = store_tt.try_read().unwrap().clone();
+
+                if let (Some(o), Some(n)) = (old, new) {
                     let ms_since_update = std::cmp::min(
                         RLI_QUERY_INTERVAL,
-                        launch_time_tt.elapsed().as_millis() as u64
-                            - last_update_tt.load(Ordering::Relaxed),
+                        ltime as u64 - last_update_tt.load(Ordering::Relaxed),
                     );
 
-                    let old = store_old_tt.read().unwrap().clone();
-                    let new = store_tt.read().unwrap().clone();
-
-                    if let (Some(o), Some(n)) = (old, new) {
-                        let co = o.get_chart_data()[0].clone();
-                        let mut cn = n.get_chart_data()[0].clone();
-                        if co.group_name == cn.group_name {
-                            let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
-                            let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
-                            if ms_since_update == 0 {
-                                proportion_prev = 1.0;
-                                proportion_curr = 0.0;
-                            } else if ms_since_update == RLI_QUERY_INTERVAL {
-                                proportion_prev = 0.0;
-                                proportion_curr = 1.0;
-                            }
-                            for idx in 0..co.data.len() {
-                                let interpolated = (co.data[idx].1 * proportion_prev) + (cn.data[idx].1 * proportion_curr);
-                                cn.data[idx].1 = interpolated;
-                            }
-
-                            let mut lck = charting_data_t.write().unwrap();
-                            lck.push_back((launch_time_tt.elapsed().as_millis() as u128 - rli_start_time_t.load(Ordering::Relaxed) as u128, cn));
-                            let timestamp_to_remove_before = lck.back().unwrap().0.saturating_sub(RLI_CHART_DISPLAY_TIME);
-                            if lck[0].0 < timestamp_to_remove_before {
-                                lck.pop_front();
-                            }
-                            drop(lck);
+                    let start_time = rli_start_time_t.load(Ordering::Relaxed) as u128;
+                    let co = o.get_chart_data()[0].clone();
+                    let mut cn = n.get_chart_data()[0].clone();
+                    if co.group_name == cn.group_name {
+                        let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
+                        let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
+                        if ms_since_update == 0 {
+                            proportion_prev = 1.0;
+                            proportion_curr = 0.0;
+                        } else if ms_since_update == RLI_QUERY_INTERVAL {
+                            proportion_prev = 0.0;
+                            proportion_curr = 1.0;
                         }
+                        for idx in 0..co.data.len() {
+                            let interpolated = (co.data[idx].1 * proportion_prev) + (cn.data[idx].1 * proportion_curr);
+                            cn.data[idx].1 = interpolated;
+                        }
+
+                        let ts = ltime - start_time;
+                        let mut lck = charting_data_t.write().unwrap();
+                        lck.push_back((ts, cn));
+                        if lck[0].0 < ts.saturating_sub(RLI_CHART_DISPLAY_TIME) {
+                            lck.pop_front();
+                        }
+                        drop(lck);
                     }
+                }
+                let taken = start.elapsed().as_millis() as u64;
+                if taken < RLI_PLOT_INTERVAL {
                     std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL - taken));
                 }
             }
@@ -213,7 +213,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
         }
 
-        let current_val = self.curr_values.read().unwrap().clone();
+        let current_val = self.curr_values.try_read().unwrap().clone();
+        let chart_data = self.charting_data.read().unwrap().clone();
         if let Some(data) = current_val {
             let d = data.get_chart_data()[0].clone();
 
@@ -223,8 +224,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
             let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
             for (idx, (key, _, _)) in d.data.iter().enumerate() {
                 let mut points: Vec<[f64; 2]> = Vec::new();
-                for (timestamp, point) in self.charting_data.read().unwrap().clone() {
-                    points.push([timestamp as f64, point.data[idx].1 as f64])
+                for (timestamp, point) in chart_data.iter() {
+                    points.push([*timestamp as f64, point.data[idx].1 as f64])
                 }
                 let mut key_hasher = DefaultHasher::default();
                 key.hash(&mut key_hasher);

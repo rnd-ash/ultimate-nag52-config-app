@@ -60,10 +60,10 @@ impl<T> DataState<T> {
 
 #[derive(Clone)]
 pub enum AdapterHw {
-    Usb(Arc<Mutex<Nag52USB>>),
-    Passthru(Arc<Mutex<PassthruDevice>>),
+    Usb(Nag52USB),
+    Passthru(PassthruDevice),
     #[cfg(unix)]
-    SocketCAN(Arc<Mutex<SocketCanDevice>>),
+    SocketCAN(SocketCanDevice),
 }
 
 impl fmt::Debug for AdapterHw {
@@ -96,37 +96,46 @@ impl AdapterHw {
         }
     }
 
-    pub fn create_isotp_channel(&self) -> HardwareResult<Box<dyn IsoTPChannel>> {
-        match self {
-            Self::Usb(u) => Hardware::create_iso_tp_channel(u.clone()),
-            Self::Passthru(p) => Hardware::create_iso_tp_channel(p.clone()),
+    pub fn create_isotp_channel(&mut self) -> HardwareResult<Box<dyn IsoTPChannel>> {
+        match self.borrow_mut() {
+            Self::Usb(u) => u.create_iso_tp_channel(),
+            Self::Passthru(p) => p.create_iso_tp_channel(),
             #[cfg(unix)]
-            Self::SocketCAN(s) => Hardware::create_iso_tp_channel(s.clone()),
+            Self::SocketCAN(s) => s.create_iso_tp_channel(),
         }
     }
 
     pub fn get_hw_info(&self) -> HardwareInfo {
         match self {
-            Self::Usb(u) => u.lock().unwrap().get_info().clone(),
-            Self::Passthru(p) => p.lock().unwrap().get_info().clone(),
+            Self::Usb(u) => u.get_info().clone(),
+            Self::Passthru(p) => p.get_info().clone(),
             #[cfg(unix)]
-            Self::SocketCAN(s) => s.lock().unwrap().get_info().clone(),
+            Self::SocketCAN(s) => s.get_info().clone(),
         }
     }
 
     pub fn get_data_rate(&self) -> Option<(u32, u32)> {
         match self {
-            Self::Usb(u) => u.lock().unwrap().get_data_rate(),
-            Self::Passthru(p) => p.lock().unwrap().get_data_rate(),
+            Self::Usb(u) => u.get_data_rate(),
+            Self::Passthru(p) => p.get_data_rate(),
             #[cfg(unix)]
-            Self::SocketCAN(s) => s.lock().unwrap().get_data_rate(),
+            Self::SocketCAN(s) => s.get_data_rate(),
+        }
+    }
+
+    pub fn read_log_msg(&self) -> Option<EspLogMessage> {
+        if let Self::Usb(nag) = self {
+            nag.read_msg()
+        } else {
+            None
         }
     }
 }
+
 pub trait Nag52Endpoint: Hardware {
     fn is_connected(&self) -> bool;
-    fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>>;
-    fn get_device_desc(this: Arc<Mutex<Self>>) -> String;
+    fn try_connect(info: &HardwareInfo) -> HardwareResult<Self> where Self: Sized;
+    fn get_device_desc(&self) -> String;
     fn get_data_rate(&self) -> Option<(u32, u32)> {
         None
     }
@@ -139,12 +148,12 @@ impl Nag52Endpoint for SocketCanDevice {
         self.is_iso_tp_channel_open()
     }
 
-    fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>> {
+    fn try_connect(info: &HardwareInfo) -> HardwareResult<Self> {
         SocketCanScanner::new().open_device_by_name(&info.name)
     }
 
-    fn get_device_desc(this: Arc<Mutex<Self>>) -> String {
-        this.lock().unwrap().get_info().name.clone()
+    fn get_device_desc(&self) -> String {
+        self.get_info().name.clone()
     }
 }
 
@@ -154,12 +163,12 @@ impl Nag52Endpoint for PassthruDevice {
         self.is_iso_tp_channel_open()
     }
 
-    fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>> {
+    fn try_connect(info: &HardwareInfo) -> HardwareResult<Self> {
         PassthruScanner::new().open_device_by_name(&info.name)
     }
 
-    fn get_device_desc(this: Arc<Mutex<Self>>) -> String {
-        this.lock().unwrap().get_info().name.clone()
+    fn get_device_desc(&self) -> String {
+        self.get_info().name.clone()
     }
 }
 
@@ -169,12 +178,12 @@ impl Nag52Endpoint for Nag52USB {
         self.is_connected()
     }
 
-    fn try_connect(info: &HardwareInfo) -> HardwareResult<Arc<Mutex<Self>>> {
+    fn try_connect(info: &HardwareInfo) -> HardwareResult<Self> {
         Nag52UsbScanner::new().open_device_by_name(&info.name)
     }
 
-    fn get_device_desc(this: Arc<Mutex<Self>>) -> String {
-        let info_name = this.lock().unwrap().get_info().name.clone();
+    fn get_device_desc(&self) -> String {
+        let info_name = self.get_info().name.clone();
         format!("Ultimate-NAG52 USB on {}", info_name)
     }
 
@@ -194,14 +203,13 @@ pub struct Nag52Diag {
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
     server: Option<Arc<DynamicDiagSession>>,
-    log_receiver: Arc<Option<Receiver<EspLogMessage>>>
 }
 
 unsafe impl Sync for Nag52Diag {}
 unsafe impl Send for Nag52Diag {}
 
 impl Nag52Diag {
-    pub fn new(hw: AdapterHw) -> DiagServerResult<Self> {
+    pub fn new(mut hw: AdapterHw) -> DiagServerResult<Self> {
 
         let mut channel_cfg = IsoTPSettings {
             block_size: 0,
@@ -251,18 +259,11 @@ impl Nag52Diag {
             Some(adv_opts),
         )?;
 
-        let logger = if let AdapterHw::Usb(usb) = &hw {
-            usb.lock().unwrap().consume_log_receiver()
-        } else {
-            Arc::new(None)
-        };
-
         Ok(Self {
             info: hw.get_hw_info(),
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
-            log_receiver: logger,
         })
     }
 
@@ -289,20 +290,16 @@ impl Nag52Diag {
         }
     }
 
-    pub fn can_read_log(&self) -> bool {
-        self.log_receiver.is_some()
+    pub fn get_data_rate(&self) -> Option<(u32, u32)> {
+        self.endpoint.as_ref().map(|x| x.get_data_rate()).unwrap_or_else(|| None)
     }
 
     pub fn read_log_msg(&self) -> Option<EspLogMessage> {
-        if let Some(receiver) = &self.log_receiver.borrow() {
-            receiver.try_recv().ok()
-        } else {
-            None
-        }
+        self.endpoint.as_ref().map(|x| x.read_log_msg()).flatten()
     }
 
-    pub fn get_data_rate(&self) -> Option<(u32, u32)> {
-        self.endpoint.as_ref().map(|x| x.get_data_rate()).unwrap_or_else(|| None)
+    pub fn has_logger(&self) -> bool {
+        self.endpoint_type == AdapterType::USB
     }
 
 }
