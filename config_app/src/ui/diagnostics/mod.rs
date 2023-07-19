@@ -1,8 +1,8 @@
-use crate::window::{PageAction, StatusBar};
+use crate::window::{PageAction, StatusBar, get_context};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use eframe::egui::plot::{Legend, Line, Plot};
-use eframe::egui::{Color32, RichText, Ui};
+use eframe::egui::{Color32, RichText, Ui, Context};
 use eframe::epaint::Stroke;
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
@@ -143,6 +143,7 @@ impl DiagnosticsPage {
                         drop(lck);
                     }
                 }
+                get_context().request_repaint();
                 let taken = start.elapsed().as_millis() as u64;
                 if taken < RLI_PLOT_INTERVAL {
                     std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL - taken));

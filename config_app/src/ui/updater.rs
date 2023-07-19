@@ -6,7 +6,7 @@ use eframe::egui::{self, ScrollArea};
 use octocrab::{models::repos::Release, repos::releases::ListReleasesBuilder};
 use tokio::runtime::Runtime;
 
-use crate::window::{InterfacePage, PageAction};
+use crate::window::{InterfacePage, PageAction, get_context};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CurrentFlashState {
@@ -313,6 +313,7 @@ impl InterfacePage for UpdatePage {
                 let fw_c = c_fw.clone().unwrap();
                 let state_c = self.status.clone();
                 std::thread::spawn(move || {
+                    get_context().request_repaint();
                     *state_c.write().unwrap() = CurrentFlashState::Prepare;
                     let (start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
                         Ok((a, b)) => (a, b),
@@ -321,6 +322,7 @@ impl InterfacePage for UpdatePage {
                             return;
                         },
                     };
+                    get_context().request_repaint();
                     let mut written = 0;
                     for (bid, block) in fw_c.raw.chunks(bs as usize).enumerate() {
                         match ng.transfer_data(((bid + 1) & 0xFF) as u8, block) {
@@ -333,6 +335,7 @@ impl InterfacePage for UpdatePage {
                                 return;
                             }
                         }
+                        get_context().request_repaint();
                     }
                     *state_c.write().unwrap() = CurrentFlashState::Verify;
                     match ng.end_ota(true) {
@@ -341,6 +344,7 @@ impl InterfacePage for UpdatePage {
                             *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Error verification: {}", e));
                         }
                     }
+                    get_context().request_repaint();
                 });
             }
         }
@@ -384,6 +388,7 @@ impl InterfacePage for UpdatePage {
                             return;
                         }
                     }
+                    get_context().request_repaint();
                 }
                 match ng.end_ota(false) {
                     Ok(_) => *state_c.write().unwrap() = {

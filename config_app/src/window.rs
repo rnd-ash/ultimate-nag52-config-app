@@ -1,16 +1,24 @@
 use std::{
     collections::VecDeque,
     ops::Add,
-    time::{Duration, Instant}, sync::Arc,
+    time::{Duration, Instant}, sync::Arc, borrow::BorrowMut,
 };
 
 use backend::{diag::Nag52Diag, ecu_diagnostics::DiagError, hw::usb::{EspLogMessage, EspLogLevel}};
 use eframe::{
-    egui::{self, Direction, RichText, WidgetText, Sense, Button, ScrollArea},
+    egui::{self, Direction, RichText, WidgetText, Sense, Button, ScrollArea, Context},
     epaint::{Pos2, Vec2, Color32, Rect, Rounding, FontId}, emath::Align2,
 };
 use egui_extras::{TableBuilder, Column};
 use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR, SUCCESS_COLOR};
+
+static mut GLOBAL_EGUI_CONTEXT: Option<Context> = None;
+
+pub fn get_context() -> &'static Context {
+    unsafe {
+        GLOBAL_EGUI_CONTEXT.as_ref().unwrap()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum PageLoadState {
@@ -75,6 +83,11 @@ pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+
+        if unsafe { GLOBAL_EGUI_CONTEXT.is_none() } {
+            unsafe { GLOBAL_EGUI_CONTEXT = Some(ctx.clone()) };
+        }
+
         let stack_size = self.pages.len();
         let mut s_bar_height = 0.0;
         if stack_size > 0 {

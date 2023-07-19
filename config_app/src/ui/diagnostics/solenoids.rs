@@ -10,9 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{window::PageAction};
+use crate::{window::{PageAction, get_context}};
 
-use super::rli::{DataSolenoids, LocalRecordData, RecordIdents};
+use super::{rli::{DataSolenoids, LocalRecordData, RecordIdents, RLI_PLOT_INTERVAL}, RLI_CHART_DISPLAY_TIME};
 
 const UPDATE_DELAY_MS: u64 = 100;
 
@@ -35,6 +35,7 @@ impl SolenoidPage {
     pub fn new(mut nag: Nag52Diag) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
+        let run_tt = run.clone();
 
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
@@ -47,6 +48,14 @@ impl SolenoidPage {
 
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
+
+        let _ = thread::spawn(move || {
+            while run_tt.load(Ordering::Relaxed) {
+                get_context().request_repaint();
+                std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL));
+            };
+        });
+
         let _ = thread::spawn(move || {
             nag.with_kwp(|server| {
                 server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
