@@ -160,4 +160,8 @@ impl InterfacePage for Launcher {
     fn should_show_statusbar(&self) -> bool {
         false
     }
+
+    fn nag_destroy_before_load(&self) -> bool {
+        true
+    }
 }

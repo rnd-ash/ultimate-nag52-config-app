@@ -65,6 +65,9 @@ impl MainWindow {
         self.pages.pop_front();
         if let Some(pg) = self.pages.get_mut(0) {
             self.show_sbar = pg.should_show_statusbar();
+            if pg.nag_destroy_before_load() {
+                drop(self.nag.take());
+            }
             pg.on_load(self.nag.clone());
         }
     }
@@ -299,6 +302,9 @@ pub trait InterfacePage {
         false
     }
     fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>){}
+    fn nag_destroy_before_load(&self) -> bool {
+        false
+    }
 }
 
 pub trait StatusBar {
