@@ -162,8 +162,8 @@ impl Nag52USB {
                 let actual_read = port_clone.read(&mut r[..btr]).unwrap_or_default();
                 rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
                 read_buf.extend_from_slice(&r[0..actual_read]);
-                if read_buf.len() == 0 {
-                    std::thread::sleep(Duration::from_millis(5));
+                if actual_read == 0 {
+                    std::thread::sleep(Duration::from_millis(1));
                     continue;
                 }
 
