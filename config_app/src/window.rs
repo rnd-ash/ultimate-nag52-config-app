@@ -280,7 +280,6 @@ impl eframe::App for MainWindow {
                 });
             }
         }
-        ctx.request_repaint_after(Duration::from_millis(1000/60));
     }
 }
 
