@@ -162,7 +162,7 @@ impl Nag52USB {
                 let actual_read = port_clone.read(&mut r[..btr]).unwrap_or_default();
                 rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
                 read_buf.extend_from_slice(&r[0..actual_read]);
-                if actual_read == 0 {
+                if read_buf.len() == 0 {
                     std::thread::sleep(Duration::from_millis(1));
                     continue;
                 }
@@ -323,7 +323,7 @@ impl PayloadChannel for Nag52USB {
                 to_write.push((addr & 0xFF) as u8);
                 to_write.extend_from_slice(&buffer);
                 p.write_all(&to_write)
-                    .map_err(|e| ChannelError::IOError(e))?;
+                    .map_err(|e| ChannelError::IOError(Arc::new(e)))?;
                 self.tx_bytes.fetch_add(to_write.len() as u32, Ordering::Relaxed);
                 Ok(())
             }

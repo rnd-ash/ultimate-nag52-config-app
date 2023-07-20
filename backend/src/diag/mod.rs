@@ -4,9 +4,9 @@ use std::{
     sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}},
 };
 
-use ecu_diagnostics::hardware::{
+use ecu_diagnostics::{hardware::{
     passthru::*, Hardware, HardwareError, HardwareInfo, HardwareResult, HardwareScanner,
-};
+}, dynamic_diag::{ServerEvent, DiagServerLogger}};
 use ecu_diagnostics::{
     channel::*,
     dynamic_diag::{
@@ -197,12 +197,57 @@ impl Nag52Endpoint for Nag52USB {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct NagAppLoggerInner {
+    sender: mpsc::Sender<ServerEvent>
+}
+
+unsafe impl Send for NagAppLoggerInner{}
+unsafe impl Sync for NagAppLoggerInner{}
+
+impl NagAppLoggerInner {
+    pub fn new() -> (Self, mpsc::Receiver<ServerEvent>) {
+        let (tx, rx) = mpsc::channel::<ServerEvent>();
+        (
+            Self {
+                sender: tx
+            },
+            rx
+        )
+    }
+}
+
+impl DiagServerLogger for NagAppLoggerInner {
+    fn on_event(&self, evt: ServerEvent) {
+        self.sender.send(evt);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NagAppLogger {
+    recv: Arc<mpsc::Receiver<ServerEvent>>
+}
+
+impl NagAppLogger {
+    pub fn new() -> (Self, NagAppLoggerInner) {
+        let (inner, recv) = NagAppLoggerInner::new();
+        (
+            Self {
+                recv: Arc::new(recv)
+            },
+            inner
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Nag52Diag {
     info: HardwareInfo,
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
     server: Option<Arc<DynamicDiagSession>>,
+    logger: NagAppLogger
 }
 
 unsafe impl Sync for Nag52Diag {}
@@ -251,12 +296,15 @@ impl Nag52Diag {
             name: "UN52DevMode".into(),
         });
 
+        let (logger, inner_logger) = NagAppLogger::new();
+
         let kwp = DynamicDiagSession::new_over_iso_tp(
             protocol,
             hw.create_isotp_channel()?,
             channel_cfg,
             basic_opts,
             Some(adv_opts),
+            inner_logger
         )?;
 
         Ok(Self {
@@ -264,6 +312,7 @@ impl Nag52Diag {
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
+            logger
         })
     }
 
@@ -300,6 +349,10 @@ impl Nag52Diag {
 
     pub fn has_logger(&self) -> bool {
         self.endpoint_type == AdapterType::USB
+    }
+
+    pub fn get_server_event(&self) -> Option<ServerEvent> {
+        self.logger.recv.try_recv().ok()
     }
 
 }

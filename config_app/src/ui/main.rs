@@ -1,34 +1,18 @@
 use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
-use backend::diag::settings::LinearInterpSettings;
-use backend::diag::settings::TcuSettings;
-use backend::diag::settings::unpack_settings;
-use backend::serde_yaml;
-use backend::serde_yaml::Mapping;
-use backend::serde_yaml::Value;
 use config_app_macros::include_base64;
 use eframe::egui;
 use eframe::Frame;
-use eframe::egui::CollapsingHeader;
-use eframe::egui::DragValue;
 use eframe::egui::RichText;
-use eframe::egui::ScrollArea;
-use eframe::egui::plot::Line;
-use eframe::egui::plot::Plot;
-use eframe::egui::plot::PlotPoints;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
-use serde_json::Number;
-use std::borrow::BorrowMut;
-use std::ops::RangeInclusive;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
 use super::nvs_editor::NvsEditor;
 use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
-use super::widgets::number_input::NumberInputWidget;
 use super::{
     configuration::ConfigPage,
     diagnostics::solenoids::SolenoidPage,
@@ -37,7 +21,6 @@ use super::{
 use crate::ui::diagnostics::DiagnosticsPage;
 
 pub struct MainPage {
-    show_about_ui: bool,
     diag_server: &'static mut Nag52Diag,
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
@@ -56,7 +39,6 @@ impl MainPage {
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
         
         Self {
-            show_about_ui: false,
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),

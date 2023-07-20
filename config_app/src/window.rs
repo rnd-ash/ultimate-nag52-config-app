@@ -4,13 +4,13 @@ use std::{
     time::{Duration, Instant}, sync::Arc, borrow::BorrowMut,
 };
 
-use backend::{diag::Nag52Diag, ecu_diagnostics::DiagError, hw::usb::{EspLogMessage, EspLogLevel}};
+use backend::{diag::Nag52Diag, ecu_diagnostics::{DiagError, dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
 use eframe::{
     egui::{self, Direction, RichText, WidgetText, Sense, Button, ScrollArea, Context},
     epaint::{Pos2, Vec2, Color32, Rect, Rounding, FontId}, emath::Align2,
 };
 use egui_extras::{TableBuilder, Column};
-use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR, SUCCESS_COLOR};
+use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR};
 
 static mut GLOBAL_EGUI_CONTEXT: Option<Context> = None;
 
@@ -40,7 +40,9 @@ pub struct MainWindow {
     show_back: bool,
     last_repaint_time: Instant,
     logs: VecDeque<EspLogMessage>,
+    trace: VecDeque<String>,
     show_logger: bool,
+    show_tracer: bool,
     last_data_query_time: Instant,
     last_tx_rate: u32,
     last_rx_rate: u32
@@ -55,7 +57,9 @@ impl MainWindow {
             nag: None,
             last_repaint_time: Instant::now(),
             logs: VecDeque::new(),
+            trace: VecDeque::new(),
             show_logger: false,
+            show_tracer: false,
             last_data_query_time: Instant::now(),
             last_tx_rate: 0,
             last_rx_rate: 0
@@ -126,6 +130,44 @@ impl eframe::App for MainWindow {
                                 }
                             } else {
                                 row.label("Log view disabled (Connection is not USB)");
+                            }
+
+                            if row.button("Show packet trace").clicked() {
+                                self.show_tracer = true;
+                            }
+                            if let Some(evt) = nag.get_server_event() {
+
+                                let fmt_str = match evt {
+                                    ServerEvent::ServerStart => format!("--Server start--"),
+                                    ServerEvent::ServerExit => format!("--Server end--"),
+                                    ServerEvent::BytesSendState(b, state) => {
+                                        match state {
+                                            Ok(_) => {
+                                                format!("--> {:02X?}", b)
+                                            },
+                                            Err(e) => {
+                                                format!("--> ERROR: {} - {:02X?}", e.to_string(), b)
+                                            },
+                                        }
+                                    },
+                                    ServerEvent::BytesRecvState(res) => {
+                                        match res {
+                                            Ok(b) => {
+                                                format!("<-- {:02X?}", b)
+                                            },
+                                            Err(e) => {
+                                                format!("<-- ERROR: {}", e.to_string())
+                                            },
+                                        }
+                                    },
+                                };
+                                self.trace.push_back(fmt_str);
+                                if self.trace.len() > 100 {
+                                    self.trace.pop_front();
+                                }
+                                if self.show_logger {
+                                    ctx.request_repaint();
+                                }
                             }
 
                             let height = row.available_height();
@@ -289,6 +331,16 @@ impl eframe::App for MainWindow {
                                 ui.label(RichText::new(&msg.msg).color(c));
                             });
                         })
+                    });
+                });
+            }
+
+            if self.show_tracer {
+                egui::Window::new("packet trace").open(&mut self.show_tracer).show(ctx, |ui| {
+                    let r = ScrollArea::new([true, true]).stick_to_bottom(true).max_height(300.0).max_width(600.0).show(ui, |s| {
+                        for x in &self.trace {
+                            s.label(x);
+                        }
                     });
                 });
             }
