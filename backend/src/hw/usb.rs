@@ -67,8 +67,8 @@ impl Nag52USB {
             Some(
                 SerialPortSettings::default()
                     .baud(921600)
-                    .read_timeout(Some(500))
-                    .write_timeout(Some(500))
+                    .read_timeout(Some(1500))
+                    .write_timeout(Some(1500))
                     .set_flow_control(FlowControl::None)
                     .set_blocking(false),
             ),
