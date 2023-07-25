@@ -6,7 +6,7 @@ use std::{
 
 use ecu_diagnostics::{hardware::{
     passthru::*, Hardware, HardwareError, HardwareInfo, HardwareResult, HardwareScanner,
-}, dynamic_diag::{ServerEvent, DiagServerLogger}};
+}, dynamic_diag::{ServerEvent, DiagServerLogger}, DiagError};
 use ecu_diagnostics::{
     channel::*,
     dynamic_diag::{
@@ -247,7 +247,8 @@ pub struct Nag52Diag {
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
     server: Option<Arc<DynamicDiagSession>>,
-    logger: NagAppLogger
+    logger: NagAppLogger,
+    server_mutex: Arc<Mutex<()>>
 }
 
 unsafe impl Sync for Nag52Diag {}
@@ -312,7 +313,8 @@ impl Nag52Diag {
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
-            logger
+            logger,
+            server_mutex: Arc::new(Mutex::new(()))
         })
     }
 
@@ -333,9 +335,13 @@ impl Nag52Diag {
     where
         F: FnMut(&DynamicDiagSession) -> DiagServerResult<X>,
     {
-        match self.server.borrow() {
-            None => Err(HardwareError::DeviceNotOpen.into()),
-            Some(s) => kwp_fn(&s),
+        if self.server_mutex.lock().is_ok() {
+            match self.server.borrow() {
+                None => Err(HardwareError::DeviceNotOpen.into()),
+                Some(s) => kwp_fn(&s),
+            }
+        } else {
+            Err(DiagError::ServerNotRunning)
         }
     }
 
