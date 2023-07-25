@@ -453,16 +453,18 @@ impl DataSolenoids {
 
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PrimitiveEnum_u8)]
-pub enum TorqueReqType {
+pub enum TorqueReqCtrlType {
     None = 0,
-    LessThan = 1,
-    MoreThan = 2,
-    Exact = 3,
-    LessThanFast = 4,
-    MoreThanFast = 5,
-    ExtactFast = 6
+    NormalSpeed = 1,
+    FastAsPossible = 2
 }
 
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PrimitiveEnum_u8)]
+pub enum TorqueReqBounds {
+    LessThan = 0,
+    MoreThan = 1,
+    Exact = 2
+}
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PrimitiveEnum_u8)]
 pub enum PaddlePosition {
@@ -510,7 +512,9 @@ pub struct DataCanDump {
     pub fuel_flow: u16,
     pub egs_req_torque: u16,
     #[packed_field(size_bytes="1", ty="enum")]
-    pub egs_torque_req_type: TorqueReqType,
+    pub egs_torque_req_ctrl_type: TorqueReqCtrlType,
+    #[packed_field(size_bytes="1", ty="enum")]
+    pub egs_torque_req_bounds: TorqueReqBounds,
     pub engine_iat_temp: i16,
     pub engine_oil_temp: i16,
     pub engine_coolant_temp: i16
@@ -625,10 +629,12 @@ impl DataCanDump {
             ui.end_row();
 
             ui.label("Torque request");
-            if self.egs_torque_req_type == TorqueReqType::None {
+            if self.egs_torque_req_ctrl_type == TorqueReqCtrlType::None {
                 ui.label("None");
             } else {
-                ui.label(format!("{} Nm (TY: {:?})", self.egs_req_torque as f32 / 4.0 - 500.0, self.egs_torque_req_type));
+                ui.label(format!("{} Nm ({:?})", self.egs_req_torque as f32 / 4.0 - 500.0, self.egs_torque_req_ctrl_type));
+                ui.end_row();
+                ui.label(format!("({:?})", self.egs_torque_req_bounds));
             }
             ui.end_row();
             
@@ -674,7 +680,7 @@ impl DataCanDump {
         } else {
             self.driver_torque as f32 / 4.0 - 500.0
         };
-        let egs = if self.egs_req_torque == u16::MAX || self.egs_torque_req_type == TorqueReqType::None {
+        let egs = if self.egs_req_torque == u16::MAX || self.egs_torque_req_ctrl_type == TorqueReqCtrlType::None {
             0.0
         } else {
             self.egs_req_torque as f32 / 4.0 - 500.0
