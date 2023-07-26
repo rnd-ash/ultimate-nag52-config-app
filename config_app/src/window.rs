@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     ops::Add,
-    time::{Duration, Instant}, sync::Arc, borrow::BorrowMut,
+    time::{Duration, Instant}, sync::Arc, borrow::BorrowMut, fs::OpenOptions, io::Write,
 };
 
 use backend::{diag::Nag52Diag, ecu_diagnostics::{DiagError, dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
@@ -119,7 +119,7 @@ impl eframe::App for MainWindow {
                             });
 
                             if nag.has_logger() {
-                                if let Some(msg) = nag.read_log_msg() {
+                                while let Some(msg) = nag.read_log_msg() {
                                     self.logs.push_back(msg);
                                     if self.logs.len() > 1000 {
                                         self.logs.pop_front();
@@ -331,6 +331,28 @@ impl eframe::App for MainWindow {
                                 ui.label(RichText::new(&msg.msg).color(c));
                             });
                         })
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("Clear logs").clicked() {
+                            self.logs.clear();
+                        }
+                        if ui.button("Save logs to disk").clicked() {
+                            if let Some(p) = rfd::FileDialog::new().add_filter("log file", &["log"]).save_file() {
+                                let mut f = OpenOptions::new().write(true).append(false).create(true).open(p).unwrap();
+                                let mut s = String::new();
+                                for msg in &self.logs {
+                                    let li = match msg.lvl {
+                                        EspLogLevel::Debug => "DD",
+                                        EspLogLevel::Info => "II",
+                                        EspLogLevel::Warn => "WW",
+                                        EspLogLevel::Error => "EE",
+                                    };
+                                    s.push_str(&format!("{} {} - ({}) {}\n", msg.timestamp, li, msg.tag, msg.msg));
+                                }
+                                f.write_all(s.as_bytes()).unwrap();
+
+                            }
+                        }
                     });
                 });
             }
