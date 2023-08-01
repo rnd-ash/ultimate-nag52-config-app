@@ -133,62 +133,64 @@ impl DiagnosticsPage {
 impl crate::window::InterfacePage for DiagnosticsPage {
     fn make_ui(&mut self, ui: &mut Ui, _frame: &eframe::Frame) -> PageAction {
         ui.heading("This is experimental, use with MOST up-to-date firmware");
-        let mut rli_reset = false;
-        if ui.button("Query gearbox sensor").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::GearboxSensors);
-            rli_reset = true;
-        }
-        if ui.button("Query gearbox solenoids").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::SolenoidStatus);
-            rli_reset = true;
-        }
-        if ui.button("Query solenoid pressures").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::PressureStatus);
-            rli_reset = true;
-        }
-        if ui.button("Query can Rx data").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::CanDataDump);
-            rli_reset = true;
-        }
-        if ui.button("Query Shift data").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::SSData);
-            rli_reset = true;
-        }
-        if ui.button("Query Performance metrics").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::SysUsage);
-            rli_reset = true;
-        }
-        if ui.button("Query Clutch speeds").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchSpeeds);
-            rli_reset = true;
-        }
-        if ui.button("Query shift clutch velocities").clicked() {
-            *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchVelocities);
-            rli_reset = true;
-        }
-
-        if rli_reset {
-            self.chart_idx = 0;
-            self.charting_data.write().unwrap().clear();
-            *self.curr_values.write().unwrap() = None;
-            *self.prev_values.write().unwrap() = None;
-            self.rli_start_time.store(self.launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
-        }
-
-        if let Some(e) = self.read_error.read().unwrap().clone() {
-            ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
-        }
-        let start_time = self.rli_start_time.load(Ordering::Relaxed);
+        ui.add_space(5.0);
+        let ui_height = ui.available_height() - 20.0;
         let current_val = self.curr_values.try_read().unwrap().clone();
         let chart_data = self.charting_data.read().unwrap().clone();
-        let ui_height = ui.available_height();
-        if let Some(data) = current_val {
-            ui.horizontal(|row| {
-                row.collapsing("Show table", |c| {
-                    data.to_table(c);
-                });
-                row.vertical(|col| {
-            
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                let mut rli_reset = false;
+                if ui.button("Query gearbox sensor").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::GearboxSensors);
+                    rli_reset = true;
+                }
+                if ui.button("Query gearbox solenoids").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SolenoidStatus);
+                    rli_reset = true;
+                }
+                if ui.button("Query solenoid pressures").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::PressureStatus);
+                    rli_reset = true;
+                }
+                if ui.button("Query can Rx data").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::CanDataDump);
+                    rli_reset = true;
+                }
+                if ui.button("Query Shift data").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SSData);
+                    rli_reset = true;
+                }
+                if ui.button("Query Performance metrics").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SysUsage);
+                    rli_reset = true;
+                }
+                if ui.button("Query Clutch speeds").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchSpeeds);
+                    rli_reset = true;
+                }
+                if ui.button("Query shift clutch velocities").clicked() {
+                    *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchVelocities);
+                    rli_reset = true;
+                }
+
+                if rli_reset {
+                    self.chart_idx = 0;
+                    self.charting_data.write().unwrap().clear();
+                    *self.curr_values.write().unwrap() = None;
+                    *self.prev_values.write().unwrap() = None;
+                    self.rli_start_time.store(self.launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
+                }
+
+                if let Some(e) = self.read_error.read().unwrap().clone() {
+                    ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
+                }
+                if let Some(data) = current_val.clone() {
+                    data.to_table(ui);
+                }
+            });
+            if let Some(data) = current_val {
+                ui.vertical(|col| {
+                    let start_time = self.rli_start_time.load(Ordering::Relaxed);
                     let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
                     let space_per_chart = (ui_height / data.get_chart_data().len() as f32) - (10.0 * data.get_chart_data().len() as f32);
                     
@@ -251,9 +253,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                         });
                     }
                 });
-            });
-        }
-
+            }
+        });
         PageAction::None
     }
 
