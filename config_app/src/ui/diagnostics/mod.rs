@@ -32,7 +32,7 @@ pub struct DiagnosticsPage {
     curr_values: Arc<RwLock<Option<LocalRecordData>>>,
     prev_values: Arc<RwLock<Option<LocalRecordData>>>,
     record_to_query: Arc<RwLock<Option<RecordIdents>>>,
-    charting_data: Arc<RwLock<VecDeque<(u128, ChartData)>>>,
+    charting_data: Arc<RwLock<VecDeque<(u128, Vec<ChartData>)>>>,
     chart_idx: u128,
     read_error: Arc<RwLock<Option<String>>>,
     rli_start_time: Arc<AtomicU64>,
@@ -48,24 +48,19 @@ impl DiagnosticsPage {
 
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
-        let store_tt = store.clone();
 
         let store_old = Arc::new(RwLock::new(None));
         let store_old_t = store_old.clone();
-        let store_old_tt = store_old.clone();
 
         let to_query: Arc<RwLock<Option<RecordIdents>>> = Arc::new(RwLock::new(None));
         let to_query_t = to_query.clone();
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
-        let last_update_tt = last_update.clone();
 
         let launch_time = Instant::now();
         let launch_time_t = launch_time.clone();
-        let launch_time_tt = launch_time.clone();
 
         let rli_start_time = Arc::new(AtomicU64::new(0));
-        let rli_start_time_t = rli_start_time.clone();
 
         let charting_data = Arc::new(RwLock::new(VecDeque::new()));
         let charting_data_t = charting_data.clone();
@@ -82,12 +77,20 @@ impl DiagnosticsPage {
                 if let Some(to_query) = to_query_t.read().unwrap().clone() {
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
+                            let cd = r.get_chart_data();
                             *store_old_t.write().unwrap() = store_t.read().unwrap().clone();
                             *store_t.write().unwrap() = Some(r);
+                            let mut m = charting_data_t.write().unwrap();
+                            m.push_back((launch_time_t.elapsed().as_millis(), cd));
+                            if launch_time_t.elapsed().as_millis() - m[0].0 > 20000 {
+                                m.pop_front();
+                            }
+                            drop(m);
                             last_update_t.store(
                                 launch_time_t.elapsed().as_millis() as u64,
                                 Ordering::Relaxed,
                             );
+
                         },
                         Err(e) => {
                             *err_text_t.write().unwrap() = Some(e.to_string());
@@ -105,44 +108,6 @@ impl DiagnosticsPage {
         let _ = thread::spawn(move || {
             while run_tt.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                let ltime = launch_time_tt.elapsed().as_millis() as u128;
-
-                let old = store_old_tt.try_read().unwrap().clone();
-                let new = store_tt.try_read().unwrap().clone();
-
-                if let (Some(o), Some(n)) = (old, new) {
-                    let ms_since_update = std::cmp::min(
-                        RLI_QUERY_INTERVAL,
-                        ltime as u64 - last_update_tt.load(Ordering::Relaxed),
-                    );
-
-                    let start_time = rli_start_time_t.load(Ordering::Relaxed) as u128;
-                    let co = o.get_chart_data()[0].clone();
-                    let mut cn = n.get_chart_data()[0].clone();
-                    if co.group_name == cn.group_name {
-                        let mut proportion_curr: f32 = (ms_since_update as f32) / RLI_QUERY_INTERVAL as f32; // Percentage of old value to use
-                        let mut proportion_prev: f32 = 1.0 - proportion_curr; // Percentage of curr value to use
-                        if ms_since_update == 0 {
-                            proportion_prev = 1.0;
-                            proportion_curr = 0.0;
-                        } else if ms_since_update == RLI_QUERY_INTERVAL {
-                            proportion_prev = 0.0;
-                            proportion_curr = 1.0;
-                        }
-                        for idx in 0..co.data.len() {
-                            let interpolated = (co.data[idx].1 * proportion_prev) + (cn.data[idx].1 * proportion_curr);
-                            cn.data[idx].1 = interpolated;
-                        }
-
-                        let ts = ltime - start_time;
-                        let mut lck = charting_data_t.write().unwrap();
-                        lck.push_back((ts, cn));
-                        if lck[0].0 < ts.saturating_sub(RLI_CHART_DISPLAY_TIME) {
-                            lck.pop_front();
-                        }
-                        drop(lck);
-                    }
-                }
                 get_context().request_repaint();
                 let taken = start.elapsed().as_millis() as u64;
                 if taken < RLI_PLOT_INTERVAL {
@@ -213,50 +178,77 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         if let Some(e) = self.read_error.read().unwrap().clone() {
             ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
         }
-
+        let start_time = self.rli_start_time.load(Ordering::Relaxed);
         let current_val = self.curr_values.try_read().unwrap().clone();
         let chart_data = self.charting_data.read().unwrap().clone();
+        let ui_height = ui.available_height();
         if let Some(data) = current_val {
-            let d = data.get_chart_data()[0].clone();
-
-            // Can guarantee everything in `self.charting_data` will have the SAME length
-            // as `d`
-            let mut lines = Vec::new();
-            let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
-            for (idx, (key, _, _)) in d.data.iter().enumerate() {
-                let mut points: Vec<[f64; 2]> = Vec::new();
-                for (timestamp, point) in chart_data.iter() {
-                    points.push([*timestamp as f64, point.data[idx].1 as f64])
-                }
-                let mut key_hasher = DefaultHasher::default();
-                key.hash(&mut key_hasher);
-                let r = key_hasher.finish();
-                lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
-                    Color32::from_rgb(
-                        (r & 0xFF) as u8,
-                        ((r >> 8) & 0xFF) as u8,
-                        ((r >> 16) & 0xFF) as u8,
-                    ))))
-            }
-
-            let mut plot = Plot::new(d.group_name.clone())
-                .allow_drag(false)
-                .legend(legend);
-            if let Some((min, max)) = &d.bounds {
-                plot = plot.include_y(*min);
-                if *max > 0.1 {
-                    // 0.0 check
-                    plot = plot.include_y(*max);
-                }
-            }
-            let h = ui.available_height();
             ui.horizontal(|row| {
                 row.collapsing("Show table", |c| {
                     data.to_table(c);
                 });
-                plot.height(h).show(row, |plot_ui| {
-                    for x in lines {
-                        plot_ui.line(x)
+                row.vertical(|col| {
+            
+                    let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
+                    let space_per_chart = (ui_height / data.get_chart_data().len() as f32) - (10.0 * data.get_chart_data().len() as f32);
+                    
+                    for (idx, d) in data.get_chart_data().iter().enumerate() {
+                        let mut lines = Vec::new();
+                        col.heading(d.group_name.clone());
+                        let mut unit: Option<&'static str> =  d.data[0].2.clone();
+                        for (i, (key, _, _)) in d.data.iter().enumerate() {
+                            let mut points: Vec<[f64; 2]> = Vec::new();
+                            for (timestamp, point) in chart_data.iter() {
+                                points.push([*timestamp as f64 - start_time as f64, point[idx].data[i].1 as f64])
+                            }
+                            let mut key_hasher = DefaultHasher::default();
+                            key.hash(&mut key_hasher);
+                            let r = key_hasher.finish();
+                            lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
+                                Color32::from_rgb(
+                                    (r & 0xFF) as u8,
+                                    ((r >> 8) & 0xFF) as u8,
+                                    ((r >> 16) & 0xFF) as u8,
+                                ))))
+                        }
+
+                        let now = self.launch_time.elapsed().as_millis() - start_time as u128;
+                        let mut last_bound = now as f64 - 20000.0;
+                        if last_bound < 0.0 {
+                            last_bound = 0.0;
+                        }
+                        let x = unit.clone();
+
+                        let mut plot = Plot::new(d.group_name.clone())
+                            .height(space_per_chart)
+                            .allow_drag(false)
+                            .include_x(now as f64 - 100.0)
+                            .include_x(last_bound)
+                            .legend(legend.clone())
+                            .x_axis_formatter(|f, r| {
+                                let seconds = f / 1000.0;
+                                let mins = f / 60000.0;
+                                format!("{:02.0}:{:02.1}", mins, seconds)
+                            })
+                            .y_axis_formatter(move |f, r| {
+                                if let Some(u) = x.clone() {
+                                    format!("{}{}", f, u)
+                                } else {
+                                    f.to_string()
+                                }
+                            });
+                        if let Some((min, max)) = &d.bounds {
+                            plot = plot.include_y(*min);
+                            if *max > 0.1 {
+                                // 0.0 check
+                                plot = plot.include_y(*max);
+                            }
+                        }
+                        plot.show(col, |f| {
+                            for line in lines {
+                                f.line(line);
+                            }
+                        });
                     }
                 });
             });

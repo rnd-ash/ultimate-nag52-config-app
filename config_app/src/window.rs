@@ -140,20 +140,20 @@ impl eframe::App for MainWindow {
                                 let fmt_str = match evt {
                                     ServerEvent::ServerStart => format!("--Server start--"),
                                     ServerEvent::ServerExit => format!("--Server end--"),
-                                    ServerEvent::BytesSendState(b, state) => {
+                                    ServerEvent::BytesSendState(id, b, state) => {
                                         match state {
                                             Ok(_) => {
-                                                format!("--> {:02X?}", b)
+                                                format!("--> 0x{:04X} - {:02X?}", id, b)
                                             },
                                             Err(e) => {
                                                 format!("--> ERROR: {} - {:02X?}", e.to_string(), b)
                                             },
                                         }
                                     },
-                                    ServerEvent::BytesRecvState(res) => {
+                                    ServerEvent::BytesRecvState(id, res) => {
                                         match res {
                                             Ok(b) => {
-                                                format!("<-- {:02X?}", b)
+                                                format!("<-- 0x{:04X} - {:02X?}", id, b)
                                             },
                                             Err(e) => {
                                                 format!("<-- ERROR: {}", e.to_string())

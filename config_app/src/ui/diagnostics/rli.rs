@@ -186,12 +186,12 @@ impl DataPressures {
         vec![ChartData::new(
             "Gearbox Pressures".into(),
             vec![
-                ("Shift clutch pressure", if self.ss_flag == 0 {0.0} else { self.spc_clutch_pressure as f32 }, None),
-                ("Modulating clutch pressure", if self.ss_flag == 0 {0.0} else { self.mpc_clutch_pressure as f32 }, None),
-                ("Shift solenoid pressure", self.spc_sol_pressure as f32, None),
-                ("Modulating solenoid pressure", self.mpc_sol_pressure as f32, None),
-                ("TCC clutch pressure", self.tcc_clutch_pressure as f32, None),
-                ("Line pressure", self.line_pressure as f32, None)
+                ("Shift clutch pressure", if self.ss_flag == 0 {0.0} else { self.spc_clutch_pressure as f32 }, Some("mBar")),
+                ("Modulating clutch pressure", if self.ss_flag == 0 {0.0} else { self.mpc_clutch_pressure as f32 }, Some("mBar")),
+                ("Shift solenoid pressure", self.spc_sol_pressure as f32, Some("mBar")),
+                ("Modulating solenoid pressure", self.mpc_sol_pressure as f32, Some("mBar")),
+                ("TCC clutch pressure", self.tcc_clutch_pressure as f32, Some("mBar")),
+                ("Line pressure", self.line_pressure as f32, Some("mBar"))
             ],
             None
         )]
@@ -297,9 +297,9 @@ impl DataGearboxSensors {
         vec![ChartData::new(
             "RPM sensors".into(),
             vec![
-                ("N2 raw", self.n2_rpm as f32, None),
-                ("N3 raw", self.n3_rpm as f32, None),
-                ("Calculated RPM", self.calculated_rpm as f32, None),
+                ("N2 raw", self.n2_rpm as f32, Some("RPM")),
+                ("N3 raw", self.n3_rpm as f32, Some("RPM")),
+                ("Calculated RPM", self.calculated_rpm as f32, Some("RPM")),
             ],
             Some((0.0, 0.0)),
         )]
@@ -311,13 +311,13 @@ pub struct ChartData {
     /// Min, Max
     pub bounds: Option<(f32, f32)>,
     pub group_name: String,
-    pub data: Vec<(String, f32, Option<String>)>, // Data field name, data field value, data field unit
+    pub data: Vec<(String, f32, Option<&'static str>)>, // Data field name, data field value, data field unit
 }
 
 impl ChartData {
     pub fn new<T: Into<String>>(
         group_name: String,
-        data: Vec<(T, f32, Option<T>)>,
+        data: Vec<(T, f32, Option<&'static str>)>,
         bounds: Option<(f32, f32)>,
     ) -> Self {
         Self {
@@ -436,7 +436,7 @@ impl DataSolenoids {
                 Some((0.0, 4096.0)),
             ),
             ChartData::new(
-                "Solenoid Current".into(),
+                "Solenoid Current (Recorded)".into(),
                 vec![
                     ("MPC Solenoid", self.mpc_current as f32, Some("mA")),
                     ("SPC Solenoid", self.spc_current as f32, Some("mA")),
@@ -686,12 +686,27 @@ impl DataCanDump {
             self.egs_req_torque as f32 / 4.0 - 500.0
         };
         vec![ChartData::new(
-            "Engine torque".into(),
+            "Torque data".into(),
             vec![
-                ("Min", min, None),
-                ("Static", sta, None),
-                ("Driver", drv, None),
-                ("EGS Request", egs, None)
+                ("Engine Min", min, Some("Nm")),
+                ("Engine Static", sta, Some("Nm")),
+                ("Engine Driver", drv, Some("Nm")),
+                ("EGS Request", egs, Some("Nm"))
+            ],
+            None,
+        ),
+        ChartData::new(
+            "Fuel usage".into(),
+            vec![
+                ("Fuel flow", self.fuel_flow as f32, Some("ul/sec")),
+            ],
+            None,
+        ),
+        ChartData::new(
+            "Wheel speeds".into(),
+            vec![
+                ("Rear left", self.left_rear_rpm as f32, Some("RPM")),
+                ("Rear right", self.right_rear_rpm as f32, Some("RPM")),
             ],
             None,
         )]
@@ -752,13 +767,34 @@ impl DataSysUsage {
     }
 
     pub fn to_chart_data(&self) -> Vec<ChartData> {
+        let r_f = self.free_ram as f32;
+        let r_t = self.total_ram as f32;
+        let p_f = self.free_psram as f32;
+        let p_t = self.total_psram as f32;
+        let used_ram_perc = 100f32 * (r_t - r_f) / r_t;
+        let used_psram_perc = 100f32 * (p_t - p_f) / p_t;
         vec![ChartData::new(
             "CPU Usage".into(),
             vec![
-                ("Core 1", self.core1_usage as f32 / 10.0, None),
-                ("Core 2", self.core2_usage as f32 / 10.0, None),
+                ("Core 1", self.core1_usage as f32 / 10.0, Some("%")),
+                ("Core 2", self.core2_usage as f32 / 10.0, Some("%")),
             ],
             Some((0.0, 100.0)),
+        ),
+        ChartData::new(
+            "Mem Usage".into(),
+            vec![
+                ("IRAM", used_ram_perc, Some("%")),
+                ("PSRAM", used_psram_perc, Some("%")),
+            ],
+            Some((0.0, 100.0))
+        ),
+        ChartData::new(
+            "OS Task count".into(),
+            vec![
+                ("Count", self.num_tasks as f32, None),
+            ],
+            None
         )]
     }
 }
@@ -845,8 +881,16 @@ impl DataShiftManager {
         vec![ChartData::new(
             "RPMs".into(),
             vec![
-                ("Input", self.input_rpm as f32, None),
-                ("Engine", self.engine_rpm as f32, None),
+                ("Input", self.input_rpm as f32, Some("RPM")),
+                ("Engine", self.engine_rpm as f32, Some("RPM")),
+            ],
+            None,
+        ),
+        ChartData::new(
+            "Solenoid pressures".into(),
+            vec![
+                ("Modulating pressure", self.mpc_pressure_mbar as f32, Some("mBar")),
+                ("Shift pressure", self.spc_pressure_mbar as f32, Some("mBar")),
             ],
             None,
         )]
@@ -898,12 +942,12 @@ impl DataClutchSpeeds {
         vec![ChartData::new(
             "RPMs".into(),
             vec![
-                ("K1", self.k1 as f32, None),
-                ("K2", self.k2 as f32, None),
-                ("K3", self.k3 as f32, None),
-                ("B1", self.b1 as f32, None),
-                ("B2", self.b2 as f32, None),
-                ("B3", self.b3 as f32, None),
+                ("K1", self.k1 as f32, Some("RPM")),
+                ("K2", self.k2 as f32, Some("RPM")),
+                ("K3", self.k3 as f32, Some("RPM")),
+                ("B1", self.b1 as f32, Some("RPM")),
+                ("B2", self.b2 as f32, Some("RPM")),
+                ("B3", self.b3 as f32, Some("RPM")),
             ],
             None,
         )]
@@ -935,8 +979,8 @@ impl DataShiftClutchVelocity {
         vec![ChartData::new(
             "Velocities".into(),
             vec![
-                ("On clutch", self.on_vel as f32, None),
-                ("Off clutch", self.off_vel as f32, None),
+                ("On clutch", self.on_vel as f32, Some("RPM/100 msec")),
+                ("Off clutch", self.off_vel as f32, Some("RPM/100 msec")),
             ],
             None,
         )]

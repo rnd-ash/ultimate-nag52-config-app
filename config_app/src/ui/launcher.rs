@@ -68,7 +68,7 @@ impl Launcher {
             .iter()
             .find(|x| x.name == name)
             .ok_or(DiagError::ParameterInvalid)?;
-        let hw = AdapterHw::try_connect(hw_info, self.curr_api_type)?;
+        let hw = AdapterHw::try_connect(hw_info, self.curr_api_type).map_err(|e| DiagError::from(Arc::new(e)))?;
         Nag52Diag::new(hw)
     }
 
