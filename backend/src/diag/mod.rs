@@ -301,7 +301,7 @@ impl Nag52Diag {
 
         let kwp = DynamicDiagSession::new_over_iso_tp(
             protocol,
-            hw.create_isotp_channel()?,
+            hw.create_isotp_channel().map_err(|e| DiagError::from(Arc::new(e)))?,
             channel_cfg,
             basic_opts,
             Some(adv_opts),
@@ -326,7 +326,7 @@ impl Nag52Diag {
         // Now try to reconnect
 
         println!("Trying to find {}", self.info.name);
-        let dev = AdapterHw::try_connect(&self.info, self.endpoint_type)?;
+        let dev = AdapterHw::try_connect(&self.info, self.endpoint_type).map_err(|e| DiagError::from(Arc::new(e)))?;
         *self = Self::new(dev)?;
         Ok(())
     }
@@ -337,7 +337,7 @@ impl Nag52Diag {
     {
         if self.server_mutex.lock().is_ok() {
             match self.server.borrow() {
-                None => Err(HardwareError::DeviceNotOpen.into()),
+                None => Err(DiagError::from(Arc::new(HardwareError::DeviceNotOpen))),
                 Some(s) => kwp_fn(&s),
             }
         } else {

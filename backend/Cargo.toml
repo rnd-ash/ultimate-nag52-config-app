@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ecu_diagnostics="0.93.0"
+ecu_diagnostics="0.95.0"
 #ecu_diagnostics = { git = "https://github.com/rnd-ash/ecu_diagnostics", branch="diag_server_unified" }
 #ecu_diagnostics = { path = "../../ecu_diagnostics" }
 serial-rs = "0.2.1"
@@ -18,3 +18,4 @@ chrono="0.4.24"
 strum = "0.25.0"
 strum_macros = "0.25"
 serde_json = "1.0.97"
+miette="5.10.0"
