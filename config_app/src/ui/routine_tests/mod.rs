@@ -4,10 +4,11 @@ use backend::diag::Nag52Diag;
 
 use crate::window::PageAction;
 
-use self::solenoid_test::SolenoidTestPage;
+use self::{solenoid_test::SolenoidTestPage, adaptation::AdaptationViewerPage, tcc_control::TccControlPage};
 
 pub mod solenoid_test;
-
+pub mod adaptation;
+pub mod tcc_control;
 pub struct RoutinePage {
     nag: Nag52Diag,
 }
@@ -28,14 +29,43 @@ impl crate::window::InterfacePage for RoutinePage {
 
         ui.label(
             "
-            Select test routine to run
+            Here you can run some diagnostics on your transmission and TCU, as well as reset adaptation data that the TCU has done.
+
+            NOTE: It is recommended to always reset your adaptation after changing ATF or doing any maintenence on the gearbox!
         ",
         );
-
+        ui.separator();
         let mut page_action = PageAction::None;
-
+        ui.label(
+            "
+            Run the solenoid test to test if any of gearbox's solenoids are bad
+        ",
+        );
         if ui.button("Solenoid test").clicked() {
             page_action = PageAction::Add(Box::new(SolenoidTestPage::new(
+                self.nag.clone()
+            )));
+        }
+
+        ui.label(
+            "
+            Check or reset the TCUs adaptation
+        ",
+        );
+        if ui.button("Adaptation view / reset").clicked() {
+            page_action = PageAction::Add(Box::new(AdaptationViewerPage::new(
+                self.nag.clone()
+            )));
+        }
+
+        ui.label(
+            "
+            Enable or disable the Torque converter (TCC) control solenoid in order to help
+            diagnosis of any vibrations in the vehicle
+        ",
+        );
+        if ui.button("TCC solenoid toggler").clicked() {
+            page_action = PageAction::Add(Box::new(TccControlPage::new(
                 self.nag.clone()
             )));
         }
