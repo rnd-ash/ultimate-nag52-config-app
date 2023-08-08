@@ -68,7 +68,7 @@ impl Launcher {
             .iter()
             .find(|x| x.name == name)
             .ok_or(DiagError::ParameterInvalid)?;
-        let hw = AdapterHw::try_connect(hw_info, self.curr_api_type)?;
+        let hw = AdapterHw::try_connect(hw_info, self.curr_api_type).map_err(|e| DiagError::from(Arc::new(e)))?;
         Nag52Diag::new(hw)
     }
 
@@ -150,8 +150,6 @@ impl InterfacePage for Launcher {
             ui.label(RichText::new(format!("Error: {}", e)).color(Color32::from_rgb(255, 0, 0)));
         }
 
-        //range_display(ui, 65.0, 50.0, 70.0, 0.0, 100.0);
-
         crate::window::PageAction::None
     }
 
@@ -159,7 +157,11 @@ impl InterfacePage for Launcher {
         "Ultimate-NAG52 configuration utility (Launcher)"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        None
+    fn should_show_statusbar(&self) -> bool {
+        false
+    }
+
+    fn nag_destroy_before_load(&self) -> bool {
+        true
     }
 }

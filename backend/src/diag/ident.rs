@@ -1,8 +1,8 @@
-use std::fmt::{Display};
+use std::fmt::Display;
 
-use ecu_diagnostics::{DiagServerResult, bcd_decode_slice};
+use ecu_diagnostics::{bcd_decode_slice, DiagServerResult};
 
-use super::{Nag52Diag};
+use super::Nag52Diag;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EgsMode {
@@ -88,9 +88,9 @@ fn bcd_decode_to_int(u: u8) -> u32 {
 }
 
 impl Nag52Diag {
-    pub fn query_ecu_data(&mut self) -> DiagServerResult<IdentData> {
+    pub fn query_ecu_data(&self) -> DiagServerResult<IdentData> {
         self.with_kwp(|k| {
-            let ident = k.read_daimler_identification()?;
+            let ident = k.kwp_read_daimler_identification()?;
             Ok(IdentData {
                 egs_mode: EgsMode::from(ident.diag_info.get_info_id()),
                 board_ver: PCBVersion::from_date(
@@ -108,9 +108,7 @@ impl Nag52Diag {
         })
     }
 
-    pub fn get_ecu_sn(&mut self) -> DiagServerResult<String> {
-        self.with_kwp(|k| {
-            Ok(String::from_utf8(k.read_ecu_serial_number()?).unwrap())
-        })
+    pub fn get_ecu_sn(&self) -> DiagServerResult<String> {
+        self.with_kwp(|k| Ok(String::from_utf8(k.kwp_read_ecu_serial_number()?).unwrap()))
     }
 }

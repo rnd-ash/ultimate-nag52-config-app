@@ -13,8 +13,7 @@ use std::{
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        kwp2000::{Kwp2000DiagnosticServer, SessionType},
-        DiagError, DiagServerResult, DiagnosticServer,
+        DiagError, DiagServerResult, kwp2000::KwpSessionType,
     },
 };
 use eframe::egui::{
@@ -23,10 +22,9 @@ use eframe::egui::{
     widgets, Color32, RichText,
 };
 
-use crate::{ui::status_bar::MainStatusBar, window::PageAction};
+use crate::{window::PageAction};
 
 pub struct SolenoidTestPage {
-    bar: MainStatusBar,
     test_state: Arc<AtomicU8>,
     test_result: Arc<RwLock<Option<TestResultsSolenoid>>>,
     test_status: Arc<RwLock<String>>,
@@ -77,9 +75,8 @@ pub struct TestResultsSolenoid {
 }
 
 impl SolenoidTestPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         Self {
-            bar,
             nag,
             test_state: Arc::new(AtomicU8::new(0)),
             test_result: Arc::new(RwLock::new(None)),
@@ -167,7 +164,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                     state_ref.store(1, Ordering::Relaxed);
                     n.with_kwp(|server| {
                         if let Err(e) =
-                            server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics)
+                            server.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())
                         {
                             *str_ref.write().unwrap() =
                                 format!("ECU failed to enter extended diagnostic mode: {}", e);
@@ -176,7 +173,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             return Ok(());
                         }
                         if let Err(e) = server.send_byte_array_with_response(&[0x31, 0xDE]) {
-                            let _ = server.set_diagnostic_session_mode(SessionType::Normal);
+                            let _ = server.kwp_set_session(KwpSessionType::Normal.into());
                             *str_ref.write().unwrap() = format!("ECU rejected the test: {}", e);
                             state_ref.store(2, Ordering::Relaxed);
                             ctx.request_repaint();
@@ -210,7 +207,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             }
                             std::thread::sleep(std::time::Duration::from_millis(500));
                         }
-                        let _ = server.set_diagnostic_session_mode(SessionType::Normal);
+                        let _ = server.kwp_set_session(KwpSessionType::Normal.into());
                         state_ref.store(2, Ordering::Relaxed);
                         ctx.request_repaint();
                         Ok(())
@@ -310,7 +307,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
         "IO Manipulator view"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

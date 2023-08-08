@@ -12,6 +12,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
+        false
         //None
     ),
     MapData::new(
@@ -25,6 +26,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
+        false
         //None
     ),
     MapData::new(
@@ -38,6 +40,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
+        false
         //None
     ),
     MapData::new(
@@ -51,6 +54,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
+        false
         //None
     ),
     MapData::new(
@@ -64,6 +68,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
+        false
         //None
     ),
     MapData::new(
@@ -77,6 +82,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
+        false
         //None
     ),
     MapData::new(
@@ -90,6 +96,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["P/N", "R1/R2", "1", "2", "3", "4", "5"]),
+        true
         //None
     ),
     MapData::new(
@@ -103,6 +110,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mA",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -116,6 +124,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "/4096",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -129,19 +138,21 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2"]),
+        true
         //None
     ),
     MapData::new(
         0x0B,
         "Clutch filling pressure",
-        "C",
+        "%",
         "",
-        "",
+        "Input torque load",
         "Clutch",
         "filling pressure in millibar",
         "mBar",
         None,
-        Some(&["K1", "K2", "K3", "B1", "B2"]),
+        Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
+        true
         //None
     ),
     MapData::new(
@@ -155,6 +166,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2"]),
+        true
         //None
     ),
     MapData::new(
@@ -168,6 +180,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -181,6 +194,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -194,6 +208,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -207,6 +222,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -220,6 +236,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -233,6 +250,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -246,6 +264,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -259,6 +278,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -272,6 +292,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -285,6 +306,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
+        false
         //None
     ),
     MapData::new(
@@ -297,7 +319,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "Locking pressure(mBar)",
         "mBar",
         Some(&["D1", "D2", "D3", "D4", "D5"]),
-        None
+        None,
+        false
         //None
     ),
 ];

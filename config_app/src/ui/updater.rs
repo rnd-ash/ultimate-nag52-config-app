@@ -1,16 +1,18 @@
-use std::{sync::{Arc, RwLock}, time::Instant, path::PathBuf, fs::File, io::Write};
+use std::{sync::{Arc, RwLock}, time::Instant, path::PathBuf, fs::File, io::{Write, BufReader, Cursor}};
 
-use backend::{diag::{Nag52Diag, flash::PartitionInfo}, hw::firmware::{Firmware, load_binary, FirmwareHeader}};
-use eframe::egui;
-use nfd::Response;
+use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
+use curl::easy::{Easy, List};
+use eframe::egui::{self, ScrollArea};
+use octocrab::{models::repos::Release, repos::releases::ListReleasesBuilder};
+use tokio::runtime::Runtime;
 
-use crate::window::{InterfacePage, PageAction};
-
-use super::status_bar::MainStatusBar;
+use crate::window::{InterfacePage, PageAction, get_context};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CurrentFlashState {
     None,
+    Download,
+    Unzip,
     Prepare,
     Read { start_addr: u32, current: u32, total: u32 },
     Write { start_addr: u32, current: u32, total: u32 },
@@ -46,26 +48,56 @@ impl CurrentFlashState {
 
 pub struct UpdatePage {
     nag: Nag52Diag,
-    s_bar: MainStatusBar,
-    fw: Option<Firmware>,
+    fw: Arc<RwLock<Option<Firmware>>>,
     status: Arc<RwLock<CurrentFlashState>>,
     flash_start: Option<Instant>,
     coredump: Option<PartitionInfo>,
     old_fw: Option<(FirmwareHeader, PartitionInfo)>,
+    releases:  Arc<RwLock<DataState<Vec<Release>>>>,
+    checked_unstable: bool,
+    selected_release: Option<Release>
 }
 
 impl UpdatePage {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(mut nag: Nag52Diag) -> Self {
         let coredump_info = nag.get_coredump_flash_info().ok();
         let curr_fw_info = nag.get_running_fw_info().ok().zip(nag.get_running_partition_flash_info().ok());
+
+        let fw_list = Arc::new(RwLock::new(DataState::Unint));
+        let fw_list_c = fw_list.clone();
+
+        std::thread::spawn(move|| {
+            let rt = Runtime::new().unwrap();
+            match rt.block_on(async {
+                octocrab::instance().repos("rnd-ash", "ultimate-nag52-fw")
+                    .releases()
+                    .list()
+                    .send()
+                    .await
+            }) {
+                Ok(l) => {
+                    let mut r_list = vec![];
+                    for release in l {
+                        r_list.push(release);
+                    }
+                    *fw_list_c.write().unwrap() = DataState::LoadOk(r_list);
+                },
+                Err(e) => {
+                    *fw_list_c.write().unwrap() = DataState::LoadErr(format!("{:?}", e));
+                }
+            }
+        });
+
         Self{
             nag, 
-            s_bar: bar,
-            fw: None,
+            fw: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(CurrentFlashState::None)),
             flash_start: None,
             coredump: coredump_info,
-            old_fw: curr_fw_info
+            old_fw: curr_fw_info,
+            releases: fw_list,
+            checked_unstable: false,
+            selected_release: None
         }
     }
 }
@@ -93,12 +125,8 @@ fn make_fw_info(ui: &mut egui::Ui, id: &str, fw: &FirmwareHeader, part_info: Opt
         ui.label(fw.get_idf_version());
         ui.end_row();
 
-        ui.label("Build date");
-        ui.label(fw.get_date());
-        ui.end_row();
-
         ui.label("Build time");
-        ui.label(fw.get_time());
+        ui.label(fw.get_build_timestamp().map(|f| f.to_string()).unwrap_or("Unknown".into()));
         ui.end_row();
     });
 }
@@ -107,67 +135,194 @@ impl InterfacePage for UpdatePage {
     fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
         ui.heading("Updater and dumper (New)");
         let state = self.status.read().unwrap().clone();
-        let mut read_partition: Option<(PartitionInfo, String)> = None;
+        let mut read_partition: Option<PartitionInfo> = None;
         ui.heading("Coredump info");
         if let Some(coredump) = &self.coredump {
-            egui::Grid::new("cdumpinfo").striped(true).show(ui, |ui| {
-                ui.label("Address");
-                ui.label(format!("0x{:08X?}", coredump.address));
-                ui.end_row();
+            if coredump.size != 0 {
+                egui::Grid::new("cdumpinfo").striped(true).show(ui, |ui| {
+                    ui.label("Address");
+                    ui.label(format!("0x{:08X?}", coredump.address));
+                    ui.end_row();
 
-                ui.label("Size");
-                ui.label(format!("{:.1}Kb", (coredump.size as f32)/1024.0));
-                ui.end_row();
-            });
-            if ui.button("Read coredump").clicked() {
-                read_partition = Some((coredump.clone(), "un52_coredump.elf".to_string()))
+                    ui.label("Size");
+                    ui.label(format!("{:.1}Kb", (coredump.size as f32)/1024.0));
+                    ui.end_row();
+                });
+                if ui.button("Read coredump").clicked() {
+                    read_partition = Some(coredump.clone())
+                }
+            } else {
+                ui.label("No coredump stored on this TCU!");
             }
         } else {
             ui.label("No coredump found");
         }
         ui.separator();
         if let Some((info, part_info)) = &self.old_fw {
-            ui.label("Current Firmware");
+            ui.heading("Current Firmware");
             make_fw_info(ui, "cfw", &info, Some(part_info));
             if ui.button("Backup current firmware").clicked() {
-                read_partition = Some((part_info.clone(), format!("un52_fw_{}_backup.bin", info.get_date())))
+                read_partition = Some(part_info.clone())
             }
         }
         if ui.button("Backup entire flash (WARNING. SLOW)").clicked() {
-            read_partition = Some((PartitionInfo { address: 0, size: 0x400000  } , "un52_flash_backup.bin".to_string()))
+            read_partition = Some(PartitionInfo { address: 0, size: 0x400000  })
         }
         ui.separator();
-        if ui.button("Load FW").clicked() {
-            match nfd::open_file_dialog(Some("bin"), None) {
-                Ok(f) => {
-                    if let Response::Okay(path) = f {
-                        match load_binary(path) {
-                            Ok(f) => self.fw = Some(f),
-                            Err(e) => {
-                                eprintln!("E loading binary! {:?}", e)
+        ui.heading("Update to new Firmware");
+
+
+        let r = self.releases.read().unwrap().clone();
+        match r {
+            DataState::LoadOk(release_list) => {
+                fn release_to_string(r: &Release) -> String {
+                    let date = r.clone().created_at.map(|x| x.to_string()).unwrap_or("Unknown date".into());
+                    let rel = r.clone().name.unwrap_or(r.clone().tag_name);
+                    format!("{} at {}", rel, date)
+                }
+
+                ui.checkbox(&mut self.checked_unstable, "Show unstable releases");
+                egui::ComboBox::from_label("Select release")
+                    .width(500.0)
+                    .selected_text(&self.selected_release.clone().map(|x| release_to_string(&x)).unwrap_or("None".into()))
+                    .show_ui(ui, |cb_ui| {
+                        for r in release_list {
+                            if !self.checked_unstable && (r.prerelease || !r.tag_name.starts_with("main")) {
+                                continue;
                             }
+
+
+                            cb_ui.selectable_value(
+                                &mut self.selected_release,
+                                Some(r.clone()),
+                                release_to_string(&r)
+                            );
+                        }
+                    }
+                );
+                if let Some(rel) = &self.selected_release {
+                    ui.hyperlink_to("Show on GitHub", format!("https://github.com{}", rel.html_url.path()));
+                    let fw = rel.assets.iter().find(|x| x.name.ends_with(".bin"));
+                    let elf = rel.assets.iter().find(|x| x.name.ends_with(".elf"));
+                    
+
+                    if let Some(fw) = fw {
+                        let url = format!("https://api.github.com{}",fw.url.path());
+                        if ui.button("Download firmware").clicked() {
+                            let state_c = self.status.clone();
+                            let fw_c = self.fw.clone();
+                            std::thread::spawn(move|| {
+                                *state_c.write().unwrap() = CurrentFlashState::Download;
+                                let mut buffer: Vec<u8> = Vec::new();
+                                let mut easy = Easy::new();
+                                let mut list = List::new();
+                                list.append("Accept: application/octet-stream").unwrap();
+                                easy.http_headers(list).unwrap();
+                                easy.useragent("request").unwrap();
+                                easy.follow_location(true).unwrap();
+                                easy.url(&url).unwrap();
+                                {
+                                    let mut transfer = easy.transfer();
+                                    let _ = transfer.write_function(|data| {
+                                        buffer.extend_from_slice(data);
+                                        Ok(data.len())
+                                    });
+                                    let _ = transfer.perform();
+                                }
+                                
+                                let code = easy.response_code().unwrap_or(0);
+                                if code == 200 || code == 302 {
+                                    // Try and load FW from here
+                                    match load_binary(buffer) {
+                                        Ok(bin) => {
+                                            *fw_c.write().unwrap() = Some(bin);
+                                            *state_c.write().unwrap() = CurrentFlashState::None;
+                                        }
+                                        Err(e) => {
+                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware was invalid: {:?}", e));
+                                        }
+                                    }
+                                } else {
+                                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download response code was {code}"));
+                                }
+                            });
+                        }
+                    }
+
+                    if let Some(elf) = elf {
+                        if ui.button("Download debug elf file").clicked() {
+                            return PageAction::SendNotification { text: format!("Todo. Debugger UI!"), kind: egui_toast::ToastKind::Info }
                         }
                     }
                 }
-                Err(_) => {}
+            },
+            DataState::Unint => {
+                ui.horizontal(|row| {
+                    row.spinner();
+                    row.label("Querying release list");
+                });
+            },
+            DataState::LoadErr(e) => {
+                ui.label(format!("Could not query release list: {:?}", e));
+            },
+        }
+        //if let Some(sel_rel) = &self.selected_release {
+        //    ui.hyperlink_to(label, url)
+        //}
+
+        if ui.button("Load FW").clicked() {
+            if let Some(bin_path) = rfd::FileDialog::new()
+                .add_filter("Firmware bin", &["bin"])
+                .pick_file() {
+                match load_binary_from_path(bin_path.into_os_string().into_string().unwrap()) {
+
+                    Ok(f) => *self.fw.write().unwrap() = Some(f),
+                    Err(e) => {
+                        eprintln!("E loading binary! {:?}", e)
+                    }
+                }
             }
         }
-        if let Some(fw) = &self.fw {
-            ui.label("New Firmware");
+        let c_fw = self.fw.clone().read().unwrap().clone();
+        if let Some(fw) = &c_fw {
             make_fw_info(ui, "nfw",&fw.header, None);
-            if ui.button("Flash new FW").clicked() {
+            let mut flash = false;
+            let mut disclaimer = false;
+            if let Some(new_ts) = fw.header.get_build_timestamp() {
+                if let Some(old_ts) = self.old_fw.map(|f| f.0.get_build_timestamp()).flatten() {
+                    if old_ts > new_ts {
+                        ui.strong("WARNING. The new firmware is older than the current firmware! This can cause bootloops!");
+                        ui.hyperlink_to("See reverting to old FW versions", "docs.ultiamte-nag52.net");
+                        disclaimer = true;
+                    }
+                }
+            }
+            if (!fw.header.get_version().contains("main") || fw.header.get_version().contains("dirty")) && self.old_fw.map(|x| x.0.get_version().contains("main")).unwrap_or(true) {
+                ui.strong("WARNING. You are about to flash potentially unstable firmware. Proceed with caution!");
+                disclaimer = true;
+            }
+            let text = match disclaimer {
+                true => "I have read the warnings. Proceed with flashing",
+                false => "Flash new FW",
+            };
+            if ui.button(text).clicked() {
+                flash = true;
+            }
+            if flash {
                 let mut ng = self.nag.clone();
-                let fw_c = self.fw.clone().unwrap();
+                let fw_c = c_fw.clone().unwrap();
                 let state_c = self.status.clone();
                 std::thread::spawn(move || {
+                    get_context().request_repaint();
                     *state_c.write().unwrap() = CurrentFlashState::Prepare;
-                    let (mut start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
+                    let (start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
                         Ok((a, b)) => (a, b),
                         Err(e) => {
                             *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to prepare for update. {}", e));
                             return;
                         },
                     };
+                    get_context().request_repaint();
                     let mut written = 0;
                     for (bid, block) in fw_c.raw.chunks(bs as usize).enumerate() {
                         match ng.transfer_data(((bid + 1) & 0xFF) as u8, block) {
@@ -180,6 +335,7 @@ impl InterfacePage for UpdatePage {
                                 return;
                             }
                         }
+                        get_context().request_repaint();
                     }
                     *state_c.write().unwrap() = CurrentFlashState::Verify;
                     match ng.end_ota(true) {
@@ -188,21 +344,22 @@ impl InterfacePage for UpdatePage {
                             *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Error verification: {}", e));
                         }
                     }
+                    get_context().request_repaint();
                 });
             }
         }
         // Check for read operation
-        if let Some((read_op, save_name)) = &read_partition {
+        if let Some(read_op) = &read_partition {
             let mut ng = self.nag.clone();
             let state_c = self.status.clone();
             let mut save_path = None;
-            if let Ok(f) = nfd::open_pick_folder(None) {
-                if let nfd::Response::Okay(p) = f {
-                    save_path = Some(PathBuf::from(p).join(save_name));
-                } else {
-                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
-                    return PageAction::None;
-                }
+            if let Some(f) = rfd::FileDialog::new()
+                .add_filter(".bin", &["bin"])
+                .save_file() {
+                    save_path = Some(f);
+            } else {
+                *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
+                return PageAction::None;
             }
             let read_op_c = read_op.clone();
             std::thread::spawn(move || {
@@ -231,6 +388,7 @@ impl InterfacePage for UpdatePage {
                             return;
                         }
                     }
+                    get_context().request_repaint();
                 }
                 match ng.end_ota(false) {
                     Ok(_) => *state_c.write().unwrap() = {
@@ -262,7 +420,13 @@ impl InterfacePage for UpdatePage {
                 CurrentFlashState::None => (1.0, "Idle".to_string()),
                 CurrentFlashState::Verify => (1.0, "Verifying".to_string()),
                 CurrentFlashState::Completed(s) => (1.0, s),
-                CurrentFlashState::Failed(s) => (1.0, s)
+                CurrentFlashState::Failed(s) => (1.0, s),
+                CurrentFlashState::Download => {
+                    (0.0, format!("Downloading firmware"))
+                },
+                CurrentFlashState::Unzip => {
+                    (0.0, "Unzipping firmware".to_string())
+                },
             };
             ui.add(egui::widgets::ProgressBar::new(progress_percent).animate(true).show_percentage());
             if state.is_tx_rx() {
@@ -287,7 +451,7 @@ impl InterfacePage for UpdatePage {
         "Flash updater"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.s_bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

@@ -8,8 +8,7 @@ use std::{
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        kwp2000::{KWP2000Command, SessionType},
-        DiagError, DiagServerResult, DiagnosticServer,
+        DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
     },
 };
 use eframe::{
@@ -38,7 +37,6 @@ use super::{
         self,
         cfg_structs::{EngineType, TcmCoreConfig},
     },
-    status_bar::MainStatusBar,
 };
 
 #[repr(u8)]
@@ -128,7 +126,7 @@ impl Map {
         let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
-                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
                     map_id,
                     MapCmd::ReadMeta as u8,
@@ -172,7 +170,7 @@ impl Map {
         let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
-                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
                     map_id,
                     MapCmd::Read as u8,
@@ -197,7 +195,7 @@ impl Map {
         let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
-                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
                     map_id,
                     MapCmd::ReadDefault as u8,
@@ -221,7 +219,7 @@ impl Map {
         let ecu_response = nag.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[
-                    KWP2000Command::ReadDataByLocalIdentifier.into(),
+                    KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
                     map_id,
                     MapCmd::ReadEEPROM as u8,
@@ -273,7 +271,7 @@ impl Map {
 
     pub fn write_to_ram(&mut self) -> DiagServerResult<()> {
         let mut payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
             self.meta.id,
             MapCmd::Write as u8,
@@ -286,7 +284,7 @@ impl Map {
 
     pub fn save_to_eeprom(&mut self) -> DiagServerResult<()> {
         let payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
             self.meta.id,
             MapCmd::Burn as u8,
@@ -300,7 +298,7 @@ impl Map {
 
     pub fn undo_changes(&mut self) -> DiagServerResult<()> {
         let payload: Vec<u8> = vec![
-            KWP2000Command::WriteDataByLocalIdentifier.into(),
+            KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
             self.meta.id,
             MapCmd::Undo as u8,
@@ -336,6 +334,9 @@ impl Map {
         };
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
+        if self.meta.reset_adaptation {
+            raw_ui.strong("Warning. Modifying this map resets adaptation!");
+        }
         if !self.meta.x_desc.is_empty() {
             raw_ui.label(format!("X: {}", self.meta.x_desc));
         }
@@ -654,6 +655,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     show_help: bool,
+    reset_adaptation: bool
 }
 
 impl MapData {
@@ -668,6 +670,7 @@ impl MapData {
         value_unit: &'static str,
         x_replace: Option<&'static [&'static str]>,
         y_replace: Option<&'static [&'static str]>,
+        reset_adaptation: bool,
     ) -> Self {
         Self {
             id,
@@ -681,22 +684,21 @@ impl MapData {
             x_replace,
             y_replace,
             show_help: false,
+            reset_adaptation
         }
     }
 }
 
 pub struct MapEditor {
-    bar: MainStatusBar,
     nag: Nag52Diag,
     loaded_maps: HashMap<String, Map>,
     error: Option<String>,
 }
 
 impl MapEditor {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
-        nag.with_kwp(|server| server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics));
+    pub fn new(mut nag: Nag52Diag) -> Self {
+        nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
-            bar,
             nag,
             loaded_maps: HashMap::new(),
             error: None,
@@ -755,7 +757,7 @@ impl super::InterfacePage for MapEditor {
         "Map editor"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }

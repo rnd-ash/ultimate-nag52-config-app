@@ -1,6 +1,6 @@
 [package]
 name = "config_app"
-version = "0.1.4"
+version = "0.1.7"
 edition = "2021"
 resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -13,12 +13,12 @@ path = "src/main.rs"
 serde_json = { version = "1.0.89" }
 serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
+config_app_macros={path="../config_app_macros/"}
 image = "0.24.5"
-nfd="0.0.4"
+rfd="0.11.4"
 pollster = "0.3.0"
 eframe = {default-features=false, version="0.21.0", features=["dark-light", "wgpu", "default_fonts"]}
 egui_extras = "0.21.0"
-modular-bitfield = "0.11.2"
 static_assertions = "1.1.0"
 env_logger="0.10.0"
 #egui-toast="0.5.0"
@@ -27,3 +27,12 @@ chrono = "0.4.23"
 nom="7.1.1"
 plotters-backend="0.3.4"
 plotters={version="0.3.4", default_features = false, features=["surface_series"]}
+packed_struct="0.10.0"
+ehttp="0.2.0"
+octocrab = {git = "https://github.com/XAMPPRocky/octocrab", commit="7061b48c9bb799cb7effa0ecb8fd366a23f13de2"}
+tokio = { version = "1.17.0", features = ["full"] }
+zip="0.6.6"
+curl = "0.4.43"
+
+[patch.crates-io]
+winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }

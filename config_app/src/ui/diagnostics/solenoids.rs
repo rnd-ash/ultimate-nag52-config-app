@@ -1,4 +1,4 @@
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::SessionType};
+use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
 use eframe::egui::plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
 use std::{
     ops::RangeInclusive,
@@ -10,14 +10,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{ui::status_bar::MainStatusBar, window::PageAction};
+use crate::{window::{PageAction, get_context}};
 
-use super::rli::{DataSolenoids, LocalRecordData, RecordIdents};
+use super::{rli::{DataSolenoids, LocalRecordData, RecordIdents, RLI_PLOT_INTERVAL}, RLI_CHART_DISPLAY_TIME};
 
 const UPDATE_DELAY_MS: u64 = 100;
 
 pub struct SolenoidPage {
-    bar: MainStatusBar,
     query_ecu: Arc<AtomicBool>,
     last_update_time: Arc<AtomicU64>,
     curr_values: Arc<RwLock<Option<DataSolenoids>>>,
@@ -33,9 +32,10 @@ pub enum ViewType {
 }
 
 impl SolenoidPage {
-    pub fn new(mut nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(mut nag: Nag52Diag) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
+        let run_tt = run.clone();
 
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
@@ -48,11 +48,21 @@ impl SolenoidPage {
 
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
+
+        let _ = thread::spawn(move || {
+            while run_tt.load(Ordering::Relaxed) {
+                get_context().request_repaint();
+                std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL));
+            };
+        });
+
         let _ = thread::spawn(move || {
             nag.with_kwp(|server| {
-                server.set_diagnostic_session_mode(SessionType::Normal)?;
-                while run_t.load(Ordering::Relaxed) {
-                    let start = Instant::now();
+                server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
+            });
+            while run_t.load(Ordering::Relaxed) {
+                let start = Instant::now();
+                nag.with_kwp(|server| {
                     if let Ok(r) = RecordIdents::SolenoidStatus.query_ecu(server) {
                         if let LocalRecordData::Solenoids(s) = r {
                             let curr = *store_t.read().unwrap();
@@ -64,17 +74,16 @@ impl SolenoidPage {
                             );
                         }
                     }
-                    let taken = start.elapsed().as_millis() as u64;
-                    if taken < UPDATE_DELAY_MS {
-                        std::thread::sleep(Duration::from_millis(UPDATE_DELAY_MS - taken));
-                    }
+                    Ok(())
+                });
+                let taken = start.elapsed().as_millis() as u64;
+                if taken < UPDATE_DELAY_MS {
+                    std::thread::sleep(Duration::from_millis(UPDATE_DELAY_MS - taken));
                 }
-                Ok(())
-            });
+            }
         });
 
         Self {
-            bar,
             query_ecu: run,
             curr_values: store,
             last_update_time: last_update,
@@ -160,48 +169,48 @@ impl crate::window::InterfacePage for SolenoidPage {
             bars.push(
                 make_pwm_bar(
                     1,
-                    (curr.mpc_pwm() as f32 * proportion_curr)
-                        + (prev.mpc_pwm() as f32 * proportion_prev),
+                    (curr.mpc_pwm as f32 * proportion_curr)
+                        + (prev.mpc_pwm as f32 * proportion_prev),
                 )
                 .name("MPC"),
             );
             bars.push(
                 make_pwm_bar(
                     2,
-                    (curr.spc_pwm() as f32 * proportion_curr)
-                        + (prev.spc_pwm() as f32 * proportion_prev),
+                    (curr.spc_pwm as f32 * proportion_curr)
+                        + (prev.spc_pwm as f32 * proportion_prev),
                 )
                 .name("SPC"),
             );
             bars.push(
                 make_pwm_bar(
                     3,
-                    (curr.tcc_pwm() as f32 * proportion_curr)
-                        + (prev.tcc_pwm() as f32 * proportion_prev),
+                    (curr.tcc_pwm as f32 * proportion_curr)
+                        + (prev.tcc_pwm as f32 * proportion_prev),
                 )
                 .name("TCC"),
             );
             bars.push(
                 make_pwm_bar(
                     4,
-                    (curr.y3_pwm() as f32 * proportion_curr)
-                        + (prev.y3_pwm() as f32 * proportion_prev),
+                    (curr.y3_pwm as f32 * proportion_curr)
+                        + (prev.y3_pwm as f32 * proportion_prev),
                 )
                 .name("Y3"),
             );
             bars.push(
                 make_pwm_bar(
                     5,
-                    (curr.y4_pwm() as f32 * proportion_curr)
-                        + (prev.y4_pwm() as f32 * proportion_prev),
+                    (curr.y4_pwm as f32 * proportion_curr)
+                        + (prev.y4_pwm as f32 * proportion_prev),
                 )
                 .name("Y4"),
             );
             bars.push(
                 make_pwm_bar(
                     6,
-                    (curr.y5_pwm() as f32 * proportion_curr)
-                        + (prev.y5_pwm() as f32 * proportion_prev),
+                    (curr.y5_pwm as f32 * proportion_curr)
+                        + (prev.y5_pwm as f32 * proportion_prev),
                 )
                 .name("Y5"),
             );
@@ -212,48 +221,48 @@ impl crate::window::InterfacePage for SolenoidPage {
             bars.push(
                 make_current_bar(
                     1,
-                    (curr.mpc_current() as f32 * proportion_curr)
-                        + (prev.mpc_current() as f32 * proportion_prev),
+                    (curr.mpc_current as f32 * proportion_curr)
+                        + (prev.mpc_current as f32 * proportion_prev),
                 )
                 .name("MPC"),
             );
             bars.push(
                 make_current_bar(
                     2,
-                    (curr.spc_current() as f32 * proportion_curr)
-                        + (prev.spc_current() as f32 * proportion_prev),
+                    (curr.spc_current as f32 * proportion_curr)
+                        + (prev.spc_current as f32 * proportion_prev),
                 )
                 .name("SPC"),
             );
             bars.push(
                 make_current_bar(
                     3,
-                    (curr.tcc_current() as f32 * proportion_curr)
-                        + (prev.tcc_current() as f32 * proportion_prev),
+                    (curr.tcc_current as f32 * proportion_curr)
+                        + (prev.tcc_current as f32 * proportion_prev),
                 )
                 .name("TCC"),
             );
             bars.push(
                 make_current_bar(
                     4,
-                    (curr.y3_current() as f32 * proportion_curr)
-                        + (prev.y3_current() as f32 * proportion_prev),
+                    (curr.y3_current as f32 * proportion_curr)
+                        + (prev.y3_current as f32 * proportion_prev),
                 )
                 .name("Y3"),
             );
             bars.push(
                 make_current_bar(
                     5,
-                    (curr.y4_current() as f32 * proportion_curr)
-                        + (prev.y4_current() as f32 * proportion_prev),
+                    (curr.y4_current as f32 * proportion_curr)
+                        + (prev.y4_current as f32 * proportion_prev),
                 )
                 .name("Y4"),
             );
             bars.push(
                 make_current_bar(
                     6,
-                    (curr.y5_current() as f32 * proportion_curr)
-                        + (prev.y5_current() as f32 * proportion_prev),
+                    (curr.y5_current as f32 * proportion_curr)
+                        + (prev.y5_current as f32 * proportion_prev),
                 )
                 .name("Y5"),
             );
@@ -266,7 +275,6 @@ impl crate::window::InterfacePage for SolenoidPage {
                 plot_ui.bar_chart(BarChart::new(vec![bar]))
             }
         });
-        ui.ctx().request_repaint();
         PageAction::None
     }
 
@@ -274,8 +282,8 @@ impl crate::window::InterfacePage for SolenoidPage {
         "Solenoid view"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }
 

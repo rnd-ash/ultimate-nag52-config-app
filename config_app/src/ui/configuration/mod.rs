@@ -1,34 +1,31 @@
 use std::{
     borrow::BorrowMut,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, ops::RemAssign,
 };
 
 use crate::window::PageAction;
 use backend::{
-    diag::Nag52Diag,
-    ecu_diagnostics::{
-        kwp2000::{ResetMode, SessionType},
-        DiagnosticServer,
-    },
+    diag::Nag52Diag, ecu_diagnostics::kwp2000::{ResetType, KwpSessionType},
 };
 use chrono::{Datelike, Weekday};
+use config_app_macros::include_base64;
 use eframe::egui::Ui;
 use eframe::egui::{self, *};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
+use packed_struct::PackedStructSlice;
 
 use self::cfg_structs::{
     BoardType, DefaultProfile, EgsCanType, EngineType, IOPinConfig, MosfetPurpose, ShifterStyle,
     TcmCoreConfig, TcmEfuseConfig,
 };
 
-use super::{status_bar::MainStatusBar, StatusText};
+use super::{StatusText};
 
 pub mod cfg_structs;
 
 pub struct ConfigPage {
     nag: Nag52Diag,
-    bar: MainStatusBar,
     status: StatusText,
     scn: Option<TcmCoreConfig>,
     efuse: Option<TcmEfuseConfig>,
@@ -50,7 +47,7 @@ fn load_image(image: DynamicImage, name: &str) -> RetainedImage {
 }
 
 impl ConfigPage {
-    pub fn new(nag: Nag52Diag, bar: MainStatusBar) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         let red_img = image::load_from_memory_with_format(
             include_bytes!("../../../res/pcb_11.jpg"),
             ImageFormat::Jpeg,
@@ -72,7 +69,6 @@ impl ConfigPage {
         let pcb_13_img = load_image(bet_img, "V13-PCB");
         Self {
             nag,
-            bar,
             status: StatusText::Ok("".into()),
             scn: None,
             efuse: None,
@@ -90,25 +86,33 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.heading("TCM Configuration");
 
         if ui.button("Read Configuration").clicked() {
-            self.nag.with_kwp(|server| {
-                match server.read_custom_local_identifier(0xFE) {
+            let _ = self.nag.with_kwp(|server| {
+                match server.kwp_read_custom_local_identifier(0xFE) {
                     Ok(res) => {
-                        self.scn = Some(TcmCoreConfig::from_bytes(res.try_into().unwrap()));
-                        self.status = StatusText::Ok(format!("Read OK!"));
+                        match TcmCoreConfig::unpack_from_slice(&res) {
+                            Ok(res) => {
+                                self.status = StatusText::Ok(format!("Read OK!"));
+                                self.scn = Some(res)
+                            },
+                            Err(_) => self.status = StatusText::Err(format!("TCM Config size is invalid. Maybe you have mismatched TCU firmware and config app version?"))
+                        }
                     }
                     Err(e) => {
                         self.status =
                             StatusText::Err(format!("Error reading TCM configuration: {}", e))
                     }
                 }
-                match server.read_custom_local_identifier(0xFD) {
+                match server.kwp_read_custom_local_identifier(0xFD) {
                     Ok(res) => {
-                        let tmp = TcmEfuseConfig::from_bytes(res.try_into().unwrap());
-                        if tmp.board_ver() == BoardType::Unknown {
-                            self.show_efuse = true;
+                        match TcmEfuseConfig::unpack_from_slice(&res) {
+                            Ok(tmp) => {
+                                if tmp.board_ver == BoardType::Unknown {
+                                    self.show_efuse = true;
+                                }
+                                self.efuse = Some(tmp);
+                            },
+                            Err(_) => self.status = StatusText::Err(format!("TCM EFUSE size is invalid. Maybe you have mismatched TCU firmware and config app version?"))
                         }
-                        self.efuse = Some(tmp);
-                        self.status = StatusText::Ok(format!("Read OK!"));
                     }
                     Err(e) => {
                         self.status =
@@ -122,17 +126,21 @@ impl crate::window::InterfacePage for ConfigPage {
         let board_ver = self
             .efuse
             .clone()
-            .map(|x| x.board_ver())
+            .map(|x| x.board_ver)
             .unwrap_or(BoardType::Unknown);
         if let Some(scn) = self.scn.borrow_mut() {
+
+            ui.hyperlink_to("See getting started for more info", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkI2l2ZS1yZWNlaXZlZC1hbi1hc3NlbWJsZWQtdGN1"));
+            ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
+
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-                let mut x = scn.is_large_nag() == 1;
+                let mut x = scn.is_large_nag == 1;
                 ui.label("Using large 722.6");
                 ui.checkbox(&mut x, "");
-                scn.set_is_large_nag(x as u8);
+                scn.is_large_nag = x as u8;
                 ui.end_row();
 
-                let mut curr_profile = scn.default_profile();
+                let mut curr_profile = scn.default_profile;
                 ui.label("Default drive profile");
                 egui::ComboBox::from_id_source("profile")
                     .width(100.0)
@@ -152,27 +160,27 @@ impl crate::window::InterfacePage for ConfigPage {
                                 format!("{:?}", dev),
                             );
                         }
-                        scn.set_default_profile(curr_profile)
+                        scn.default_profile = curr_profile
                     });
                 ui.end_row();
 
-                let mut buffer = format!("{:.2}", scn.diff_ratio() as f32 / 1000.0);
+                let mut buffer = format!("{:.2}", scn.diff_ratio as f32 / 1000.0);
                 ui.label("Differential ratio");
                 ui.text_edit_singleline(&mut buffer);
                 if let Ok(new_ratio) = buffer.parse::<f32>() {
-                    scn.set_diff_ratio((new_ratio * 1000.0) as u16);
+                    scn.diff_ratio = (new_ratio * 1000.0) as u16;
                 }
                 ui.end_row();
 
-                let mut buffer = format!("{}", scn.wheel_circumference());
+                let mut buffer = format!("{}", scn.wheel_circumference);
                 ui.label("Wheel circumferance (mm)");
                 ui.text_edit_singleline(&mut buffer);
                 if let Ok(new_ratio) = buffer.parse::<u16>() {
-                    scn.set_wheel_circumference(new_ratio);
+                    scn.wheel_circumference = new_ratio;
                 }
                 ui.end_row();
 
-                let mut engine = scn.engine_type();
+                let mut engine = scn.engine_type;
                 ui.label("Engine type");
                 egui::ComboBox::from_id_source("engine_type")
                     .width(100.0)
@@ -182,52 +190,61 @@ impl crate::window::InterfacePage for ConfigPage {
                         for dev in profiles {
                             cb_ui.selectable_value(&mut engine, dev.clone(), format!("{:?}", dev));
                         }
-                        scn.set_engine_type(engine)
+                        scn.engine_type = engine
                     });
                 ui.end_row();
 
-                let mut buffer = match scn.engine_type() {
-                    EngineType::Diesel => format!("{}", scn.red_line_dieselrpm()),
-                    EngineType::Petrol => format!("{}", scn.red_line_petrolrpm()),
+                let mut buffer = match scn.engine_type {
+                    EngineType::Diesel => format!("{}", scn.red_line_dieselrpm),
+                    EngineType::Petrol => format!("{}", scn.red_line_petrolrpm),
                 };
                 ui.label("Engine redline RPM");
                 ui.text_edit_singleline(&mut buffer);
                 if let Ok(rpm) = buffer.parse::<u16>() {
-                    match scn.engine_type() {
-                        EngineType::Diesel => scn.set_red_line_dieselrpm(rpm),
-                        EngineType::Petrol => scn.set_red_line_petrolrpm(rpm),
+                    match scn.engine_type {
+                        EngineType::Diesel => scn.red_line_dieselrpm = rpm,
+                        EngineType::Petrol => scn.red_line_petrolrpm = rpm,
                     }
                 }
                 ui.end_row();
 
-                let mut x = scn.is_four_matic() == 1;
+                let mut x = scn.is_four_matic == 1;
                 ui.label("Four matic");
                 ui.checkbox(&mut x, "");
-                scn.set_is_four_matic(x as u8);
+                scn.is_four_matic = (x as u8);
                 ui.end_row();
 
-                if scn.is_four_matic() == 1 {
+                if scn.is_four_matic == 1 {
                     let mut buffer =
-                        format!("{:.2}", scn.transfer_case_high_ratio() as f32 / 1000.0);
+                        format!("{:.2}", scn.transfer_case_high_ratio as f32 / 1000.0);
                     ui.label("Transfer case high ratio");
                     ui.text_edit_singleline(&mut buffer);
                     if let Ok(new_ratio) = buffer.parse::<f32>() {
-                        scn.set_transfer_case_high_ratio((new_ratio * 1000.0) as u16);
+                        scn.transfer_case_high_ratio = (new_ratio * 1000.0) as u16;
                     }
                     ui.end_row();
 
                     let mut buffer =
-                        format!("{:.2}", scn.transfer_case_low_ratio() as f32 / 1000.0);
+                        format!("{:.2}", scn.transfer_case_low_ratio as f32 / 1000.0);
                     ui.label("Transfer case low ratio");
                     ui.text_edit_singleline(&mut buffer);
                     if let Ok(new_ratio) = buffer.parse::<f32>() {
-                        scn.set_transfer_case_low_ratio((new_ratio * 1000.0) as u16);
+                        scn.transfer_case_low_ratio = (new_ratio * 1000.0) as u16;
                     }
                     ui.end_row();
                 }
 
+                let mut buffer =
+                        format!("{:.1}", scn.engine_drag_torque as f32 / 10.0);
+                    ui.label("Engine drag torque");
+                    ui.text_edit_singleline(&mut buffer);
+                    if let Ok(drg) = buffer.parse::<f32>() {
+                        scn.engine_drag_torque = (drg * 10.0) as u16;
+                    }
+                    ui.end_row();
+
                 ui.label("EGS CAN Layer: ");
-                let mut can = scn.egs_can_type();
+                let mut can = scn.egs_can_type;
                 egui::ComboBox::from_id_source("can_layer")
                     .width(100.0)
                     .selected_text(format!("{:?}", can))
@@ -246,14 +263,14 @@ impl crate::window::InterfacePage for ConfigPage {
                         for layer in layers {
                             cb_ui.selectable_value(&mut can, layer.clone(), format!("{:?}", layer));
                         }
-                        scn.set_egs_can_type(can)
+                        scn.egs_can_type = can
                     });
                 ui.end_row();
 
                 if board_ver == BoardType::V12 || board_ver == BoardType::V13 {
                     // 1.2 or 1.3 config
                     ui.label("Shifter style: ");
-                    let mut ss = scn.shifter_style();
+                    let mut ss = scn.shifter_style;
                     egui::ComboBox::from_id_source("shifter_style")
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
@@ -266,7 +283,7 @@ impl crate::window::InterfacePage for ConfigPage {
                             for o in options {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
-                            scn.set_shifter_style(ss)
+                            scn.shifter_style = ss
                         });
                     ui.end_row();
                 }
@@ -274,7 +291,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 if board_ver == BoardType::V13 {
                     // Only v1.3 config
                     ui.label("GPIO usage: ");
-                    let mut ss = scn.io_0_usage();
+                    let mut ss = scn.io_0_usage;
                     egui::ComboBox::from_id_source("gpio_usage")
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
@@ -287,29 +304,29 @@ impl crate::window::InterfacePage for ConfigPage {
                             for o in options {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
-                            scn.set_io_0_usage(ss)
+                            scn.io_0_usage = ss
                         });
                     ui.end_row();
 
-                    if scn.io_0_usage() == IOPinConfig::Input {
-                        let mut t = format!("{}", scn.input_sensor_pulses_per_rev());
+                    if scn.io_0_usage == IOPinConfig::Input {
+                        let mut t = format!("{}", scn.input_sensor_pulses_per_rev);
                         ui.label("Input sensor pulses/rev");
                         ui.text_edit_singleline(&mut t);
                         if let Ok(prev) = t.parse::<u8>() {
-                            scn.set_input_sensor_pulses_per_rev(prev);
+                            scn.input_sensor_pulses_per_rev = prev;
                         }
                         ui.end_row();
-                    } else if scn.io_0_usage() == IOPinConfig::Output {
-                        let mut t = format!("{}", scn.output_pulse_width_per_kmh());
+                    } else if scn.io_0_usage == IOPinConfig::Output {
+                        let mut t = format!("{}", scn.output_pulse_width_per_kmh);
                         ui.label("Pulse width (us) per kmh");
                         ui.text_edit_singleline(&mut t);
                         if let Ok(prev) = t.parse::<u8>() {
-                            scn.set_output_pulse_width_per_kmh(prev);
+                            scn.output_pulse_width_per_kmh = prev;
                         }
                         ui.end_row();
                     }
                     ui.label("General MOSFET usage: ");
-                    let mut ss = scn.mosfet_purpose();
+                    let mut ss = scn.mosfet_purpose;
                     egui::ComboBox::from_id_source("mosfet_purpose")
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
@@ -322,7 +339,7 @@ impl crate::window::InterfacePage for ConfigPage {
                             for o in options {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
-                            scn.set_mosfet_purpose(ss)
+                            scn.mosfet_purpose = ss
                         });
                     ui.end_row();
                 }
@@ -331,11 +348,11 @@ impl crate::window::InterfacePage for ConfigPage {
             if ui.button("Write SCN configuration").clicked() {
                 let res = {
                     let mut x: Vec<u8> = vec![0x3B, 0xFE];
-                    x.extend_from_slice(&scn.clone().into_bytes());
+                    x.extend_from_slice(&scn.clone().pack_to_vec().unwrap());
                     self.nag.with_kwp(|server| {
-                        server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics)?;
+                        server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
                         server.send_byte_array_with_response(&x)?;
-                        server.reset_ecu(ResetMode::PowerOnReset)?;
+                        server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                         Ok(())
                     })
                 };
@@ -372,20 +389,20 @@ impl crate::window::InterfacePage for ConfigPage {
                         );
                     });
                 });
-                let mut ver = efuse.board_ver();
+                let mut ver = efuse.board_ver;
                 ui.label("Choose board variant: ");
                 egui::ComboBox::from_id_source("board_ver")
                     .width(100.0)
-                    .selected_text(format!("{:?}", efuse.board_ver()))
+                    .selected_text(format!("{:?}", efuse.board_ver))
                     .show_ui(ui, |cb_ui| {
                         let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
                         for (pos, dev) in profiles.iter().enumerate() {
                             cb_ui.selectable_value(&mut ver, dev.clone(), dev.to_string());
                         }
-                        efuse.set_board_ver(ver)
+                        efuse.board_ver = ver
                     });
             }
-            if self.show_efuse && efuse.board_ver() != BoardType::Unknown {
+            if self.show_efuse && efuse.board_ver != BoardType::Unknown {
                 if ui.button("Write EFUSE configuration").clicked() {
                     self.show_final_warning = true;
                 }
@@ -411,18 +428,18 @@ impl crate::window::InterfacePage for ConfigPage {
                     if row.button("Yes, I am sure!").clicked() {
                         let mut efuse = self.efuse.clone().unwrap();
                         let date = chrono::Utc::now().date_naive();
-                        efuse.set_manf_day(date.day() as u8);
-                        efuse.set_manf_week(date.iso_week().week() as u8);
-                        efuse.set_manf_month(date.month() as u8);
-                        efuse.set_manf_year((date.year() - 2000) as u8);
+                        efuse.manf_day = date.day() as u8;
+                        efuse.manf_week = date.iso_week().week() as u8;
+                        efuse.manf_month = date.month() as u8;
+                        efuse.manf_year = (date.year() - 2000) as u8;
                         println!("EFUSE: {:?}", efuse);
 
                         let mut x = vec![0x3Bu8, 0xFD];
-                        x.extend_from_slice(&efuse.into_bytes());
+                        x.extend_from_slice(&efuse.pack_to_vec().unwrap());
                         self.nag.with_kwp(|server| {
-                            server.set_diagnostic_session_mode(SessionType::ExtendedDiagnostics)?;
+                            server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
                             server.send_byte_array_with_response(&x)?;
-                            server.reset_ecu(ResetMode::PowerOnReset)?;
+                            server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                             Ok(())
                         });
                         tmp = false;
@@ -430,7 +447,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 })
             });
         if reload {
-            *self = Self::new(self.nag.clone(), self.bar.clone());
+            *self = Self::new(self.nag.clone());
         }
         self.show_final_warning = tmp;
 
@@ -442,7 +459,7 @@ impl crate::window::InterfacePage for ConfigPage {
         "Configuration"
     }
 
-    fn get_status_bar(&self) -> Option<Box<dyn crate::window::StatusBar>> {
-        Some(Box::new(self.bar.clone()))
+    fn should_show_statusbar(&self) -> bool {
+        true
     }
 }
