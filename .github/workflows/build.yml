@@ -20,7 +20,7 @@ jobs:
           rustup toolchain install stable --profile minimal
     - uses: Swatinem/rust-cache@v2
     - name: Install deps
-      run: sudo apt-get install -y binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
+      run: sudo apt-get update && sudo apt-get install -y binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
     - name: Get app version
       run : |
         echo "APP_VERSION=$(cat config_app/Cargo.toml | grep "^version = " | tr -d \" | cut -d " " -f3)" >> $GITHUB_ENV
