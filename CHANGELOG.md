@@ -1,4 +1,4 @@
-# 1.0.6 (In development)
+# 1.0.7 (08/08/23)
 * Move diagnostic executor to seperate thread
 * Migrate to diag_server_unified ecu_diagnostics branch
 * Show diagnostic mode on status bar
@@ -11,7 +11,15 @@
 * Fix bug where App would crash on invalid TCU Config size (Instead present the user with some help)
 * Give the home page a makeover!
 * Add useful wiki links for configuration page
-
+* Show data rate between TCU and App
+* Allow you to save log files to disk
+* Packet trace view (For diagnostic debugging)
+* Add more RLI's for diagnostics page:
+    1. Clutch speeds
+    2. Clutch pack velocities
+    3. Show torque request info on CAN Rx data
+* RLI graphing now takes up more of the page for better readability
+* Add multiple series charting at the same time
 
 # 1.0.3 (27/2/23)
 * Removed "UNDER DEVELOPMENT" watermark for V1.3 PCB

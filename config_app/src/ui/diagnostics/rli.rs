@@ -688,10 +688,10 @@ impl DataCanDump {
         vec![ChartData::new(
             "Torque data".into(),
             vec![
-                ("Engine Min", min, Some("Nm")),
-                ("Engine Static", sta, Some("Nm")),
-                ("Engine Driver", drv, Some("Nm")),
-                ("EGS Request", egs, Some("Nm"))
+                ("Min trq", min, Some("Nm")),
+                ("Static trq", sta, Some("Nm")),
+                ("Demanded trq", drv, Some("Nm")),
+                ("EGS Requested trq", egs, Some("Nm"))
             ],
             None,
         ),
@@ -705,8 +705,8 @@ impl DataCanDump {
         ChartData::new(
             "Wheel speeds".into(),
             vec![
-                ("Rear left", self.left_rear_rpm as f32, Some("RPM")),
-                ("Rear right", self.right_rear_rpm as f32, Some("RPM")),
+                ("Rear left wheel", self.left_rear_rpm as f32, Some("RPM")),
+                ("Rear right wheel", self.right_rear_rpm as f32, Some("RPM")),
             ],
             None,
         )]
@@ -881,8 +881,8 @@ impl DataShiftManager {
         vec![ChartData::new(
             "RPMs".into(),
             vec![
-                ("Input", self.input_rpm as f32, Some("RPM")),
-                ("Engine", self.engine_rpm as f32, Some("RPM")),
+                ("Input speed", self.input_rpm as f32, Some("RPM")),
+                ("Engine speed", self.engine_rpm as f32, Some("RPM")),
             ],
             None,
         ),
@@ -891,6 +891,7 @@ impl DataShiftManager {
             vec![
                 ("Modulating pressure", self.mpc_pressure_mbar as f32, Some("mBar")),
                 ("Shift pressure", self.spc_pressure_mbar as f32, Some("mBar")),
+                ("TCC pressure", self.tcc_pressure_mbar as f32, Some("mBar")),
             ],
             None,
         )]
