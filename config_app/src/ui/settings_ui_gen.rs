@@ -1,356 +1,305 @@
-use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any};
-
-use backend::{diag::{settings::{TcuSettings, TccSettings, unpack_settings, LinearInterpSettings, pack_settings, SolSettings, SbsSettings, NagSettings, PrmSettings, AdpSettings, EtsSettings}, Nag52Diag, DataState}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand}, DiagServerResult}, serde_yaml::{Value, Mapping, self}};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::Color32};
+use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use egui_toast::ToastKind;
+use serde::{Serialize, Deserialize, de::DeserializeOwned, __private::de};
 
 use crate::window::{InterfacePage, PageLoadState, PageAction};
 
 pub const PAGE_LOAD_TIMEOUT: f32 = 10000.0;
 
-#[derive(Debug, Clone)]
-pub struct TcuSettingsWrapper<T>(Arc<RwLock<DataState<T>>>)
-where T: TcuSettings;
 
-impl<T> TcuSettingsWrapper<T>
-where T: TcuSettings {
-    pub fn new_pair() -> (Self, Self) {
-        let s = Self(Arc::new(RwLock::new(DataState::Unint)));
-        (s.clone(), s)
-    }
-
-    pub fn loaded_ok(&self) -> bool {
-        self.0.read().unwrap().is_ok()
-    }
-
-    pub fn get_err_msg(&self) -> String {
-        self.0.read().unwrap().get_err()
-    }
-
-    pub fn get_name(&self) -> &'static str {
-        T::setting_name()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum OpenSetting {
-    None,
-    Tcc,
-    Sol,
-    Sbs,
-    Nag,
-    Prm,
-    Adp,
-    Ets
-}
 
 pub struct TcuAdvSettingsUi {
-    ready: Arc<RwLock<PageLoadState>>,
+    status: Arc<RwLock<PageLoadState>>,
+    error: Option<String>,
     nag: Nag52Diag,
     start_time: Instant,
-    tcc_settings: TcuSettingsWrapper<TccSettings>,
-    sol_settings: TcuSettingsWrapper<SolSettings>,
-    sbs_settings: TcuSettingsWrapper<SbsSettings>,
-    nag_settings: TcuSettingsWrapper<NagSettings>,
-    prm_settings: TcuSettingsWrapper<PrmSettings>,
-    adp_settings: TcuSettingsWrapper<AdpSettings>,
-    ets_settings: TcuSettingsWrapper<EtsSettings>,
-    open_settings: OpenSetting
-}
-
-pub fn read_scn_settings<T>(nag: &Nag52Diag, dest: &TcuSettingsWrapper<T>)
-where T: TcuSettings {
-    match nag.with_kwp(|kwp| {
-        kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])
-    }) {
-        Ok(res) => {
-            match unpack_settings::<T>(T::get_scn_id(), &res[2..]) {
-                Ok(r) => *dest.0.write().unwrap() = DataState::LoadOk(r),
-                Err(e) => *dest.0.write().unwrap() = DataState::LoadErr(e.to_string()),
-            }
-        },
-        Err(e) => {
-            *dest.0.write().unwrap() = DataState::LoadErr(e.to_string());
-        },
-    }
+    yml: Arc<RwLock<Option<ModuleSettingsData>>>,
+    current_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
+    default_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
+    current_setting: Option<u8>
 }
 
 impl TcuAdvSettingsUi {
     pub fn new(nag: Nag52Diag) -> Self {
-        let is_ready = Arc::new(RwLock::new(PageLoadState::waiting("Initializing")));
-        let is_ready_t = is_ready.clone();
-
-        let (tcc, tcc_t) = TcuSettingsWrapper::new_pair();
-        let (sol, sol_t) = TcuSettingsWrapper::new_pair();
-        let (sbs, sbs_t) = TcuSettingsWrapper::new_pair();
-        let (gbs, gbs_t) = TcuSettingsWrapper::new_pair();
-        let (prm, prm_t) = TcuSettingsWrapper::new_pair();
-        let (adp, adp_t) = TcuSettingsWrapper::new_pair();
-        let (ets, ets_t) = TcuSettingsWrapper::new_pair();
-        let nag_c = nag.clone();
-        std::thread::spawn(move|| {
-            let res = nag_c.with_kwp(|x| {
-                *is_ready_t.write().unwrap() = PageLoadState::waiting("Setting TCU diag mode");
-                x.kwp_set_session(0x93.into())
-            });
-
-            match res {
-                Ok(_) => {
-                    *is_ready_t.write().unwrap() = PageLoadState::waiting("Reading TCC Settings")
-                },
-                Err(e) => {
-                    *is_ready_t.write().unwrap() = PageLoadState::Err(e.to_string());
-                    return;
-                },
-            };
-            read_scn_settings(&nag_c, &tcc_t);
-            read_scn_settings(&nag_c, &sol_t);
-            read_scn_settings(&nag_c, &sbs_t);
-            read_scn_settings(&nag_c, &gbs_t);
-            read_scn_settings(&nag_c, &prm_t);
-            read_scn_settings(&nag_c, &adp_t);
-            read_scn_settings(&nag_c, &ets_t);
-            *is_ready_t.write().unwrap() = PageLoadState::Ok;
-        });
         Self {
-            ready: is_ready,
+            status: Arc::new(RwLock::new(PageLoadState::Waiting(format!("Decoding")))),
+            error: None,
             nag,
             start_time: Instant::now(),
-            tcc_settings: tcc,
-            sol_settings: sol,
-            sbs_settings: sbs,
-            nag_settings: gbs,
-            prm_settings: prm,
-            adp_settings: adp,
-            ets_settings: ets,
-            open_settings: OpenSetting::None
+            yml: Arc::new(RwLock::new(None)),
+            current_settings: Arc::new(RwLock::new(HashMap::default())),
+            default_settings: Arc::new(RwLock::new(HashMap::default())),
+            current_setting: None
         }
     } 
 }
 
-pub fn make_settings_ui<'de, T: TcuSettings>(nag: &Nag52Diag, settings_ref: &TcuSettingsWrapper<T>, ui: &mut eframe::egui::Ui) -> Option<PageAction>
-where T: Clone + Copy + Serialize + DeserializeOwned {
-    let mut action = None;
-    let setting_state = settings_ref.0.read().unwrap().clone();
-    if let DataState::LoadOk(mut settings) = setting_state {
-        ui.with_layout(Layout::top_down(eframe::emath::Align::Min), |ui| {
-            ui.label(format!("Setting revision name: {}", T::get_revision_name()));
-            if let Some(url) = T::wiki_url() {
-                ui.hyperlink_to(format!("Help on {}", T::setting_name()), url);
-            }
-            let ba = pack_settings(T::get_scn_id(), settings);
-            ui.add_space(10.0);
-            ui.label("Hex SCN coding (Display only)");
-            let w = ui.available_width();
-            ScrollArea::new([true, false]).id_source(ba.clone()).show(ui, |ui| {
-                ui.add(Label::new(format!("{:02X?}", ba)).wrap(false));
-                //let mut s = format!("{:02X?}", ba);
-                //ui.add_enabled(true, TextEdit::singleline(&mut s).desired_width(100000.0));
-            });
-            ui.add_space(10.0);
-            ui.horizontal(|x| {
-                if x.button("Write settings").clicked() {
-                    let res = nag.with_kwp(|x| {
-                        let mut req = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC];
-                        req.extend_from_slice(&ba);
-                        x.send_byte_array_with_response(&req)
-                    });
-                    match res {
-                        Ok(_) => {
-                            if T::effect_immediate() {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} write OK!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Success 
-                                });
-                            } else {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} write OK, but changes are only applied after a restart!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Warning 
-                                });
-                            }
-                        },
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Error writing {}: {}", T::setting_name(), e.to_string()), 
-                                kind: egui_toast::ToastKind::Error 
-                            })
-                        }
-                    }
-                }
-                if x.button("Reset to TCU Default").clicked() {
-                    let res = nag.with_kwp(|x| {
-                        x.send_byte_array_with_response(&[KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, T::get_scn_id(), 0x00])
-                    });
-                    match res {
-                        Ok(_) => {
-                            if T::effect_immediate() {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} reset OK!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Success 
-                                });
-                            } else {
-                                action = Some(PageAction::SendNotification { 
-                                    text: format!("{} reset OK, but changes are only applied after a restart!", T::setting_name()), 
-                                    kind: egui_toast::ToastKind::Warning 
-                                });
-                            }
-                            if let Ok(x) = nag.with_kwp(|kwp| kwp.send_byte_array_with_response(&[0x21, 0xFC, T::get_scn_id()])) {
-                                if let Ok(res) = unpack_settings(T::get_scn_id(), &x[2..]) {
-                                    settings = res;
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Error resetting {}: {}", T::setting_name(), e.to_string()), 
-                                kind: egui_toast::ToastKind::Error 
-                            })
-                        }
-                    }
-                }
-                if x.button("Save to YML").clicked() {
-                    // Backup the settings to file
-                    if let Some(save_path) = rfd::FileDialog::new()
-                    .add_filter("config yaml", &["yml"])
-                    .save_file() {
-                            File::create(&save_path).unwrap().write_all(serde_yaml::to_string(&settings).unwrap().as_bytes()).unwrap();
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("{} backup created at {}!", T::setting_name(), save_path.into_os_string().into_string().unwrap()), 
-                                kind: egui_toast::ToastKind::Success 
-                            });
-                        }
+fn gen_drag_value<'a, Num: emath::Numeric>(value: &'a mut Num, var: &'a SettingsVariable, decimals: bool) -> DragValue<'a> {
+    let mut dv = DragValue::new(value).speed(0.0);
 
-                }
-                if x.button("Load from YML").clicked() {
-                    // Backup the settings to file
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("config yml", &["yml"])
-                        .pick_file() {
-                        let mut s = String::new();
-                        let mut f = File::open(&path).unwrap();
-                        f.read_to_string(&mut s).unwrap();
-                        if let Ok(s) = serde_yaml::from_str(&s) {
-                            settings = s;
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("{} loaded OK from {:?}!", T::setting_name(), path), 
-                                kind: egui_toast::ToastKind::Success 
-                            });
-                        } else {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Cannot load {:?}. Invalid settings YML!", path), 
-                                kind: egui_toast::ToastKind::Error 
-                            });
-                        }
-                    }
-                }
-            });
-            ui.add_space(10.0);
-            ScrollArea::new([false, true]).show(ui, |ui| {
-                let mut v = serde_yaml::to_value(&settings).unwrap();
-                make_ui_for_value::<T>(T::setting_name(), &mut v, ui);
-                match serde_yaml::from_value::<T>(v) {
-                    Ok(s) => {
-                        settings = s;
-                    },
-                    Err(e) => {
-                        action = Some(PageAction::SendNotification { text: format!("Error setting setting: {}", e.to_string()), kind: egui_toast::ToastKind::Error });
-                    }
-                }
-            });
+    let d_count = if decimals { 3 } else { 0 };
+    dv = dv.max_decimals(3).fixed_decimals(3);
+
+    if let Some(unit) = &var.unit {
+        if unit == "%" {
+            // Obvious
+            dv = dv.clamp_range(0..=100);
+        }
+
+        dv = dv.custom_formatter(move |n, _| {
+            if decimals {
+                format!("{n:.3} {unit}")
+            } else {
+                format!("{n:.0} {unit}")
+            }
         });
-        *settings_ref.0.write().unwrap() = DataState::LoadOk(settings);
     }
-    return action;
+    dv
+}
+
+fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: &[EnumMap], internal_structs: &[SettingsData]) -> SettingsType {
+    ui.code(&var.name);
+    let v = match var.to_settings_type(&coding, enums, internal_structs) {
+        SettingsType::Bool(mut b) => {
+            ui.checkbox(&mut b, "");
+            SettingsType::Bool(b)
+        },
+        SettingsType::F32(mut f) => {
+            ui.add(gen_drag_value(&mut f, &var, true));
+            SettingsType::F32(f)
+        },
+        SettingsType::I16(mut i) => {
+            ui.add(gen_drag_value(&mut i, &var, false));
+            SettingsType::I16(i)
+        }
+        SettingsType::U16(mut u) => {
+            ui.add(gen_drag_value(&mut u, &var, false));
+            SettingsType::U16(u)
+        },
+        SettingsType::U8(mut u) => {
+            ui.add(gen_drag_value(&mut u, &var, false));
+            SettingsType::U8(u)
+        },
+        SettingsType::Enum { mut value, mapping } => {
+            let s = mapping.mappings.get(&value).cloned().unwrap_or("INVALD CODING".to_string());
+            egui::ComboBox::from_id_source(format!("Enum-{}-select", var.name))
+                .width(100.0)
+                .selected_text(&s)
+                .show_ui(ui, |x| {
+                    for (k, v) in mapping.mappings.clone() {
+                        x.push_id(format!("{}-{}", var.name, v), |x| {
+                            x.selectable_value(
+                                &mut value, 
+                                k, 
+                                v
+                            )
+                        });
+                    }
+                });
+            SettingsType::Enum { value, mapping } 
+        },
+        SettingsType::Struct { mut raw, s } => {
+            
+            CollapsingHeader::new("Show internal")
+                .id_source(format!("It-var-editor-{}",var.name))
+                .show(ui, |ui| {
+                    egui::Grid::new(format!("setting-var-editor-{}",var.name)).num_columns(3).striped(true).show(ui, |ui| {
+                        ui.strong("Setting");
+                        ui.strong("Value");
+                        ui.strong("Description");
+                        ui.end_row();
+                        for param in &s.params {
+                            let s = gen_row(ui, param, &mut raw, enums, internal_structs);
+                            ui.end_row();
+                            param.insert_back_into_coding_string(s, &mut raw);
+                        }            
+                    });
+                });
+            SettingsType::Struct { raw, s }
+        },
+    };
+    ui.add(Label::new(var.description.clone().unwrap_or("-".into())).wrap(true));
+    v
+}
+
+fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], setting: &SettingsData, enums: &[EnumMap], internal_structs: &[SettingsData], ui: &mut egui::Ui) -> Option<PageAction> {
+    let mut ret = None;
+    let width = ui.available_width();
+    ScrollArea::new([true, false]).max_width(width).id_source("CODING_VIEW").show(ui, |r| {
+        egui::Grid::new("COD").num_columns(coding.len()+1).striped(true).show(r, |ui| {
+            ui.strong("Byte");
+            for (idx, _) in coding.iter().enumerate() {
+                ui.strong(format!("{}", idx));
+            }
+            ui.end_row();
+            ui.strong("Current coding");
+            for (idx, b) in coding.iter().enumerate() {
+                if *b != default[idx] {
+                    ui.label(RichText::new(format!("{:02X?}", b)).color(Color32::RED));
+                } else {
+                    ui.label(format!("{:02X?}", b));
+                }
+            }
+            ui.end_row();
+            ui.strong("Default coding");
+            for b in default {
+                ui.label(format!("{:02X?}", b));
+            }
+            ui.end_row();
+        });
+    });
+    ui.add_space(10.0);
+    ui.horizontal(|r| {
+        if r.button("Reset coding to default").clicked() {
+            coding.copy_from_slice(default);
+        }
+        if r.button("Write to TCU").clicked() {
+            ret = match nag.with_kwp(|kwp| {
+                let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC];
+                tx.extend_from_slice(coding);
+                tx.push(setting.scn_id.unwrap());
+                kwp.send_byte_array_with_response(&tx)
+            }) {
+                Ok(_) => {
+                    Some(
+                        PageAction::SendNotification { 
+                            text: format!("Writing of setting {} OK!", setting.name),
+                            kind: ToastKind::Success
+                        }
+                    )
+                },
+                Err(e) => {
+                    Some(
+                        PageAction::SendNotification { 
+                            text: format!("Writing of setting {} failed: {e:?}", setting.name),
+                            kind: ToastKind::Error
+                        }
+                    )
+                }
+            }
+        }
+    });
+    ui.add_space(10.0);
+    ScrollArea::new([false, true]).max_height(ui.available_height()).show(ui, |ui| {
+        egui::Grid::new("setting-var-editor").num_columns(3).striped(true).show(ui, |ui| {
+            ui.strong("Setting");
+            ui.strong("Value");
+            ui.strong("Description");
+            ui.end_row();
+            for param in &setting.params {
+                let s = gen_row(ui, param, coding, enums, internal_structs);
+                ui.end_row();
+                param.insert_back_into_coding_string(s, coding);
+            }            
+        });
+    });
+    ret
 }
 
 impl InterfacePage for TcuAdvSettingsUi {
     fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
-        match self.ready.read().unwrap().clone() {
-            PageLoadState::Ok => {
-                ui.heading("Advanced TCU settings");
-            },
-            PageLoadState::Waiting(reason) => {
-                ui.heading("Please wait...");
-                let prog = 
-                ProgressBar::new(self.start_time.elapsed().as_millis() as f32 / PAGE_LOAD_TIMEOUT).animate(true);
-                ui.add(prog);
-                ui.label(format!("Current action: {}", reason));
-                return PageAction::DisableBackBtn;
-                
-            },
-            PageLoadState::Err(e) => {
-                ui.heading("Page loading failed!");
-                ui.label(format!("Error: {:?}", e));
-                return PageAction::None;
-            },
-        }
-        // Continues if OK
-        ui.separator();
-        let mut load_errors: Vec<(&'static str, String)> = Vec::new();
-        ui.horizontal(|ui| {
-            ui.strong("Choose program:");
-            if self.tcc_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Tcc, self.tcc_settings.get_name());
-            } else {
-                load_errors.push((self.tcc_settings.get_name(), self.tcc_settings.get_err_msg()))
+        let state = self.status.read().unwrap().clone();
+        let yml = self.yml.read().unwrap().clone();
+        let def_settings = self.default_settings.read().unwrap().clone();
+        let curr_settings = self.current_settings.read().unwrap().clone();
+        let mut action = PageAction::None;
+        if yml.is_none() {
+            // User input
+            match rfd::FileDialog::new().set_title("Choose MODULE_SETTINGS.yml").add_filter("YML", &["yml"]).pick_file() {
+                None => return PageAction::Destroy,
+                Some(p) => {
+                    let status_c = self.status.clone();
+                    let yml_c = self.yml.clone();
+                    let ctx = ui.ctx().clone();
+                    let nag_c = self.nag.clone();
+
+                    let default_settings_c = self.default_settings.clone();
+                    let current_settings_c = self.current_settings.clone();
+
+                    std::thread::spawn(move || {
+                        let mut f = File::open(p).unwrap();
+                        let mut s = String::new();
+                        f.read_to_string(&mut s).unwrap();
+                        match serde_yaml::from_str::<ModuleSettingsData>(&s) {
+                            Ok(s) => {
+                                *yml_c.write().unwrap() = Some(s.clone());
+                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
+                                ctx.request_repaint();
+                                if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
+                                    *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
+                                } else {
+                                    for setting in &s.settings {
+                                        let scn_id = setting.scn_id.unwrap();
+                                        let _ = nag_c.with_kwp(|k| {
+                                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
+                                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                                .map(|x| x[3..].to_vec());
+                                            ctx.request_repaint();
+                                            current_settings_c.write().unwrap().insert(scn_id, res);
+                                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
+                                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                                .map(|x| x[3..].to_vec());
+                                            default_settings_c.write().unwrap().insert(scn_id, res);
+                                            ctx.request_repaint();
+                                            Ok(())
+                                        });
+                                    }
+                                    *status_c.write().unwrap() = PageLoadState::Ok;
+                                }
+                                ctx.request_repaint();
+                                // Now read all the states
+                            },
+                            Err(e) => {
+                                *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
+                            }
+                        }
+                    });    
+                }
             }
-            if self.sol_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Sol, self.sol_settings.get_name());
-            } else {
-                load_errors.push((self.sol_settings.get_name(), self.sol_settings.get_err_msg()))
-            }
-            if self.sbs_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Sbs, self.sbs_settings.get_name());
-            } else {
-                load_errors.push((self.sbs_settings.get_name(), self.sbs_settings.get_err_msg()))
-            }
-            if self.nag_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Nag, self.nag_settings.get_name());
-            } else {
-                load_errors.push((self.nag_settings.get_name(), self.nag_settings.get_err_msg()))
-            }
-            if self.prm_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Prm, self.prm_settings.get_name());
-            } else {
-                load_errors.push((self.prm_settings.get_name(), self.prm_settings.get_err_msg()))
-            }
-            if self.adp_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Adp, self.adp_settings.get_name());
-            } else {
-                load_errors.push((self.adp_settings.get_name(), self.adp_settings.get_err_msg()))
-            }
-            if self.ets_settings.loaded_ok() {
-                ui.selectable_value(&mut self.open_settings, OpenSetting::Ets, self.ets_settings.get_name());
-            } else {
-                load_errors.push((self.ets_settings.get_name(), self.ets_settings.get_err_msg()))
-            }
-        });
-        ui.separator();
-        ui.strong("Load status");
-        if load_errors.is_empty() {
-            ui.label("No load errors! All program settings loaded OK");
         } else {
-            for err in load_errors {
-                ui.label(RichText::new(format!("{} - {}", err.0, err.1)).color(Color32::RED));
+            match state {
+                PageLoadState::Ok => {
+                    let yml = yml.as_ref().unwrap().clone();
+                    ui.heading("Select coding string");
+                    ui.horizontal(|row| {
+                        for (k, v) in &curr_settings {
+                            let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
+                            row.selectable_value(&mut self.current_setting, Some(*k), setting_def.name.clone());
+                        }
+                    });
+                    if let Some(current_id) = self.current_setting {
+                        let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
+                        let default = def_settings.get(&current_id).unwrap().clone();
+                        let modifying = curr_settings.get(&current_id).unwrap().clone();
+
+                        if modifying.is_ok() && default.is_ok() {
+                            let def = default.unwrap().clone();
+                            let mut modify = modifying.unwrap().clone();
+                            ui.separator();
+                            if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
+                                action = a;
+                            }
+                            self.current_settings.write().unwrap().insert(current_id, Ok(modify));
+                        } else {
+                            ui.label("Cannot load UI for this coding string due to TCU query error!");
+                        }
+                    } else {
+                        ui.label("No coding string selected");
+                    }
+                },
+                PageLoadState::Waiting(txt) => {
+                    ui.label(txt);
+                },
+                PageLoadState::Err(e) => {
+                    ui.label(e);
+                },
             }
         }
-        ui.separator();
-        let action = match self.open_settings {
-            OpenSetting::None => None,
-            OpenSetting::Tcc => make_settings_ui(&self.nag, &self.tcc_settings, ui),
-            OpenSetting::Sol => make_settings_ui(&self.nag, &self.sol_settings, ui),
-            OpenSetting::Sbs => make_settings_ui(&self.nag, &self.sbs_settings, ui),
-            OpenSetting::Nag => make_settings_ui(&self.nag, &self.nag_settings, ui),
-            OpenSetting::Prm => make_settings_ui(&self.nag, &self.prm_settings, ui),
-            OpenSetting::Adp => make_settings_ui(&self.nag, &self.adp_settings, ui),
-            OpenSetting::Ets => make_settings_ui(&self.nag, &self.ets_settings, ui),
-        };
-        if let Some(act) = action {
-            act
-        } else {
-            crate::window::PageAction::None
-        }
+
+        action
     }
 
     fn get_title(&self) -> &'static str {
@@ -360,107 +309,20 @@ impl InterfacePage for TcuAdvSettingsUi {
     fn should_show_statusbar(&self) -> bool {
         true
     }
+
+    fn destroy_nag(&self) -> bool {
+        false
+    }
+
+    fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>){}
+
+    fn nag_destroy_before_load(&self) -> bool {
+        false
+    }
 }
 
 impl Drop for TcuAdvSettingsUi {
     fn drop(&mut self) {
         self.nag.with_kwp(|x| x.kwp_set_session(KwpSessionType::Normal.into()));
     }
-}
-
-fn make_ui_for_value<T: TcuSettings>(setting_name: &'static str, v: &mut Value, ui: &mut egui::Ui) {
-    if v.is_mapping() {
-        make_ui_for_mapping::<T>(setting_name, &mut v.as_mapping_mut().unwrap(), ui)
-    }
-}
-
-fn make_ui_for_mapping<T: TcuSettings>(setting_name: &'static str, v: &mut Mapping, ui: &mut egui::Ui) {
-    egui::Grid::new(format!("Grid-{}", setting_name))
-    .striped(true)
-    .min_col_width(100.0)
-    .show(ui, |ui| {
-        ui.strong("Variable");
-        ui.strong("Value");
-        ui.end_row();
-        for (i, v) in v.iter_mut() {
-            let key = i.as_str().unwrap();
-            if v.is_mapping() {
-                CollapsingHeader::new(key).default_open(false).show(ui,|sub| {
-                    if let Ok(lerp) = serde_yaml::from_value::<LinearInterpSettings>(v.clone()) {
-                        // Linear interp extra display
-                        sub.label("Linear interpolation settings");
-                        sub.hyperlink_to("Help on Linear interpolation", "https://docs.ultimate-nag52.net/en/gettingstarted/configuration/settings/linearinterpolation");
-                        sub.label("Representation:");
-                        let mut points = Vec::new();
-                        let mut x = 0.0_f32.min(lerp.raw_min - (lerp.raw_min/10.0));
-                        while x < lerp.raw_max + (lerp.raw_max/10.0) {
-                            points.push([x as f64, lerp.calc_with_value(x) as f64]);
-                            x += 1.0;
-                        }
-                        let line =  Line::new(PlotPoints::new(points));
-
-                        Plot::new(format!("lerp-{}", key))
-                            .include_x(lerp.raw_min - (lerp.raw_min/10.0)) // Min X
-                            .include_x(lerp.raw_max + (lerp.raw_max/10.0)) // Max X
-                            .include_y(lerp.new_min - (lerp.new_min/10.0)) // Min Y
-                            .include_y(lerp.new_max + (lerp.new_max/10.0)) // Max Y
-                            .include_x(0)
-                            .include_y(0)
-                            .allow_drag(false)
-                            .allow_scroll(false)
-                            .allow_zoom(false)
-                            .show(sub, |p| {
-                                p.line(line)
-                            });
-                    }
-                    make_ui_for_mapping::<T>(setting_name,&mut v.as_mapping_mut().unwrap(), sub);
-                });
-                ui.end_row();
-            } else if v.is_bool() {
-                ui.code(format!("{key}"));
-                let mut o = v.as_bool().unwrap();
-                ui.checkbox(&mut o, "");
-                *v = Value::from(o);
-                ui.end_row();
-            } else if v.is_f64() {
-                ui.code(format!("{key}: "));
-                let mut o = v.as_f64().unwrap();
-                let d = DragValue::new(&mut o).max_decimals(3).speed(0);
-                ui.add(d);
-                *v = Value::from(o);
-                ui.end_row();
-            } else if v.is_u64(){
-                ui.code(format!("{key}: "));
-                let mut o = v.as_u64().unwrap();
-                let d = DragValue::new(&mut o).max_decimals(0).speed(0).clamp_range(RangeInclusive::new(0, i32::MAX));
-                ui.add(d);
-                *v = Value::from(o);
-                ui.end_row();
-            } else if v.is_string() {
-                let mut s = v.as_str().unwrap().to_string();
-                if let Some(valid_options) = T::get_enum_entries(&key) {
-                    ui.code(format!("{key}: "));
-                    egui::ComboBox::from_id_source(format!("selector-{key}"))
-                        .selected_text(s.clone())
-                        .show_ui(ui, |cb_ui| {
-                            for entry in valid_options {
-                                let x = entry.clone();
-                                cb_ui.selectable_value(
-                                    &mut s,
-                                    x,
-                                    entry,
-                                );
-                            }
-                        });
-                        *v = Value::from(s);
-                } else {
-                    ui.label(format!("Unknown enum Ty for {i:?}"));
-                }
-                ui.end_row();
-            } else {
-                ui.label(format!("FIXME: {:?} - {:?}", i, v));
-                ui.end_row();
-            }
-        }
-    });
 }
