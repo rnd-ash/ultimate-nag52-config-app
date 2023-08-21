@@ -158,9 +158,8 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
         }
         if r.button("Write to TCU").clicked() {
             ret = match nag.with_kwp(|kwp| {
-                let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC];
+                let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, setting.scn_id.unwrap()];
                 tx.extend_from_slice(coding);
-                tx.push(setting.scn_id.unwrap());
                 kwp.send_byte_array_with_response(&tx)
             }) {
                 Ok(_) => {
