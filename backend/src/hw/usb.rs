@@ -126,7 +126,7 @@ impl Nag52USB {
                             'E' => EspLogLevel::Error,
                             'D' => EspLogLevel::Debug,
                             _ => {
-                                println!("Malformed log line {line}");
+                                //println!("Malformed log line {line}");
                                 continue
                             }
                         };

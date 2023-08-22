@@ -1,3 +1,6 @@
+# 1.0.8 (Dev)
+* Add new YML based SCN coding wizard
+
 # 1.0.7 (08/08/23)
 * Move diagnostic executor to seperate thread
 * Migrate to diag_server_unified ecu_diagnostics branch
