@@ -40,13 +40,20 @@ impl TcuAdvSettingsUi {
 fn gen_drag_value<'a, Num: emath::Numeric>(value: &'a mut Num, var: &'a SettingsVariable, decimals: bool) -> DragValue<'a> {
     let mut dv = DragValue::new(value).speed(0.0);
 
-    let d_count = if decimals { 3 } else { 0 };
-    dv = dv.max_decimals(3).fixed_decimals(3);
+    if decimals {
+        dv = dv.max_decimals(3).fixed_decimals(3);
+    } else {
+        dv = dv.max_decimals(0).fixed_decimals(0);
+    }
+    
 
-    if let Some(unit) = &var.unit {
+    if let Some(mut unit) = var.unit.clone() {
         if unit == "%" {
             // Obvious
             dv = dv.clamp_range(0..=100);
+        }
+        if unit == "milliseconds" {
+            unit = "ms".into();
         }
 
         dv = dv.custom_formatter(move |n, _| {
