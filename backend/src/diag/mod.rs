@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{Borrow, BorrowMut},
-    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}},
+    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}, atomic::AtomicU16},
 };
 
 use ecu_diagnostics::{hardware::{
@@ -24,10 +24,13 @@ use crate::hw::{
     usb_scanner::Nag52UsbScanner,
 };
 
+use self::device_modes::TcuDeviceMode;
+
 pub mod flash;
 pub mod ident;
 pub mod settings;
 pub mod nvs;
+pub mod device_modes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {
@@ -243,6 +246,7 @@ impl NagAppLogger {
 
 #[derive(Debug, Clone)]
 pub struct Nag52Diag {
+    device_mode: TcuDeviceMode,
     info: HardwareInfo,
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
@@ -269,7 +273,7 @@ impl Nag52Diag {
         #[cfg(unix)]
         if let AdapterHw::SocketCAN(_) = hw {
             channel_cfg.block_size = 8;
-            channel_cfg.st_min = 0x20;
+            channel_cfg.st_min = 10;
         }
 
         let basic_opts = DiagServerBasicOptions {
@@ -308,15 +312,22 @@ impl Nag52Diag {
             inner_logger
         )?;
 
-        Ok(Self {
+        let mut s = Self {
+            device_mode: TcuDeviceMode::NORMAL,
             info: hw.get_hw_info(),
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
             logger,
             server_mutex: Arc::new(Mutex::new(()))
-        })
+        };
+
+        if let Ok(mode) = s.read_device_mode() {
+            s.device_mode = mode;
+        }
+        Ok(s)
     }
+
 
     pub fn try_reconnect(&mut self) -> DiagServerResult<()> {
         {
