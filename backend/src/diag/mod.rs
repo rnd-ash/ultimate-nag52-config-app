@@ -364,6 +364,22 @@ impl Nag52Diag {
         self.endpoint.as_ref().map(|x| x.read_log_msg()).flatten()
     }
 
+    pub fn read_can_msg(&self) -> Option<CanFrame> {
+        let hw = self.endpoint.as_ref()?;
+        if let AdapterHw::Usb(usb) = hw {
+            return usb.read_can();
+        }
+        None
+    }
+
+    pub fn clear_can_buffer(&self) {
+        if let Some(hw) = self.endpoint.as_ref() {
+            if let AdapterHw::Usb(usb) = hw {
+                while usb.read_can().is_some(){}
+            }
+        }
+    }
+
     pub fn has_logger(&self) -> bool {
         self.endpoint_type == AdapterType::USB
     }

@@ -1,5 +1,5 @@
 use ecu_diagnostics::{
-    channel::{ChannelError, IsoTPChannel, PayloadChannel, CanChannel},
+    channel::{ChannelError, IsoTPChannel, PayloadChannel, CanChannel, CanFrame},
     hardware::{HardwareError, HardwareInfo, HardwareResult},
 };
 use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
@@ -38,6 +38,7 @@ pub struct Nag52USB {
     info: HardwareInfo,
     rx_diag: Arc<mpsc::Receiver<(u32, Vec<u8>)>>,
     rx_log: Arc<mpsc::Receiver<EspLogMessage>>,
+    rx_can: Arc<mpsc::Receiver<CanFrame>>,
     is_running: Arc<AtomicBool>,
     tx_id: u32,
     rx_id: u32,
@@ -80,6 +81,7 @@ impl Nag52USB {
 
         let (read_tx_log, read_rx_log) = mpsc::channel::<EspLogMessage>();
         let (read_tx_diag, read_rx_diag) = mpsc::channel::<(u32, Vec<u8>)>();
+        let (read_tx_can, read_rx_can) = mpsc::channel::<CanFrame>();
 
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_r = is_running.clone();
@@ -118,8 +120,19 @@ impl Nag52USB {
                                 read_tx_diag.send((can_id, p));
                             }
                         }
+                    } else if line.starts_with("CF->") {
+                        line = line.replace("CF->0x", "");
+                        if line.len() % 2 != 0 || line.len() > 20 {
+                            continue; // Corrupt
+                        }
+                        let cid = u16::from_str_radix(&line[0..4], 16).unwrap();
+                        let data: Vec<u8> = (4..line.len())
+                                    .step_by(2)
+                                    .map(|i| u8::from_str_radix(&line[i..i + 2], 16).unwrap())
+                                    .collect();
+                        let cf = CanFrame::new(cid as u32, &data, false);
+                        let _ = read_tx_can.send(cf);
                     } else {
-                        println!("{}", line);
                         let lvl = match line.chars().next().unwrap_or(' ') {
                             'I' => EspLogLevel::Info,
                             'W' => EspLogLevel::Warn,
@@ -205,10 +218,11 @@ impl Nag52USB {
             },
             rx_diag: Arc::new(read_rx_diag),
             rx_log: Arc::new(read_rx_log),
+            rx_can: Arc::new(read_rx_can),
             tx_id: 0,
             rx_id: 0,
             tx_bytes,
-            rx_bytes
+            rx_bytes,
         })
     }
 
@@ -218,6 +232,10 @@ impl Nag52USB {
 
     pub fn read_msg(&self) -> Option<EspLogMessage> {
         self.rx_log.try_recv().ok()
+    }
+
+    pub fn read_can(&self) -> Option<CanFrame> {
+        self.rx_can.try_recv().ok()
     }
 }
 
