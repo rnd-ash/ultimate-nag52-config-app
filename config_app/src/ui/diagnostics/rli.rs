@@ -456,7 +456,8 @@ impl DataSolenoids {
 pub enum TorqueReqCtrlType {
     None = 0,
     NormalSpeed = 1,
-    FastAsPossible = 2
+    FastAsPossible = 2,
+    BackToDriverDemand = 3
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PrimitiveEnum_u8)]
@@ -823,8 +824,9 @@ pub struct DataShiftManager {
     pub input_rpm: u16,
     pub engine_rpm: u16,
     pub output_rpm: u16,
-    pub engine_torque: u16,
-    pub req_engine_torque: u16,
+    pub engine_torque: i16,
+    pub input_torque: i16,
+    pub req_engine_torque: i16,
     pub atf_temp: u8,
     pub shift_idx: u8,
 }
@@ -892,6 +894,15 @@ impl DataShiftManager {
                 ("Modulating pressure", self.mpc_pressure_mbar as f32, Some("mBar")),
                 ("Shift pressure", self.spc_pressure_mbar as f32, Some("mBar")),
                 ("TCC pressure", self.tcc_pressure_mbar as f32, Some("mBar")),
+            ],
+            None,
+        ),
+        ChartData::new(
+            "Torque data".into(),
+            vec![
+                ("Static torque", self.engine_torque as f32, Some("Nm")),
+                ("Input torque (calc)", self.input_torque as f32, Some("Nm")),
+                ("EGS Req torque", if self.req_engine_torque == i16::MAX { 0.0 } else { self.req_engine_torque as f32 }, Some("Nm")),
             ],
             None,
         )]
