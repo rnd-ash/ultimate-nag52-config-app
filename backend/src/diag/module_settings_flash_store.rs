@@ -73,7 +73,7 @@ pub mod ModuleSettingsCompressTest {
     #[test]
     pub fn verify_read_back() {
         // A big file
-        let contents_to_compress = include_bytes!("../../../../ultimate-nag52-fw/MODULE_SETTINGS.yml");
+        let contents_to_compress = include_bytes!("../../../LICENSE");
         let (header, compressed_data) = ModuleSettingsFlashHeader::new_from_yml_content(contents_to_compress);
         // Resize compressed data to be a LOT larger (To emulating reading an entire partition on ESP)
         let mut tx_to_flash = header.merge_to_tx_data(&compressed_data);
