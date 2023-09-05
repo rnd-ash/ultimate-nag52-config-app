@@ -26,6 +26,13 @@ impl Nag52Diag {
         }
     }
 
+    pub fn get_module_settings_desc_partition(&self) -> PartitionInfo {
+        PartitionInfo {
+            address: 0x330000,
+            size: 0x19000,
+        }
+    }
+
     pub fn get_coredump_flash_info(&self) -> DiagServerResult<PartitionInfo> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x29).map(|res| {
