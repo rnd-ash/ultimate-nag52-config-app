@@ -54,7 +54,7 @@ impl TcuAdvSettingsUi {
                         ctx.request_repaint();
                         return;
                     },
-                    Ok(block_size) => {
+                    Ok(_block_size) => {
                         let mut counter: u8 = 0;
                         let mut read_contents = Vec::new();
                         while read_contents.len() < part_info.size as usize {
@@ -303,64 +303,6 @@ impl InterfacePage for TcuAdvSettingsUi {
         let def_settings = self.default_settings.read().unwrap().clone();
         let curr_settings = self.current_settings.read().unwrap().clone();
         let mut action = PageAction::None;
-            
-
-
-        /*
-            // User input
-            match rfd::FileDialog::new().set_title("Choose MODULE_SETTINGS.yml").add_filter("YML", &["yml"]).pick_file() {
-                None => return PageAction::Destroy,
-                Some(p) => {
-                    let status_c = self.status.clone();
-                    let yml_c = self.yml.clone();
-                    let ctx = ui.ctx().clone();
-                    let nag_c = self.nag.clone();
-
-                    let default_settings_c = self.default_settings.clone();
-                    let current_settings_c = self.current_settings.clone();
-
-                    std::thread::spawn(move || {
-                        let mut f = File::open(p).unwrap();
-                        let mut s = String::new();
-                        f.read_to_string(&mut s).unwrap();
-                        match serde_yaml::from_str::<ModuleSettingsData>(&s) {
-                            Ok(s) => {
-                                *yml_c.write().unwrap() = Some(s.clone());
-                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
-                                ctx.request_repaint();
-                                if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
-                                    *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
-                                } else {
-                                    for setting in &s.settings {
-                                        let scn_id = setting.scn_id.unwrap();
-                                        let _ = nag_c.with_kwp(|k| {
-                                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
-                                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
-                                                .map(|x| x[3..].to_vec());
-                                            ctx.request_repaint();
-                                            current_settings_c.write().unwrap().insert(scn_id, res);
-                                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
-                                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
-                                                .map(|x| x[3..].to_vec());
-                                            default_settings_c.write().unwrap().insert(scn_id, res);
-                                            ctx.request_repaint();
-                                            Ok(())
-                                        });
-                                    }
-                                    *status_c.write().unwrap() = PageLoadState::Ok;
-                                }
-                                ctx.request_repaint();
-                                // Now read all the states
-                            },
-                            Err(e) => {
-                                *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
-                            }
-                        }
-                    });    
-                }
-            }
-        } else {
-        */
         match state {
             PageLoadState::Ok => {
                 let yml = yml.as_ref().unwrap().clone();
@@ -395,7 +337,60 @@ impl InterfacePage for TcuAdvSettingsUi {
                 ui.label(txt);
             },
             PageLoadState::Err(e) => {
+                ui.strong("Page load failed:");
                 ui.label(e);
+
+                ui.label("Try manually selecting MODULE_SETTINGS.yml");
+                if ui.button("Select YML").clicked() {
+                    if let Some(f) =  rfd::FileDialog::new().set_title("Choose MODULE_SETTINGS.yml").add_filter("YML", &["yml"]).pick_file() {
+                        let status_c = self.status.clone();
+                        let yml_c = self.yml.clone();
+                        let ctx = ui.ctx().clone();
+                        let nag_c = self.nag.clone();
+
+                        let default_settings_c = self.default_settings.clone();
+                        let current_settings_c = self.current_settings.clone();
+
+                        std::thread::spawn(move || {
+                            let mut f = File::open(f).unwrap();
+                            let mut s = String::new();
+                            f.read_to_string(&mut s).unwrap();
+                            match serde_yaml::from_str::<ModuleSettingsData>(&s) {
+                                Ok(s) => {
+                                    *yml_c.write().unwrap() = Some(s.clone());
+                                    *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
+                                    ctx.request_repaint();
+                                    if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
+                                        *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
+                                    } else {
+                                        for setting in &s.settings {
+                                            let scn_id = setting.scn_id.unwrap();
+                                            let _ = nag_c.with_kwp(|k| {
+                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                                    .map(|x| x[3..].to_vec());
+                                                ctx.request_repaint();
+                                                current_settings_c.write().unwrap().insert(scn_id, res);
+                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                                    .map(|x| x[3..].to_vec());
+                                                default_settings_c.write().unwrap().insert(scn_id, res);
+                                                ctx.request_repaint();
+                                                Ok(())
+                                            });
+                                        }
+                                        *status_c.write().unwrap() = PageLoadState::Ok;
+                                    }
+                                    ctx.request_repaint();
+                                    // Now read all the states
+                                },
+                                Err(e) => {
+                                    *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
+                                }
+                            }
+                        }); 
+                    }
+                }
             },
         }
 
