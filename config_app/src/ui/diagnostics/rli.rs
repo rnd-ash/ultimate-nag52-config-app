@@ -355,29 +355,41 @@ pub struct DataSolenoids {
 impl DataSolenoids {
     pub fn to_table(&self, ui: &mut Ui) -> InnerResponse<()> {
         egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-            ui.label("MPC Solenoid");
+            ui.label("MPC Solenoid Driver");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA. Targ current {} mA. PWM Trim {:.2} %",
+                "PWM {:>4}/4096, Trim: {:.2}%",
                 self.mpc_pwm,
-                self.mpc_current,
-                self.targ_mpc_current,
-                (self.adjustment_mpc as f32 / 10.0) - 100.0
+                (self.adjustment_mpc as f32 / 10.0) - 100.0,
             ));
             ui.end_row();
 
-            ui.label("SPC Solenoid");
+            ui.label("MPC Solenoid Target / actual current");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA. Targ current {} mA. PWM Trim {:.2} %",
+                "{} mA/{} mA",
+                self.targ_mpc_current,
+                self.mpc_current,
+            ));
+            ui.end_row();
+
+            ui.label("SPC Solenoid Driver");
+            ui.label(format!(
+                "PWM {:>4}/4096, Trim: {:.2}%",
                 self.spc_pwm,
-                self.spc_current,
+                (self.adjustment_spc as f32 / 10.0) - 100.0,
+            ));
+            ui.end_row();
+
+            ui.label("MPC Solenoid Target / actual current");
+            ui.label(format!(
+                "{} mA/{} mA",
                 self.targ_spc_current,
-                (self.adjustment_spc as f32 / 10.0) - 100.0
+                self.spc_current,
             ));
             ui.end_row();
 
             ui.label("TCC Solenoid");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA",
+                "PWM {:>4}/4096, Read current {} mA",
                 self.tcc_pwm,
                 self.tcc_current
             ));
@@ -385,7 +397,7 @@ impl DataSolenoids {
 
             ui.label("Y3 shift Solenoid");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA",
+                "PWM {:>4}/4096, Read {} mA",
                 self.y3_pwm,
                 self.y3_current
             ));
@@ -393,7 +405,7 @@ impl DataSolenoids {
 
             ui.label("Y4 shift Solenoid");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA",
+                "PWM {:>4}/4096, Read {} mA",
                 self.y4_pwm,
                 self.y4_current
             ));
@@ -401,7 +413,7 @@ impl DataSolenoids {
 
             ui.label("Y5 shift Solenoid");
             ui.label(format!(
-                "PWM {:>4}/4096, Est current {} mA",
+                "PWM {:>4}/4096, Read {} mA",
                 self.y5_pwm,
                 self.y5_current
             ));
@@ -447,6 +459,14 @@ impl DataSolenoids {
                 ],
                 Some((0.0, 6600.0)),
             ),
+            ChartData::new(
+                "Constant current solenoid trim".into(),
+                vec![
+                    ("MPC Solenoid", (self.adjustment_mpc as f32 / 10.0) - 100.0, Some("%")),
+                    ("SPC Solenoid", (self.adjustment_spc as f32 / 10.0) - 100.0, Some("%")),
+                ],
+                Some((-100.0, 100.0)),
+            )
         ]
     }
 }

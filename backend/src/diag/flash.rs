@@ -60,7 +60,6 @@ impl Nag52Diag {
     pub fn get_running_fw_info(&self) -> DiagServerResult<FirmwareHeader> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x28).map(|res| {
-                println!("{:02X?}", res);
                 FirmwareHeader::unpack_from_slice(&res)
                     .map_err(|_| DiagError::InvalidResponseLength)
             })?
@@ -79,6 +78,25 @@ impl Nag52Diag {
             req.push((image_len >> 16) as u8);
             req.push((image_len >> 8) as u8);
             req.push((image_len) as u8);
+            let resp = server.send_byte_array_with_response(&req)?;
+            let bs = (resp[1] as u16) << 8 | resp[2] as u16;
+            Ok((part_info_next.address, bs))
+        });
+        res
+    }
+
+    pub fn begin_yml_ota(&self, len: u32) -> DiagServerResult<(u32, u16)> {
+        let part_info_next = self.get_module_settings_desc_partition();
+        let res = self.with_kwp(|server| {
+            server.kwp_set_session(KwpSessionTypeByte::Standard(
+                kwp2000::KwpSessionType::Reprogramming,
+            ))?;
+            let x = part_info_next.address;
+            let mut req: Vec<u8> =
+                vec![0x34, (x >> 16) as u8, (x >> 8) as u8, (x) as u8, OTA_FORMAT];
+            req.push((len >> 16) as u8);
+            req.push((len >> 8) as u8);
+            req.push((len) as u8);
             let resp = server.send_byte_array_with_response(&req)?;
             let bs = (resp[1] as u16) << 8 | resp[2] as u16;
             Ok((part_info_next.address, bs))

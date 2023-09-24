@@ -1,5 +1,5 @@
 use bitflags::{bitflags, Flags};
-use ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::KwpSessionType};
+use ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::KwpSessionType, dynamic_diag::DiagSessionMode};
 
 use super::Nag52Diag;
 
@@ -28,6 +28,7 @@ bitflags! {
 impl Nag52Diag {
     pub fn read_device_mode(&self) -> DiagServerResult<TcuDeviceMode> {
         let res = self.with_kwp(|kwp| {
+            kwp.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())?;
             kwp.send_byte_array_with_response(&[0x30, 0x10, 0x01])
         })?;
         if res.len() != 5 {
@@ -41,6 +42,7 @@ impl Nag52Diag {
     pub fn set_device_mode(&self, mode: TcuDeviceMode, store_in_eeprom: bool) -> DiagServerResult<()> {
         let _ = self.with_kwp(|kwp| {
             let x = mode.bits();
+            kwp.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())?;
             kwp.send_byte_array_with_response(&[
                 0x30, 
                 0x10, 

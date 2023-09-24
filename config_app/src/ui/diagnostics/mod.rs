@@ -1,14 +1,16 @@
 use crate::window::{PageAction, StatusBar, get_context};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
+use chrono::Local;
 use eframe::egui::plot::{Legend, Line, Plot};
 use eframe::egui::{Color32, RichText, Ui, Context};
 use eframe::epaint::Stroke;
+use eframe::epaint::mutex::RwLock;
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Instant, Duration};
@@ -49,7 +51,7 @@ impl DiagnosticsPage {
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
 
-        let store_old = Arc::new(RwLock::new(None));
+        let store_old = Arc::new(RwLock::new(Option::<LocalRecordData>::None));
         let store_old_t = store_old.clone();
 
         let to_query: Arc<RwLock<Option<RecordIdents>>> = Arc::new(RwLock::new(None));
@@ -74,13 +76,13 @@ impl DiagnosticsPage {
             });
             while run_t.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                if let Some(to_query) = to_query_t.read().unwrap().clone() {
+                if let Some(to_query) = to_query_t.read().clone() {
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
                             let cd = r.get_chart_data();
-                            *store_old_t.write().unwrap() = store_t.read().unwrap().clone();
-                            *store_t.write().unwrap() = Some(r);
-                            let mut m = charting_data_t.write().unwrap();
+                            *store_old_t.write() = store_t.read().clone();
+                            *store_t.write() = Some(r);
+                            let mut m = charting_data_t.write();
                             m.push_back((launch_time_t.elapsed().as_millis(), cd));
                             if launch_time_t.elapsed().as_millis() - m[0].0 > 20000 {
                                 m.pop_front();
@@ -93,7 +95,7 @@ impl DiagnosticsPage {
 
                         },
                         Err(e) => {
-                            *err_text_t.write().unwrap() = Some(e.to_string());
+                            *err_text_t.write() = Some(e.to_string());
                             eprintln!("Could not query {}", e);
                         }
                     }
@@ -135,53 +137,53 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         ui.heading("This is experimental, use with MOST up-to-date firmware");
         ui.add_space(5.0);
         let ui_height = ui.available_height() - 20.0;
-        let current_val = self.curr_values.try_read().unwrap().clone();
-        let chart_data = self.charting_data.read().unwrap().clone();
+        let current_val = self.curr_values.read().clone();
+        let chart_data = self.charting_data.read().clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 let mut rli_reset = false;
                 if ui.button("Query gearbox sensor").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::GearboxSensors);
+                    *self.record_to_query.write() = Some(RecordIdents::GearboxSensors);
                     rli_reset = true;
                 }
                 if ui.button("Query gearbox solenoids").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SolenoidStatus);
+                    *self.record_to_query.write() = Some(RecordIdents::SolenoidStatus);
                     rli_reset = true;
                 }
                 if ui.button("Query solenoid pressures").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::PressureStatus);
+                    *self.record_to_query.write() = Some(RecordIdents::PressureStatus);
                     rli_reset = true;
                 }
                 if ui.button("Query can Rx data").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::CanDataDump);
+                    *self.record_to_query.write() = Some(RecordIdents::CanDataDump);
                     rli_reset = true;
                 }
                 if ui.button("Query Shift data").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SSData);
+                    *self.record_to_query.write() = Some(RecordIdents::SSData);
                     rli_reset = true;
                 }
                 if ui.button("Query Performance metrics").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::SysUsage);
+                    *self.record_to_query.write() = Some(RecordIdents::SysUsage);
                     rli_reset = true;
                 }
                 if ui.button("Query Clutch speeds").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchSpeeds);
+                    *self.record_to_query.write() = Some(RecordIdents::ClutchSpeeds);
                     rli_reset = true;
                 }
                 if ui.button("Query shift clutch velocities").clicked() {
-                    *self.record_to_query.write().unwrap() = Some(RecordIdents::ClutchVelocities);
+                    *self.record_to_query.write() = Some(RecordIdents::ClutchVelocities);
                     rli_reset = true;
                 }
 
                 if rli_reset {
                     self.chart_idx = 0;
-                    self.charting_data.write().unwrap().clear();
-                    *self.curr_values.write().unwrap() = None;
-                    *self.prev_values.write().unwrap() = None;
+                    self.charting_data.write().clear();
+                    *self.curr_values.write() = None;
+                    *self.prev_values.write() = None;
                     self.rli_start_time.store(self.launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
                 }
 
-                if let Some(e) = self.read_error.read().unwrap().clone() {
+                if let Some(e) = self.read_error.read().clone() {
                     ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
                 }
                 if let Some(data) = current_val.clone() {

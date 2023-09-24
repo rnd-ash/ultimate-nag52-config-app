@@ -92,6 +92,7 @@ impl InterfacePage for MainPage {
         ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
         ui.add(egui::Separator::default());
         let mut create_page = None;
+        let ctx = ui.ctx().clone();
         ui.vertical_centered(|v| {
             v.heading("Tools");
             if v.button("Updater").clicked() {
@@ -127,6 +128,7 @@ impl InterfacePage for MainPage {
             if v.button("TCU Program settings").on_hover_text("CAUTION. DANGEROUS!").clicked() {
                 create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
                     self.diag_server.clone(),
+                    ctx,
                 ))));
             }
             if v.button("NVS Editor").on_hover_text("CAUTION. DANGEROUS!").clicked() {

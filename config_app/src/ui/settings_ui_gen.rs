@@ -1,5 +1,5 @@
-use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format};
-use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}, module_settings_flash_store::ModuleSettingsFlashHeader}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
 use egui_toast::ToastKind;
@@ -23,15 +23,106 @@ pub struct TcuAdvSettingsUi {
 }
 
 impl TcuAdvSettingsUi {
-    pub fn new(nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag, ctx: egui::Context) -> Self {
+
+        let status = Arc::new(RwLock::new(PageLoadState::Waiting(format!("Init"))));
+        let status_c = status.clone();
+
+        let yml = Arc::new(RwLock::new(None));
+        let yml_c = yml.clone();
+
+        let default_settings = Arc::new(RwLock::new(HashMap::default()));
+        let default_settings_c = default_settings.clone();
+
+        let current_settings = Arc::new(RwLock::new(HashMap::default()));
+        let current_settings_c = current_settings.clone();
+        let nag_c = nag.clone();
+        // Firstly, try to read from flash
+        std::thread::spawn(move || {
+            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
+            ctx.request_repaint();
+            if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
+                *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
+            } else {
+                // Read flash
+                let part_info = nag_c.get_module_settings_desc_partition();
+                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Initializing download from flash"));
+                ctx.request_repaint();
+                match nag_c.begin_download(&part_info) {
+                    Err(e) => {
+                        *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to start download {e}"));
+                        ctx.request_repaint();
+                        return;
+                    },
+                    Ok(block_size) => {
+                        let mut counter: u8 = 0;
+                        let mut read_contents = Vec::new();
+                        while read_contents.len() < part_info.size as usize {
+                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading flash address 0x{:06X}", part_info.address + read_contents.len() as u32));
+                            ctx.request_repaint();
+                            match nag_c.read_data(counter) {
+                                Ok(data) => {
+                                    read_contents.extend_from_slice(&data);
+                                    counter = counter.wrapping_add(1);
+                                    ctx.request_repaint();
+                                },
+                                Err(e) => {
+                                    *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to read flash at address 0x{:06X}: {e:?}", part_info.address + read_contents.len() as u32));
+                                    ctx.request_repaint();
+                                    return;
+                                }
+                            }
+                        }
+                        match ModuleSettingsFlashHeader::from_flash_bytes_to_yml_bytes(&read_contents) {
+                            Ok((_header, yml_bytes)) => {
+                                let s = String::from_utf8(yml_bytes).unwrap();
+                                match serde_yaml::from_str::<ModuleSettingsData>(&s) {
+                                    Ok(s) => {
+                                        *yml_c.write().unwrap() = Some(s.clone());
+                                        for setting in &s.settings {
+                                            let scn_id = setting.scn_id.unwrap();
+                                            let _ = nag_c.with_kwp(|k| {
+                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                                    .map(|x| x[3..].to_vec());
+                                                ctx.request_repaint();
+                                                current_settings_c.write().unwrap().insert(scn_id, res);
+                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                                    .map(|x| x[3..].to_vec());
+                                                default_settings_c.write().unwrap().insert(scn_id, res);
+                                                ctx.request_repaint();
+                                                Ok(())
+                                            });
+                                        }
+                                        *status_c.write().unwrap() = PageLoadState::Ok;
+                                        ctx.request_repaint();
+                                        // Now read all the states
+                                    },
+                                    Err(e) => {
+                                        *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
+                                        ctx.request_repaint();
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to inflate YML from flash: {e:?}"));
+                                ctx.request_repaint();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         Self {
-            status: Arc::new(RwLock::new(PageLoadState::Waiting(format!("Decoding")))),
+            status,
             error: None,
             nag,
             start_time: Instant::now(),
-            yml: Arc::new(RwLock::new(None)),
-            current_settings: Arc::new(RwLock::new(HashMap::default())),
-            default_settings: Arc::new(RwLock::new(HashMap::default())),
+            yml,
+            current_settings,
+            default_settings,
             current_setting: None
         }
     } 
@@ -212,7 +303,10 @@ impl InterfacePage for TcuAdvSettingsUi {
         let def_settings = self.default_settings.read().unwrap().clone();
         let curr_settings = self.current_settings.read().unwrap().clone();
         let mut action = PageAction::None;
-        if yml.is_none() {
+            
+
+
+        /*
             // User input
             match rfd::FileDialog::new().set_title("Choose MODULE_SETTINGS.yml").add_filter("YML", &["yml"]).pick_file() {
                 None => return PageAction::Destroy,
@@ -266,43 +360,43 @@ impl InterfacePage for TcuAdvSettingsUi {
                 }
             }
         } else {
-            match state {
-                PageLoadState::Ok => {
-                    let yml = yml.as_ref().unwrap().clone();
-                    ui.heading("Select coding string");
-                    ui.horizontal(|row| {
-                        for (k, v) in &curr_settings {
-                            let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
-                            row.selectable_value(&mut self.current_setting, Some(*k), setting_def.name.clone());
-                        }
-                    });
-                    if let Some(current_id) = self.current_setting {
-                        let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
-                        let default = def_settings.get(&current_id).unwrap().clone();
-                        let modifying = curr_settings.get(&current_id).unwrap().clone();
-
-                        if modifying.is_ok() && default.is_ok() {
-                            let def = default.unwrap().clone();
-                            let mut modify = modifying.unwrap().clone();
-                            ui.separator();
-                            if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
-                                action = a;
-                            }
-                            self.current_settings.write().unwrap().insert(current_id, Ok(modify));
-                        } else {
-                            ui.label("Cannot load UI for this coding string due to TCU query error!");
-                        }
-                    } else {
-                        ui.label("No coding string selected");
+        */
+        match state {
+            PageLoadState::Ok => {
+                let yml = yml.as_ref().unwrap().clone();
+                ui.heading("Select coding string");
+                ui.horizontal(|row| {
+                    for (k, v) in &curr_settings {
+                        let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
+                        row.selectable_value(&mut self.current_setting, Some(*k), setting_def.name.clone());
                     }
-                },
-                PageLoadState::Waiting(txt) => {
-                    ui.label(txt);
-                },
-                PageLoadState::Err(e) => {
-                    ui.label(e);
-                },
-            }
+                });
+                if let Some(current_id) = self.current_setting {
+                    let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
+                    let default = def_settings.get(&current_id).unwrap().clone();
+                    let modifying = curr_settings.get(&current_id).unwrap().clone();
+
+                    if modifying.is_ok() && default.is_ok() {
+                        let def = default.unwrap().clone();
+                        let mut modify = modifying.unwrap().clone();
+                        ui.separator();
+                        if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
+                            action = a;
+                        }
+                        self.current_settings.write().unwrap().insert(current_id, Ok(modify));
+                    } else {
+                        ui.label("Cannot load UI for this coding string due to TCU query error!");
+                    }
+                } else {
+                    ui.label("No coding string selected");
+                }
+            },
+            PageLoadState::Waiting(txt) => {
+                ui.label(txt);
+            },
+            PageLoadState::Err(e) => {
+                ui.label(e);
+            },
         }
 
         action
