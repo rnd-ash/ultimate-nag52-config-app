@@ -1,5 +1,5 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
-use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}, module_settings_flash_store::ModuleSettingsFlashHeader}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
 use egui_toast::ToastKind;
@@ -57,13 +57,25 @@ impl TcuAdvSettingsUi {
                     Ok(_block_size) => {
                         let mut counter: u8 = 0;
                         let mut read_contents = Vec::new();
-                        while read_contents.len() < part_info.size as usize {
+                        let mut header: Option<Result<ModuleSettingsFlashHeader, MsFlashReadError>> = None;
+
+
+                        let mut read_len = part_info.size;
+                        if let Some(Ok(r)) = header {
+                            read_len = r.length_compressed + std::mem::size_of::<ModuleSettingsFlashHeader>() as u32;
+                        }
+
+                        while read_contents.len() < read_len as usize {
                             *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading flash address 0x{:06X}", part_info.address + read_contents.len() as u32));
                             ctx.request_repaint();
                             match nag_c.read_data(counter) {
                                 Ok(data) => {
                                     read_contents.extend_from_slice(&data);
                                     counter = counter.wrapping_add(1);
+                                    if read_contents.len() > std::mem::size_of::<ModuleSettingsFlashHeader>() && header.is_none() {
+                                        header = Some(ModuleSettingsFlashHeader::read_header_from_buffer(&read_contents));
+                                        println!("Header: {:?}", header);
+                                    }
                                     ctx.request_repaint();
                                 },
                                 Err(e) => {

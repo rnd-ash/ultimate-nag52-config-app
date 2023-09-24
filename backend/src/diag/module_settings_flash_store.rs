@@ -33,6 +33,16 @@ impl ModuleSettingsFlashHeader {
         bytes)
     }
 
+    pub fn read_header_from_buffer(flash_read: &[u8]) -> Result<Self, MsFlashReadError> {
+        if flash_read.len() <= HEADER_SIZE {
+            Err(MsFlashReadError::InvalidContentSize)
+        } else if flash_read[0..4] != MODULE_SETING_FLASH_MAGIC {
+            Err(MsFlashReadError::InvalidMagic)
+        } else {
+            Ok(ModuleSettingsFlashHeader::unpack(&flash_read[0..HEADER_SIZE].try_into().unwrap()).unwrap())
+        }
+    }
+
     pub fn from_flash_bytes_to_yml_bytes(flash_read: &[u8]) -> Result<(Self, Vec<u8>), MsFlashReadError> {
         if flash_read.len() <= HEADER_SIZE {
             Err(MsFlashReadError::InvalidContentSize)
