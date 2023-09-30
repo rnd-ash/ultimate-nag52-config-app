@@ -268,23 +268,28 @@ impl InterfacePage for UpdatePage {
                                         let _ = transfer.perform();
                                     }
                                     // Encode
-                                    let (header, compressed) = ModuleSettingsFlashHeader::new_from_yml_content(&buffer_yml);
-                                    let tx_yml = header.merge_to_tx_data(&compressed);
+                                    
+                                    let s = String::from_utf8(buffer_yml).unwrap();
+                                    if let Some((header, compressed)) = ModuleSettingsFlashHeader::new_from_yml_content(&s) {
+                                        let tx_yml = header.merge_to_tx_data(&compressed);
 
-                                    let code = easy.response_code().unwrap_or(0);
-                                    if code == 200 || code == 302 {
-                                        // Try and load FW from here
-                                        match load_binary(buffer_firmware) {
-                                            Ok(bin) => {
-                                                *fw_c.write().unwrap() = Some((bin, tx_yml));
-                                                *state_c.write().unwrap() = CurrentFlashState::None;
+                                        let code = easy.response_code().unwrap_or(0);
+                                        if code == 200 || code == 302 {
+                                            // Try and load FW from here
+                                            match load_binary(buffer_firmware) {
+                                                Ok(bin) => {
+                                                    *fw_c.write().unwrap() = Some((bin, tx_yml));
+                                                    *state_c.write().unwrap() = CurrentFlashState::None;
+                                                }
+                                                Err(e) => {
+                                                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware was invalid: {:?}", e));
+                                                }
                                             }
-                                            Err(e) => {
-                                                *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware was invalid: {:?}", e));
-                                            }
+                                        } else {
+                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download YML response code was {code}"));
                                         }
                                     } else {
-                                        *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download YML response code was {code}"));
+                                        *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download YML was invalid"));
                                     }
                                 } else {
                                     *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download firmware response code was {code}"));
@@ -324,15 +329,22 @@ impl InterfacePage for UpdatePage {
                             .add_filter("MODULE_SETTINGS.yml", &["yml"])
                             .pick_file() {
                                 let mut f = File::open(yml_path).unwrap();
-                                let mut b = Vec::new();
-                                f.read_to_end(&mut b);
-                                let mf = ModuleSettingsFlashHeader::new_from_yml_content(&b);
-                                let tx_yml = mf.0.merge_to_tx_data(&mf.1);
-                                *self.fw.write().unwrap() = Some((fw, tx_yml))
+                                let mut b = String::new();
+                                f.read_to_string(&mut b);
+                                match ModuleSettingsFlashHeader::new_from_yml_content(&b) {
+                                    Some(mf) => {
+                                        let tx_yml = mf.0.merge_to_tx_data(&mf.1);
+                                        *self.fw.write().unwrap() = Some((fw, tx_yml));
+                                        *self.status.write().unwrap() = CurrentFlashState::Failed(format!("MODULE_SETTINGS.yml is invalid"));
+                                    },
+                                    None => {
+                                        *self.fw.write().unwrap() = None
+                                    }
+                                }
                         }
                     },
                     Err(e) => {
-                        eprintln!("E loading binary! {:?}", e)
+                        *self.status.write().unwrap() = CurrentFlashState::Failed(format!("Firmware.bin loading failed: {e:?}"));
                     }
                 }
             }
