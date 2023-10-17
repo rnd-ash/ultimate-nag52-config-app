@@ -82,12 +82,10 @@ jobs:
       - name: Build executable
         working-directory: ./config_app
         run: cargo bundle --release
-      - name: LS
-        run: ls -aslh target/release/bundle/osx/
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-${{env.BRANCH_NAME}}-osx
-          path: target/release/bundle/*.app
+          path: target/release/bundle/osx/Ultimate-NAG52-Config-App.app
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app]
@@ -118,7 +116,7 @@ jobs:
         files: |
           config-app-${{env.BRANCH_NAME}}-exe/*.exe
           config-app-${{env.BRANCH_NAME}}-appimage/*.AppImage
-          config-app-${{env.BRANCH_NAME}}-osx/config_app.app
+          config-app-${{env.BRANCH_NAME}}-osx/Ultimate-NAG52-Config-App.app
       
           
        
