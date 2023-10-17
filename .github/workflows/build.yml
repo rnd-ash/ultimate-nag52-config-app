@@ -83,7 +83,7 @@ jobs:
         working-directory: ./config_app
         run: cargo bundle --release
       - name: LS
-        run: ls -aslh target/release/bundle/
+        run: ls -aslh target/release/bundle/osx/
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-${{env.BRANCH_NAME}}-osx
