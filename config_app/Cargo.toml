@@ -3,6 +3,7 @@ name = "config_app"
 version = "0.1.8"
 edition = "2021"
 resolver = "2"
+description = "Ultimate-NAG52 config app"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
@@ -36,3 +37,10 @@ curl = "0.4.43"
 
 [patch.crates-io]
 winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }
+
+# For OSX
+[package.metadata.bundle]
+name = "Ultimate-NAG52-Config-App"
+identifier = "com.rndash.un52configapp"
+short_description = "Ultimate-NAG52 configuration suite"
+osx_url_schemes = ["com.rndash.un52configapp"]
