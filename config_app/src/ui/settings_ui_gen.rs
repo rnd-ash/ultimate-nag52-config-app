@@ -1,5 +1,5 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
-use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
 use egui_toast::ToastKind;
@@ -193,19 +193,22 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
             ui.add(gen_drag_value(&mut u, &var, false));
             SettingsType::U8(u)
         },
-        SettingsType::Enum { mut value, mapping } => {
-            let s = mapping.mappings.get(&value).cloned().unwrap_or("INVALD CODING".to_string());
+        SettingsType::Enum { mut value, mapping } => { 
+            let s = mapping.mappings.get(&value).cloned().unwrap_or(EnumDesc {
+                name: "INVALID CODING".to_string(),
+                desc: format!("Value of 0x{:02X?} not known", value),
+            });
             egui::ComboBox::from_id_source(format!("Enum-{}-select", var.name))
                 .width(100.0)
-                .selected_text(&s)
+                .selected_text(&s.name)
                 .show_ui(ui, |x| {
-                    for (k, v) in mapping.mappings.clone() {
-                        x.push_id(format!("{}-{}", var.name, v), |x| {
+                    for (k, e) in mapping.mappings.clone() {
+                        x.push_id(format!("{}-{}", var.name, e.name), |x| {
                             x.selectable_value(
                                 &mut value, 
                                 k, 
-                                v
-                            )
+                                e.name
+                            ).on_hover_text(e.desc)
                         });
                     }
                 });

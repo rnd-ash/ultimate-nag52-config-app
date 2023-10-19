@@ -30,11 +30,19 @@ impl Into<Vec<u8>> for SettingsType {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct EnumDesc {
+    #[serde(rename="Name")]
+    pub name: String,
+    #[serde(rename="Desc")]
+    pub desc: String
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct EnumMap {
     #[serde(rename="Name")]
     pub name: String,
     #[serde(rename="Mappings")]
-    pub mappings: HashMap<u8, String>
+    pub mappings: HashMap<u8, EnumDesc>
 }
 
 #[derive(Debug, Clone, Deserialize)]
