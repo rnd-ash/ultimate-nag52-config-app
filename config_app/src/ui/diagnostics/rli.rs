@@ -95,68 +95,74 @@ impl LocalRecordData {
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
 #[packed_struct(endian="lsb")]
 pub struct DataPressures {
-    pub spc_pwm: u16,
-    pub mpc_pwm: u16,
-    pub tcc_pwm: u16,
     pub ss_flag: u8,
-    pub spc_sol_pressure: u16,
-    pub mpc_sol_pressure: u16,
-    pub spc_clutch_pressure: u16,
-    pub mpc_clutch_pressure: u16,
-    pub tcc_clutch_pressure: u16,
-    pub line_pressure: u16
+    pub shift_req_pressure: u16,
+    pub modulating_req_pressure: u16,
+    pub working_pressure: u16,
+    pub inlet_pressure: u16,
+    pub corrected_spc_pressure: u16,
+    pub corrected_mpc_pressure: u16,
+    pub tcc_pressure: u16
 }
 
 impl DataPressures {
     pub fn to_table(&self, ui: &mut Ui) -> InnerResponse<()> {
         egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-            ui.label("Shift solenoid pressure");
-            ui.label(if self.spc_sol_pressure == u16::MAX {
+            ui.label("Req. Shift pressure");
+            ui.label(if self.shift_req_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.spc_sol_pressure), false)
+                make_text(format!("{} mBar", self.shift_req_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Modulating solenoid pressure");
-            ui.label(if self.mpc_sol_pressure == u16::MAX {
+            ui.label("Req. Modulating pressure");
+            ui.label(if self.modulating_req_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.mpc_sol_pressure), false)
+                make_text(format!("{} mBar", self.modulating_req_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Torque converter solenoid pressure");
-            ui.label(if self.tcc_clutch_pressure == u16::MAX {
+            ui.label("Req. Torque converter pressure");
+            ui.label(if self.tcc_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.tcc_clutch_pressure), false)
+                make_text(format!("{} mBar", self.tcc_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Modulating solenoid clutch apply pressure");
-            ui.label(if self.mpc_clutch_pressure == u16::MAX {
+            ui.label("Corrected shift pressure");
+            ui.label(if self.corrected_spc_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else {
-                make_text(format!("{} mBar", self.mpc_clutch_pressure), false)
+                make_text(format!("{} mBar", self.corrected_spc_pressure), false)
             });
             ui.end_row();
 
-            ui.label("Shift solenoid clutch apply pressure");
-            ui.label(if self.spc_clutch_pressure == u16::MAX {
+            ui.label("Corrected modulating pressure");
+            ui.label(if self.corrected_mpc_pressure == u16::MAX {
+                make_text("ERROR", true)
+            } else {
+                make_text(format!("{} mBar", self.corrected_mpc_pressure), false)
+            });
+            ui.end_row();
+
+            ui.label("Calc. Solenoid inlet pressure");
+            ui.label(if self.inlet_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else if self.ss_flag != 0 {
-                make_text(format!("{} mBar", self.spc_clutch_pressure), false)
+                make_text(format!("{} mBar", self.inlet_pressure), false)
             } else {
                 make_text("0 mBar", false)
             });
             ui.end_row();
 
-            ui.label("Line pressure");
-            ui.label(if self.line_pressure == u16::MAX {
+            ui.label("Calc. Working pressure");
+            ui.label(if self.working_pressure == u16::MAX {
                 make_text("ERROR", true)
             } else if self.ss_flag != 0 {
-                make_text(format!("{} mBar", self.line_pressure), false)
+                make_text(format!("{} mBar", self.working_pressure), false)
             } else {
                 make_text("0 mBar", false)
             });
@@ -184,14 +190,21 @@ impl DataPressures {
 
     pub fn to_chart_data(&self) -> Vec<ChartData> {
         vec![ChartData::new(
-            "Gearbox Pressures".into(),
+            "Gearbox Pressures (In and calc)".into(),
             vec![
-                ("Shift clutch pressure", if self.ss_flag == 0 {0.0} else { self.spc_clutch_pressure as f32 }, Some("mBar")),
-                ("Modulating clutch pressure", if self.ss_flag == 0 {0.0} else { self.mpc_clutch_pressure as f32 }, Some("mBar")),
-                ("Shift solenoid pressure", self.spc_sol_pressure as f32, Some("mBar")),
-                ("Modulating solenoid pressure", self.mpc_sol_pressure as f32, Some("mBar")),
-                ("TCC clutch pressure", self.tcc_clutch_pressure as f32, Some("mBar")),
-                ("Line pressure", self.line_pressure as f32, Some("mBar"))
+                ("Calc. working pressure", self.working_pressure as f32, Some("mBar")),
+                ("Calc. inlet pressure", self.inlet_pressure as f32, Some("mBar")),
+                ("Req. modulating pressure", self.modulating_req_pressure as f32, Some("mBar")),
+                ("Req. shift pressure", self.shift_req_pressure as f32, Some("mBar")),
+                ("Req. TCC pressure", self.tcc_pressure as f32, Some("mBar")),
+            ],
+            None
+        ),
+        ChartData::new(
+            "Gearbox Pressures (Output)".into(),
+            vec![
+                ("Corrected modulating pressure", self.corrected_mpc_pressure as f32, Some("mBar")),
+                ("Corrected shift pressure", self.corrected_spc_pressure as f32, Some("mBar")),
             ],
             None
         )]
