@@ -200,20 +200,13 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                         let mut lines = Vec::new();
                         col.heading(d.group_name.clone());
                         let mut unit: Option<&'static str> =  d.data[0].2.clone();
-                        for (i, (key, _, _)) in d.data.iter().enumerate() {
+                        for (i, (key, _, _, color)) in d.data.iter().enumerate() {
                             let mut points: Vec<[f64; 2]> = Vec::new();
                             for (timestamp, point) in chart_data.iter() {
                                 points.push([*timestamp as f64 - start_time as f64, point[idx].data[i].1 as f64])
                             }
-                            let mut key_hasher = DefaultHasher::default();
-                            key.hash(&mut key_hasher);
-                            let r = key_hasher.finish();
                             lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
-                                Color32::from_rgb(
-                                    (r & 0xFF) as u8,
-                                    ((r >> 8) & 0xFF) as u8,
-                                    ((r >> 16) & 0xFF) as u8,
-                                ))))
+                                color.clone())))
                         }
 
                         let now = self.launch_time.elapsed().as_millis() - start_time as u128;

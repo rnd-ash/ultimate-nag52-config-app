@@ -4,6 +4,7 @@
 use backend::ecu_diagnostics::dynamic_diag::DynamicDiagSession;
 use backend::ecu_diagnostics::{DiagError, DiagServerResult};
 use eframe::egui::{self, Color32, InnerResponse, RichText, Ui};
+use eframe::wgpu::Color;
 use packed_struct::PackedStructSlice;
 use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
 
@@ -151,20 +152,16 @@ impl DataPressures {
             ui.label("Calc. Solenoid inlet pressure");
             ui.label(if self.inlet_pressure == u16::MAX {
                 make_text("ERROR", true)
-            } else if self.ss_flag != 0 {
-                make_text(format!("{} mBar", self.inlet_pressure), false)
             } else {
-                make_text("0 mBar", false)
+                make_text(format!("{} mBar", self.inlet_pressure), false)
             });
             ui.end_row();
 
             ui.label("Calc. Working pressure");
             ui.label(if self.working_pressure == u16::MAX {
                 make_text("ERROR", true)
-            } else if self.ss_flag != 0 {
-                make_text(format!("{} mBar", self.working_pressure), false)
             } else {
-                make_text("0 mBar", false)
+                make_text(format!("{} mBar", self.working_pressure), false)
             });
             ui.end_row();
 
@@ -192,19 +189,19 @@ impl DataPressures {
         vec![ChartData::new(
             "Gearbox Pressures (In and calc)".into(),
             vec![
-                ("Calc. working pressure", self.working_pressure as f32, Some("mBar")),
-                ("Calc. inlet pressure", self.inlet_pressure as f32, Some("mBar")),
-                ("Req. modulating pressure", self.modulating_req_pressure as f32, Some("mBar")),
-                ("Req. shift pressure", self.shift_req_pressure as f32, Some("mBar")),
-                ("Req. TCC pressure", self.tcc_pressure as f32, Some("mBar")),
+                ("Calc. working pressure", self.working_pressure as f32, Some("mBar"), Color32::from_rgb(217,38,28)),
+                ("Calc. inlet pressure", self.inlet_pressure as f32, Some("mBar"), Color32::from_rgb(0, 145, 64)),
+                ("Req. modulating pressure", self.modulating_req_pressure as f32, Some("mBar"), Color32::from_rgb(255,245,0)),
+                ("Req. shift pressure", self.shift_req_pressure as f32, Some("mBar"), Color32::from_rgb(0,148,222)),
+                ("Req. TCC pressure", self.tcc_pressure as f32, Some("mBar"), Color32::from_rgb(232,120,23)),
             ],
             None
         ),
         ChartData::new(
             "Gearbox Pressures (Output)".into(),
             vec![
-                ("Corrected modulating pressure", self.corrected_mpc_pressure as f32, Some("mBar")),
-                ("Corrected shift pressure", self.corrected_spc_pressure as f32, Some("mBar")),
+                ("Corrected modulating pressure", self.corrected_mpc_pressure as f32, Some("mBar"), Color32::from_rgb(255,245,0)),
+                ("Corrected shift pressure", self.corrected_spc_pressure as f32, Some("mBar"), Color32::from_rgb(0,148,222)),
             ],
             None
         )]
@@ -310,35 +307,35 @@ impl DataGearboxSensors {
         vec![ChartData::new(
             "RPM sensors".into(),
             vec![
-                ("N2 raw", self.n2_rpm as f32, Some("RPM")),
-                ("N3 raw", self.n3_rpm as f32, Some("RPM")),
-                ("Calculated RPM", self.calculated_rpm as f32, Some("RPM")),
+                ("N2 raw", self.n2_rpm as f32, Some("RPM"), Color32::from_rgb(0, 0, 255)),
+                ("N3 raw", self.n3_rpm as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
+                ("Calculated RPM", self.calculated_rpm as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
             ],
             Some((0.0, 0.0)),
         )]
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone)]
 pub struct ChartData {
     /// Min, Max
     pub bounds: Option<(f32, f32)>,
     pub group_name: String,
-    pub data: Vec<(String, f32, Option<&'static str>)>, // Data field name, data field value, data field unit
+    pub data: Vec<(String, f32, Option<&'static str>, Color32)>, // Data field name, data field value, data field unit
 }
 
 impl ChartData {
     pub fn new<T: Into<String>>(
         group_name: String,
-        data: Vec<(T, f32, Option<&'static str>)>,
-        bounds: Option<(f32, f32)>,
+        data: Vec<(T, f32, Option<&'static str>, Color32)>,
+        bounds: Option<(f32, f32)>
     ) -> Self {
         Self {
             bounds,
             group_name,
             data: data
                 .into_iter()
-                .map(|(n, v, u)| (n.into(), v, u.map(|x| x.into())))
+                .map(|(n, v, u, c)| (n.into(), v, u.map(|x| x.into()), c))
                 .collect(),
         }
     }
@@ -451,32 +448,32 @@ impl DataSolenoids {
             ChartData::new(
                 "Solenoid PWM".into(),
                 vec![
-                    ("MPC Solenoid", self.mpc_pwm as f32, None),
-                    ("SPC Solenoid", self.spc_pwm as f32, None),
-                    ("TCC Solenoid", self.tcc_pwm as f32, None),
-                    ("Y3 Solenoid", self.y3_pwm as f32, None),
-                    ("Y4 Solenoid", self.y4_pwm as f32, None),
-                    ("Y5 Solenoid", self.y5_pwm as f32, None),
+                    ("MPC Solenoid", self.mpc_pwm as f32, None, Color32::from_rgb(255,245,0)),
+                    ("SPC Solenoid", self.spc_pwm as f32, None, Color32::from_rgb(0,148,222)),
+                    ("TCC Solenoid", self.tcc_pwm as f32, None, Color32::from_rgb(232,120,23)),
+                    ("Y3 Solenoid", self.y3_pwm as f32, None, Color32::from_rgb(0, 0, 128)),
+                    ("Y4 Solenoid", self.y4_pwm as f32, None, Color32::from_rgb(0, 0, 192)),
+                    ("Y5 Solenoid", self.y5_pwm as f32, None, Color32::from_rgb(0, 0, 255)),
                 ],
                 Some((0.0, 4096.0)),
             ),
             ChartData::new(
                 "Solenoid Current (Recorded)".into(),
                 vec![
-                    ("MPC Solenoid", self.mpc_current as f32, Some("mA")),
-                    ("SPC Solenoid", self.spc_current as f32, Some("mA")),
-                    ("TCC Solenoid", self.tcc_current as f32, Some("mA")),
-                    ("Y3 Solenoid", self.y3_current as f32, Some("mA")),
-                    ("Y4 Solenoid", self.y4_current as f32, Some("mA")),
-                    ("Y5 Solenoid", self.y5_current as f32, Some("mA")),
+                    ("MPC Solenoid", self.mpc_current as f32, Some("mA"), Color32::from_rgb(255,245,0)),
+                    ("SPC Solenoid", self.spc_current as f32, Some("mA"), Color32::from_rgb(0,148,222)),
+                    ("TCC Solenoid", self.tcc_current as f32, Some("mA"), Color32::from_rgb(232,120,23)),
+                    ("Y3 Solenoid", self.y3_current as f32, Some("mA"), Color32::from_rgb(0, 0, 128)),
+                    ("Y4 Solenoid", self.y4_current as f32, Some("mA"), Color32::from_rgb(0, 0, 192)),
+                    ("Y5 Solenoid", self.y5_current as f32, Some("mA"), Color32::from_rgb(0, 0, 255)),
                 ],
                 Some((0.0, 6600.0)),
             ),
             ChartData::new(
                 "Constant current solenoid trim".into(),
                 vec![
-                    ("MPC Solenoid", (self.adjustment_mpc as f32 / 10.0) - 100.0, Some("%")),
-                    ("SPC Solenoid", (self.adjustment_spc as f32 / 10.0) - 100.0, Some("%")),
+                    ("MPC Solenoid", (self.adjustment_mpc as f32 / 10.0) - 100.0, Some("%"), Color32::from_rgb(255,245,0)),
+                    ("SPC Solenoid", (self.adjustment_spc as f32 / 10.0) - 100.0, Some("%"), Color32::from_rgb(0,148,222)),
                 ],
                 Some((-100.0, 100.0)),
             )
@@ -722,25 +719,25 @@ impl DataCanDump {
         vec![ChartData::new(
             "Torque data".into(),
             vec![
-                ("Min trq", min, Some("Nm")),
-                ("Static trq", sta, Some("Nm")),
-                ("Demanded trq", drv, Some("Nm")),
-                ("EGS Requested trq", egs, Some("Nm"))
+                ("Min trq", min, Some("Nm"), Color32::from_rgb(0, 0, 255)),
+                ("Static trq", sta, Some("Nm"), Color32::from_rgb(0, 255, 0)),
+                ("Demanded trq", drv, Some("Nm"), Color32::from_rgb(0, 255, 255)),
+                ("EGS Requested trq", egs, Some("Nm"), Color32::from_rgb(255, 0, 0))
             ],
             None,
         ),
         ChartData::new(
             "Fuel usage".into(),
             vec![
-                ("Fuel flow", self.fuel_flow as f32, Some("ul/sec")),
+                ("Fuel flow", self.fuel_flow as f32, Some("ul/sec"), Color32::from_rgb(255, 0, 0)),
             ],
             None,
         ),
         ChartData::new(
             "Wheel speeds".into(),
             vec![
-                ("Rear left wheel", self.left_rear_rpm as f32, Some("RPM")),
-                ("Rear right wheel", self.right_rear_rpm as f32, Some("RPM")),
+                ("Rear left wheel", self.left_rear_rpm as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
+                ("Rear right wheel", self.right_rear_rpm as f32, Some("RPM"), Color32::from_rgb(0, 0, 255)),
             ],
             None,
         )]
@@ -810,23 +807,23 @@ impl DataSysUsage {
         vec![ChartData::new(
             "CPU Usage".into(),
             vec![
-                ("Core 1", self.core1_usage as f32 / 10.0, Some("%")),
-                ("Core 2", self.core2_usage as f32 / 10.0, Some("%")),
+                ("Core 1", self.core1_usage as f32 / 10.0, Some("%"), Color32::from_rgb(0, 255, 128)),
+                ("Core 2", self.core2_usage as f32 / 10.0, Some("%"), Color32::from_rgb(255, 0, 128)),
             ],
             Some((0.0, 100.0)),
         ),
         ChartData::new(
             "Mem Usage".into(),
             vec![
-                ("IRAM", used_ram_perc, Some("%")),
-                ("PSRAM", used_psram_perc, Some("%")),
+                ("IRAM", used_ram_perc, Some("%"), Color32::from_rgb(0, 255, 0)),
+                ("PSRAM", used_psram_perc, Some("%"), Color32::from_rgb(0, 0, 255)),
             ],
             Some((0.0, 100.0))
         ),
         ChartData::new(
             "OS Task count".into(),
             vec![
-                ("Count", self.num_tasks as f32, None),
+                ("Count", self.num_tasks as f32, None, Color32::from_rgb(0, 255, 0)),
             ],
             None
         )]
@@ -916,26 +913,26 @@ impl DataShiftManager {
         vec![ChartData::new(
             "RPMs".into(),
             vec![
-                ("Input speed", self.input_rpm as f32, Some("RPM")),
-                ("Engine speed", self.engine_rpm as f32, Some("RPM")),
+                ("Input speed", self.input_rpm as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
+                ("Engine speed", self.engine_rpm as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
             ],
             None,
         ),
         ChartData::new(
             "Solenoid pressures".into(),
             vec![
-                ("Modulating pressure", self.mpc_pressure_mbar as f32, Some("mBar")),
-                ("Shift pressure", self.spc_pressure_mbar as f32, Some("mBar")),
-                ("TCC pressure", self.tcc_pressure_mbar as f32, Some("mBar")),
+                ("Modulating pressure", self.mpc_pressure_mbar as f32, Some("mBar"), Color32::from_rgb(255,245,0)),
+                ("Shift pressure", self.spc_pressure_mbar as f32, Some("mBar"), Color32::from_rgb(0,148,222)),
+                ("TCC pressure", self.tcc_pressure_mbar as f32, Some("mBar"), Color32::from_rgb(232,120,23)),
             ],
             None,
         ),
         ChartData::new(
             "Torque data".into(),
             vec![
-                ("Static torque", self.engine_torque as f32, Some("Nm")),
-                ("Input torque (calc)", self.input_torque as f32, Some("Nm")),
-                ("EGS Req torque", if self.req_engine_torque == i16::MAX { 0.0 } else { self.req_engine_torque as f32 }, Some("Nm")),
+                ("Static torque", self.engine_torque as f32, Some("Nm"), Color32::from_rgb(0, 0, 255)),
+                ("Input torque (calc)", self.input_torque as f32, Some("Nm"), Color32::from_rgb(0, 255, 0)),
+                ("EGS Req torque", if self.req_engine_torque == i16::MAX { 0.0 } else { self.req_engine_torque as f32 }, Some("Nm"), Color32::from_rgb(255, 0, 0)),
             ],
             None,
         )]
@@ -987,12 +984,12 @@ impl DataClutchSpeeds {
         vec![ChartData::new(
             "RPMs".into(),
             vec![
-                ("K1", self.k1 as f32, Some("RPM")),
-                ("K2", self.k2 as f32, Some("RPM")),
-                ("K3", self.k3 as f32, Some("RPM")),
-                ("B1", self.b1 as f32, Some("RPM")),
-                ("B2", self.b2 as f32, Some("RPM")),
-                ("B3", self.b3 as f32, Some("RPM")),
+                ("K1", self.k1 as f32, Some("RPM"), Color32::from_rgb(0, 64, 0)),
+                ("K2", self.k2 as f32, Some("RPM"), Color32::from_rgb(0, 128, 0)),
+                ("K3", self.k3 as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
+                ("B1", self.b1 as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
+                ("B2", self.b2 as f32, Some("RPM"), Color32::from_rgb(255, 128, 0)),
+                ("B3", self.b3 as f32, Some("RPM"), Color32::from_rgb(255, 255, 0)),
             ],
             None,
         )]
@@ -1024,8 +1021,8 @@ impl DataShiftClutchVelocity {
         vec![ChartData::new(
             "Velocities".into(),
             vec![
-                ("On clutch", self.on_vel as f32, Some("RPM/100 msec")),
-                ("Off clutch", self.off_vel as f32, Some("RPM/100 msec")),
+                ("On clutch", self.on_vel as f32, Some("RPM/100 msec"), Color32::from_rgb(255, 0, 255)),
+                ("Off clutch", self.off_vel as f32, Some("RPM/100 msec"), Color32::from_rgb(0, 255, 255)),
             ],
             None,
         )]
