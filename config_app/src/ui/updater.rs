@@ -335,10 +335,11 @@ impl InterfacePage for UpdatePage {
                                     Some(mf) => {
                                         let tx_yml = mf.0.merge_to_tx_data(&mf.1);
                                         *self.fw.write().unwrap() = Some((fw, tx_yml));
-                                        *self.status.write().unwrap() = CurrentFlashState::Failed(format!("MODULE_SETTINGS.yml is invalid"));
+                                        
                                     },
                                     None => {
-                                        *self.fw.write().unwrap() = None
+                                        *self.fw.write().unwrap() = None;
+                                        *self.status.write().unwrap() = CurrentFlashState::Failed(format!("MODULE_SETTINGS.yml is invalid"));
                                     }
                                 }
                         }
