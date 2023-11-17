@@ -524,6 +524,19 @@ pub enum ShifterPosition {
     SNV = 0xFF,
 }
 
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PrimitiveEnum_u8)]
+pub enum DiagProfileInputState {
+    None = 0,
+	SwitchTop = 1,
+	SwitchBottom = 2,
+	ButtonPressed = 3,
+	ButtonReleased = 4,
+	SLRLeft = 5,
+	SLRMiddle = 6,
+	SLRRight = 7,
+    SNV = 0xFF
+}
+
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
 #[packed_struct(endian="lsb")]
 pub struct DataCanDump {
@@ -534,7 +547,8 @@ pub struct DataCanDump {
     pub driver_torque: u16,
     pub left_rear_rpm: u16,
     pub right_rear_rpm: u16,
-    pub shift_profile_pressed: u8,
+    #[packed_field(size_bytes="1", ty="enum")]
+    pub profile_input_raw: DiagProfileInputState,
     #[packed_field(size_bytes="1", ty="enum")]
     pub selector_position: ShifterPosition,
     #[packed_field(size_bytes="1", ty="enum")]
@@ -644,6 +658,14 @@ impl DataCanDump {
                 make_text("Signal not available", true)
             } else {
                 make_text(format!("{:?}", self.selector_position), false)
+            });
+            ui.end_row();
+
+            ui.label("Shift profile input");
+            ui.label(if self.profile_input_raw == DiagProfileInputState::SNV {
+                make_text("Signal not available", true)
+            } else {
+                make_text(format!("{:?}", self.profile_input_raw), false)
             });
             ui.end_row();
 
