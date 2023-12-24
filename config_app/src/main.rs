@@ -21,7 +21,7 @@ fn main() {
         .to_rgba8();
     let (icon_w, icon_h) = icon.dimensions();
 
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     std::env::set_var("WINIT_UNIX_BACKEND", "x11");
 
     let mut app = window::MainWindow::new();

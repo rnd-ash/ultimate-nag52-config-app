@@ -15,7 +15,7 @@ use backend::{
     hw::usb_scanner::Nag52UsbScanner,
 };
 
-#[cfg(unix)]
+#[cfg(target_os="linux")]
 use backend::ecu_diagnostics::hardware::socketcan::SocketCanScanner;
 
 use eframe::egui;
@@ -36,7 +36,7 @@ pub struct Launcher {
     launch_err: Option<String>,
     usb_scanner: Nag52UsbScanner,
     pt_scanner: PassthruScanner,
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     scan_scanner: SocketCanScanner,
     selected_device: String,
     curr_api_type: AdapterType,
@@ -51,7 +51,7 @@ impl Launcher {
             launch_err: None,
             usb_scanner: Nag52UsbScanner::new(),
             pt_scanner: PassthruScanner::new(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             scan_scanner: SocketCanScanner::new(),
             selected_device: String::new(),
             curr_api_type: AdapterType::USB,
@@ -93,7 +93,7 @@ impl InterfacePage for Launcher {
             AdapterType::Passthru,
             "Passthru OBD adapter",
         );
-        #[cfg(unix)]
+        #[cfg(target_os="linux")]
         {
             ui.radio_value(
                 &mut self.curr_api_type,
@@ -105,7 +105,7 @@ impl InterfacePage for Launcher {
 
         let dev_list = match self.curr_api_type {
             AdapterType::Passthru => Self::get_device_list(&self.pt_scanner),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             AdapterType::SocketCAN => Self::get_device_list(&self.scan_scanner),
             AdapterType::USB => Self::get_device_list(&self.usb_scanner),
         };
@@ -139,7 +139,7 @@ impl InterfacePage for Launcher {
         if ui.button("Refresh device list").clicked() {
             self.pt_scanner = PassthruScanner::new();
             self.usb_scanner = Nag52UsbScanner::new();
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             {
                 self.scan_scanner = SocketCanScanner::new();
             }

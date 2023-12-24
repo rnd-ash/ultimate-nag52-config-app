@@ -16,7 +16,7 @@ use ecu_diagnostics::{
 };
 use ecu_diagnostics::{kwp2000::*, DiagServerResult};
 
-#[cfg(unix)]
+#[cfg(target_os="linux")]
 use ecu_diagnostics::hardware::socketcan::{SocketCanDevice, SocketCanScanner};
 
 use crate::hw::{
@@ -37,7 +37,7 @@ pub mod module_settings_flash_store;
 pub enum AdapterType {
     USB,
     Passthru,
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     SocketCAN,
 }
 
@@ -66,7 +66,7 @@ impl<T> DataState<T> {
 pub enum AdapterHw {
     Usb(Nag52USB),
     Passthru(PassthruDevice),
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     SocketCAN(SocketCanDevice),
 }
 
@@ -75,7 +75,7 @@ impl fmt::Debug for AdapterHw {
         match self {
             Self::Usb(_) => f.debug_tuple("Usb").finish(),
             Self::Passthru(_) => f.debug_tuple("Passthru").finish(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(_) => f.debug_tuple("SocketCAN").finish(),
         }
     }
@@ -86,7 +86,7 @@ impl AdapterHw {
         Ok(match ty {
             AdapterType::USB => Self::Usb(Nag52USB::try_connect(info)?),
             AdapterType::Passthru => Self::Passthru(PassthruDevice::try_connect(info)?),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             AdapterType::SocketCAN => Self::SocketCAN(SocketCanDevice::try_connect(info)?),
         })
     }
@@ -95,7 +95,7 @@ impl AdapterHw {
         match self {
             Self::Usb(_) => AdapterType::USB,
             Self::Passthru(_) => AdapterType::Passthru,
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(_) => AdapterType::SocketCAN,
         }
     }
@@ -104,7 +104,7 @@ impl AdapterHw {
         match self.borrow_mut() {
             Self::Usb(u) => u.create_iso_tp_channel(),
             Self::Passthru(p) => p.create_iso_tp_channel(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.create_iso_tp_channel(),
         }
     }
@@ -113,7 +113,7 @@ impl AdapterHw {
         match self {
             Self::Usb(u) => u.get_info().clone(),
             Self::Passthru(p) => p.get_info().clone(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.get_info().clone(),
         }
     }
@@ -122,7 +122,7 @@ impl AdapterHw {
         match self {
             Self::Usb(u) => u.get_data_rate(),
             Self::Passthru(p) => p.get_data_rate(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.get_data_rate(),
         }
     }
@@ -145,7 +145,7 @@ pub trait Nag52Endpoint: Hardware {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os="linux")]
 impl Nag52Endpoint for SocketCanDevice {
 
     fn is_connected(&self) -> bool {
@@ -271,7 +271,7 @@ impl Nag52Diag {
             can_use_ext_addr: false,
         };
 
-        #[cfg(unix)]
+        #[cfg(target_os="linux")]
         if let AdapterHw::SocketCAN(_) = hw {
             channel_cfg.block_size = 8;
             channel_cfg.st_min = 10;
