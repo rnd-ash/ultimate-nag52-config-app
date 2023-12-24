@@ -174,7 +174,10 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     *self.record_to_query.write() = Some(RecordIdents::ClutchVelocities);
                     rli_reset = true;
                 }
-                
+                if ui.button("Query TCC Program data").clicked() {
+                    *self.record_to_query.write() = Some(RecordIdents::TccProgram);
+                    rli_reset = true;
+                }
 
                 if rli_reset {
                     self.chart_idx = 0;

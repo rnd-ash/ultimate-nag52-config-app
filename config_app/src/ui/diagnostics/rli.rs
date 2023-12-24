@@ -19,6 +19,7 @@ pub enum RecordIdents {
     SolenoidStatus = 0x21,
     CanDataDump = 0x22,
     SysUsage = 0x23,
+    TccProgram = 0x24,
     PressureStatus = 0x25,
     SSData = 0x27,
     ClutchSpeeds = 0x30,
@@ -43,6 +44,7 @@ impl RecordIdents {
             Self::SolenoidStatus => Ok(LocalRecordData::Solenoids(read_struct(&resp)?)),
             Self::CanDataDump => Ok(LocalRecordData::Canbus(read_struct(&resp)?)),
             Self::SysUsage => Ok(LocalRecordData::SysUsage(read_struct(&resp)?)),
+            Self::TccProgram => Ok(LocalRecordData::TccProgram(read_struct(&resp)?)),
             Self::PressureStatus => Ok(LocalRecordData::Pressures(read_struct(&resp)?)),
             Self::SSData => Ok(LocalRecordData::ShiftMonitorLive(read_struct(&resp)?)),
             Self::ClutchSpeeds => Ok(LocalRecordData::ClutchSpeeds(read_struct(&resp)?)),
@@ -57,6 +59,7 @@ pub enum LocalRecordData {
     Solenoids(DataSolenoids),
     Canbus(DataCanDump),
     SysUsage(DataSysUsage),
+    TccProgram(TccProgramData),
     Pressures(DataPressures),
     ShiftMonitorLive(DataShiftManager),
     ClutchSpeeds(DataClutchSpeeds),
@@ -423,6 +426,16 @@ impl LocalRecordData {
                     make_row(ui, "Applying clutch acceleration", format!("{} RPM/100ms", s.on_vel));
                     make_row(ui, "Releasing clutch acceleration", format!("{} RPM/100ms", s.off_vel));
                 },
+                LocalRecordData::TccProgram(s) => {
+                    make_row(ui, "Target state", tcc_state_to_name(s.targ_state));
+                    make_row(ui, "Current state", tcc_state_to_name(s.current_state));
+
+                    make_row(ui, "Target pressure", format!("{} mBar", s.target_pressure));
+                    make_row(ui, "Current pressure", format!("{} mBar", s.current_pressure));
+
+                    make_row(ui, "Slip filtered", format!("{} RPM", s.slip_filtered));
+                    make_row(ui, "Slip now", format!("{} RPM", s.slip_now));
+                },
             }
         })
     }
@@ -627,8 +640,54 @@ impl LocalRecordData {
                     None,
                 )]
             },
+            LocalRecordData::TccProgram(s) => {
+                vec![
+                    ChartData::new(
+                        "Clutch Slip".into(),
+                        vec![
+                            ("Filtered", s.slip_filtered as f32, Some("RPM"), Color32::from_rgb(0, 128, 0)),
+                            ("Raw", s.slip_now as f32, Some("RPM"), Color32::from_rgb(0, 0, 128)),
+                        ],
+                        None,
+                    ),
+                    ChartData::new(
+                        "Pressures".into(),
+                        vec![
+                            ("Target", s.target_pressure as f32, Some("mBar"), Color32::from_rgb(255, 0, 255)),
+                            ("Current", s.current_pressure as f32, Some("mBar"), Color32::from_rgb(0, 255, 255)),
+                        ],
+                        None,
+                    )
+                ]
+            },
         }
     }
+}
+
+fn tcc_state_to_name(i: u8) -> &'static str {
+    match i {
+        0 => "Open",
+        1 => "Slipping",
+        2 => "Closed",
+        _ => "Unknown"
+    }    
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
+#[packed_struct(endian="lsb")]
+pub struct TccProgramData {
+    current_pressure: u16,
+    target_pressure: u16,
+    slip_now: i16,
+    slip_filtered: i16,
+    // 0 - Open
+    // 1 - Slip
+    // 2 - Closed
+    targ_state: u8,
+    current_state: u8,
+    // 0b1 - Open request 
+    // 0b01 - Slip request
+    can_request_bits: u8,
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
