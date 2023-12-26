@@ -18,9 +18,10 @@ use backend::{
 };
 use eframe::egui::{
     self,
-    plot::{Legend, Line, Plot},
     widgets, Color32, RichText,
 };
+
+use egui_plot::{Legend, Line, Plot};
 
 use crate::{window::PageAction};
 

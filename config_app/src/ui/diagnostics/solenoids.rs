@@ -1,5 +1,5 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
-use eframe::egui::plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
+use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
 use std::{
     ops::RangeInclusive,
     sync::{
@@ -142,7 +142,7 @@ impl crate::window::InterfacePage for SolenoidPage {
 
         let mut bars = Vec::new();
         let mut legend = Legend::default();
-        let x_fmt = |y, _range: &RangeInclusive<f64>| {
+        let x_fmt = |y, _nc, _range: &RangeInclusive<f64>| {
             match y as usize {
                 1 => "MPC",
                 2 => "SPC",
@@ -214,7 +214,7 @@ impl crate::window::InterfacePage for SolenoidPage {
                 )
                 .name("Y5"),
             );
-            let mut y_fmt_pwm = |x, _range: &RangeInclusive<f64>| format!("{} %", x);
+            let mut y_fmt_pwm = |x, _nc, _range: &RangeInclusive<f64>| format!("{} %", x);
             plot = plot.y_axis_formatter(y_fmt_pwm);
             plot = plot.include_y(100);
         } else {
@@ -266,7 +266,7 @@ impl crate::window::InterfacePage for SolenoidPage {
                 )
                 .name("Y5"),
             );
-            let mut y_fmt_current = |x, _range: &RangeInclusive<f64>| format!("{} mA", x);
+            let mut y_fmt_current = |x, _nc, _range: &RangeInclusive<f64>| format!("{} mA", x);
             plot = plot.y_axis_formatter(y_fmt_current);
             plot = plot.include_y(2000);
         }

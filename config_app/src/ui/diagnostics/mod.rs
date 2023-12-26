@@ -2,7 +2,7 @@ use crate::window::{PageAction, StatusBar, get_context};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use chrono::Local;
-use eframe::egui::plot::{Legend, Line, Plot};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 use eframe::egui::{Color32, RichText, Ui, Context};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
@@ -194,23 +194,22 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     data.to_table(ui);
                 }
             });
+
             if let Some(data) = current_val {
                 ui.vertical(|col| {
                     let start_time = self.rli_start_time.load(Ordering::Relaxed);
-                    let legend = Legend::default().position(eframe::egui::plot::Corner::LeftTop);
+                    let legend = Legend::default().position(egui_plot::Corner::LeftTop);
                     let space_per_chart = (ui_height / data.get_chart_data().len() as f32) - (10.0 * data.get_chart_data().len() as f32);
-                    
                     for (idx, d) in data.get_chart_data().iter().enumerate() {
-                        let mut lines = Vec::new();
+                        let mut lines: Vec<Line> = Vec::new();
                         col.heading(d.group_name.clone());
-                        let mut unit: Option<&'static str> =  d.data[0].2.clone();
+                        let unit: Option<&'static str> =  d.data[0].2.clone();
+                        
                         for (i, (key, _, _, color)) in d.data.iter().enumerate() {
-                            let mut points: Vec<[f64; 2]> = Vec::new();
-                            for (timestamp, point) in chart_data.iter() {
-                                points.push([*timestamp as f64 - start_time as f64, point[idx].data[i].1 as f64])
-                            }
-                            lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, 
-                                color.clone())))
+                            let points: PlotPoints = chart_data.iter().map(|(timestamp, value)| {
+                                [*timestamp as f64 - start_time as f64, value[idx].data[i].1 as f64]
+                            }).collect();
+                            lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, color.clone())));
                         }
 
                         let now = self.launch_time.elapsed().as_millis() - start_time as u128;
@@ -219,19 +218,18 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             last_bound = 0.0;
                         }
                         let x = unit.clone();
-
                         let mut plot = Plot::new(d.group_name.clone())
                             .height(space_per_chart)
                             .allow_drag(false)
-                            .include_x(now as f64 - 100.0)
-                            .include_x(last_bound)
+                            .include_x(std::cmp::max(20000, now) as f64)
+                            .auto_bounds_x()
                             .legend(legend.clone())
-                            .x_axis_formatter(|f, r| {
+                            .x_axis_formatter(|f, _nc, r| {
                                 let seconds = f / 1000.0;
-                                let mins = f / 60000.0;
-                                format!("{:02.0}:{:02.1}", mins, seconds)
+                                let mins = (f / 60000.0) as u32;
+                                format!("{:02}:{:02.1}", mins, seconds)
                             })
-                            .y_axis_formatter(move |f, r| {
+                            .y_axis_formatter(move |f, _nc, r| {
                                 if let Some(u) = x.clone() {
                                     format!("{}{}", f, u)
                                 } else {

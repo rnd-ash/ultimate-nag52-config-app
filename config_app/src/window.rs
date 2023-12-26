@@ -87,7 +87,7 @@ pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
-
+        egui_extras::install_image_loaders(ctx);
         if unsafe { GLOBAL_EGUI_CONTEXT.is_none() } {
             unsafe { GLOBAL_EGUI_CONTEXT = Some(ctx.clone()) };
         }
@@ -204,8 +204,8 @@ impl eframe::App for MainWindow {
                             let c_tx = Color32::from_rgba_unmultiplied(0, 255, 0, a_tx as u8);
                             let c_rx = Color32::from_rgba_unmultiplied(255, 0, 0, a_rx as u8);
 
-                            p_tx.rect_filled(r_tx, Rounding::none(), c_tx);
-                            p_rx.rect_filled(r_rx, Rounding::none(), c_rx);
+                            p_tx.rect_filled(r_tx, Rounding::ZERO, c_tx);
+                            p_rx.rect_filled(r_rx, Rounding::ZERO, c_rx);
                             p_tx.text(r_tx.center(), Align2::CENTER_CENTER, "Tx", FontId::monospace(10.0), Color32::WHITE);
                             p_rx.text(r_rx.center(), Align2::CENTER_CENTER, "Rx", FontId::monospace(10.0), Color32::WHITE);
 
@@ -229,11 +229,12 @@ impl eframe::App for MainWindow {
             }
 
             let mut toasts = Toasts::new()
-                .anchor(Pos2::new(
+                .anchor(
+                    Align2::RIGHT_BOTTOM,
+                    Pos2::new(
                     5.0,
                     ctx.available_rect().height() - s_bar_height - 10.0,
                 ))
-                .align_to_end(false)
                 .direction(Direction::BottomUp);
             self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
@@ -261,10 +262,10 @@ impl eframe::App for MainWindow {
                         toasts.add(Toast {
                             kind,
                             text: WidgetText::RichText(RichText::new(text)),
-                            options: ToastOptions {
-                                show_icon: true,
-                                expires_at: Some(Instant::now().add(Duration::from_secs(5))),
-                            },
+                            options: ToastOptions::default()
+                                .duration_in_seconds(5.0)
+                                .show_progress(true)
+                                .show_icon(true),
                         });
                     }
                     PageAction::RegisterNag(n) => {

@@ -1,8 +1,9 @@
 use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, plot::{PlotPoints, Line, Plot}, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
+use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
 use egui_toast::ToastKind;
+use egui_plot::{PlotPoints, Line, Plot};
 use serde::{Serialize, Deserialize, de::DeserializeOwned, __private::de};
 
 use crate::window::{InterfacePage, PageLoadState, PageAction};

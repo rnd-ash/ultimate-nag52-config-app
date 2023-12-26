@@ -367,26 +367,17 @@ impl crate::window::InterfacePage for ConfigPage {
                 ui.horizontal(|row| {
                     row.vertical(|col| {
                         col.label("V1.1 - Red PCB (12/12/21)");
-                        col.image(
-                            self.pcb_11_img.texture_id(col.ctx()),
-                            Vec2::from((200.0, 150.0)),
-                        );
+                        col.image(include_image!("../../../res/pcb_11.jpg"));
                     });
                     row.separator();
                     row.vertical(|col| {
                         col.label("V1.2 - Black PCB (07/07/22) with TRRS support");
-                        col.image(
-                            self.pcb_12_img.texture_id(col.ctx()),
-                            Vec2::from((200.0, 150.0)),
-                        );
+                        col.image(include_image!("../../../res/pcb_12.jpg"));
                     });
                     row.separator();
                     row.vertical(|col| {
                         col.label("V1.3 - Black PCB (12/12/22) - Latest PCB");
-                        col.image(
-                            self.pcb_13_img.texture_id(col.ctx()),
-                            Vec2::from((230.0, 150.0)),
-                        );
+                        col.image(include_image!("../../../res/pcb_13.jpg"));
                     });
                 });
                 let mut ver = efuse.board_ver;

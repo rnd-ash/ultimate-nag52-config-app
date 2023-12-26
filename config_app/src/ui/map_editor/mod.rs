@@ -14,11 +14,11 @@ use backend::{
 use eframe::{
     egui::{
         self,
-        plot::{Bar, BarChart, CoordinatesFormatter, HLine, Legend, Line, LineStyle, PlotPoints},
         Layout, Response, RichText, TextEdit, Ui,
     },
     epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2}, emath::lerp,
 };
+use egui_plot::{Bar, BarChart, CoordinatesFormatter, HLine, Legend, Line, LineStyle, PlotPoints};
 use egui_extras::{Size, Table, TableBuilder, Column};
 use egui_toast::ToastKind;
 use nom::number::complete::le_u16;
@@ -472,7 +472,7 @@ impl Map {
                 let key = self.get_y_label(x);
                 bars.push(Bar::new(x as f64, value as f64).name(key))
             }
-            egui::plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+            egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                 .allow_drag(false)
                 .allow_scroll(false)
                 .allow_zoom(false)
@@ -496,7 +496,7 @@ impl Map {
                 }
                 lines.push(Line::new(points).name(self.get_y_label(y_idx)));
             }
-            egui::plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+            egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                 .allow_drag(false)
                 .allow_scroll(false)
                 .allow_zoom(false)

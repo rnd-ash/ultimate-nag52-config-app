@@ -16,24 +16,24 @@ serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
 config_app_macros={path="../config_app_macros/"}
 image = "0.24.5"
-rfd="0.11.4"
+rfd="0.12.1"
 pollster = "0.3.0"
-eframe = {default-features=false, version="0.21.0", features=["dark-light", "wgpu", "default_fonts"]}
-egui_extras = "0.21.0"
+eframe = {default-features=false, version="0.24.1", features=["wgpu", "x11", "default_fonts"]}
+egui_extras = {default-features=false, version="0.24.2", features=["image"]}
 static_assertions = "1.1.0"
 env_logger="0.10.0"
-#egui-toast="0.5.0"
-egui-toast={git = "https://github.com/rnd-ash/egui-toast"}
+egui-toast="0.10.1"
 chrono = "0.4.23"
 nom="7.1.1"
 plotters-backend="0.3.4"
 plotters={version="0.3.4", default_features = false, features=["surface_series"]}
 packed_struct="0.10.0"
-ehttp="0.2.0"
+ehttp="0.3.1"
 octocrab = {git = "https://github.com/XAMPPRocky/octocrab", commit="7061b48c9bb799cb7effa0ecb8fd366a23f13de2"}
 tokio = { version = "1.17.0", features = ["full"] }
 zip="0.6.6"
 curl = "0.4.43"
+egui_plot = "0.24.1"
 
 [patch.crates-io]
 winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }
