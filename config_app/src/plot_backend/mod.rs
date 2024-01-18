@@ -69,7 +69,7 @@ impl DrawingBackend for EguiPlotBackend {
             &[self.backend_coord_to_pos2(point), self.backend_coord_to_pos2(point)]
         );
         let c = into_egui_color(color);
-        self.painter.rect_filled(rect, Rounding::none(), c);
+        self.painter.rect_filled(rect, 0.0, c);
         Ok(())
     }
 
@@ -155,9 +155,9 @@ impl DrawingBackend for EguiPlotBackend {
             );
 
             if fill {
-                self.painter.rect(rect, Rounding::none(), egui_c, stroke)
+                self.painter.rect(rect, 0.0, egui_c, stroke)
             } else {
-                self.painter.rect_stroke(rect, Rounding::none(), stroke)
+                self.painter.rect_stroke(rect, 0.0, stroke)
             }
 
             Ok(())

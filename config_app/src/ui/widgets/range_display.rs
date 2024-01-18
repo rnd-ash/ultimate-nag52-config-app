@@ -61,13 +61,13 @@ pub fn range_display<T: Into<f32> + Copy + Display>(
     );
     painter.rect(
         ok_region_rect,
-        Rounding::none(),
+        0.0,
         Color32::GREEN,
         visuals.fg_stroke,
     );
     painter.rect(
         value_region,
-        Rounding::none(),
+        0.0,
         Color32::BLACK,
         visuals.fg_stroke,
     );

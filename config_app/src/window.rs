@@ -305,8 +305,8 @@ impl eframe::App for MainWindow {
                             ui.strong("Message");
                         });
                     }).body(|mut body| {
-                        body.rows(10.0, self.logs.len(), |row_index, mut row| {
-                            let msg = &self.logs[row_index];
+                        body.rows(10.0, self.logs.len(), |mut row| {
+                            let msg = &self.logs[row.index()];
                             let c = match msg.lvl {
                                 EspLogLevel::Debug => Color32::DEBUG_COLOR,
                                 EspLogLevel::Info => if is_dark { Color32::GREEN } else { Color32::DARK_GREEN },

@@ -350,7 +350,6 @@ impl Map {
         let resp = raw_ui.push_id(&hash, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
-                .scroll(false)
                 .cell_layout(
                     Layout::left_to_right(egui::Align::Center)
                         .with_cross_align(egui::Align::Center),
@@ -376,7 +375,8 @@ impl Map {
                     }
                 })
                 .body(|body| {
-                    body.rows(15.0, copy.y_values.len(), |row_id, mut row| {
+                    body.rows(15.0, copy.y_values.len(), |mut row| {
+                        let row_id = row.index();
                         // Header column
                         row.col(|c| {
                             c.label(

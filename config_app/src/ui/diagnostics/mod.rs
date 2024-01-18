@@ -223,6 +223,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             .allow_drag(false)
                             .include_x(std::cmp::max(20000, now) as f64)
                             .auto_bounds_x()
+                            .auto_bounds_y()
                             .legend(legend.clone())
                             .x_axis_formatter(|f, _nc, r| {
                                 let seconds = f / 1000.0;

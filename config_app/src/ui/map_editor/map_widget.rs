@@ -1,6 +1,6 @@
 use eframe::{
     egui::{self, Label, Response, Sense, Visuals},
-    epaint::{text::LayoutJob, FontId, Fonts, Pos2, Rect, Rounding, Shape, Stroke, TextShape},
+    epaint::{text::LayoutJob, FontId, Fonts, Pos2, Rect, Rounding, Shape, Stroke, TextShape, Color32},
 };
 
 pub struct MapWidget<'a>(&'a super::Map);
@@ -54,9 +54,9 @@ impl<'a> egui::Widget for MapWidget<'a> {
                     Pos2::new(rect.left(), rect.top() + (idx * row_height)),
                     Pos2::new(rect.right(), rect.top() + ((idx + 1.0) * row_height)),
                 ),
-                Rounding::none(),
+                0.0,
                 c,
-                Stroke::none(),
+                Stroke::NONE,
             );
 
             b = !b;
@@ -87,8 +87,9 @@ impl<'a> egui::Widget for MapWidget<'a> {
         let idx = ui.painter().add(TextShape {
             pos: (rect.left(), rect.bottom()).into(),
             galley: galley_y,
-            underline: Stroke::none(),
+            underline: Stroke::NONE,
             override_text_color: None,
+            fallback_color: Color32::PLACEHOLDER,
             angle: -1.5708,
         });
 
