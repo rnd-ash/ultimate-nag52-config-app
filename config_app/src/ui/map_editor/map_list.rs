@@ -311,15 +311,29 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
     ),
     MapData::new(
         0xA0,
-        "Torque converter lock adapt map (Low torque)",
+        "Torque converter slip adapt map",
+        "%",
         "",
+        "Gear",
+        "",
+        "Slipping pressure(mBar)",
+        "mBar",
+        None,
+        Some(&["D1", "D2", "D3", "D4", "D5"]),
+        false
+        //None
+    ),
+    MapData::new(
+        0xA1,
+        "Torque converter lock adapt map",
+        "%",
         "",
         "Gear",
         "",
         "Locking pressure(mBar)",
         "mBar",
-        Some(&["D1", "D2", "D3", "D4", "D5"]),
         None,
+        Some(&["D1", "D2", "D3", "D4", "D5"]),
         false
         //None
     ),
