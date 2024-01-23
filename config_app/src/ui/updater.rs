@@ -543,9 +543,14 @@ impl InterfacePage for UpdatePage {
                 let spd = (1000.0 * current as f32
                     / f_start.elapsed().as_millis() as f32)
                     as u32;
-                let eta = (total - current) / spd;
-                ui.label(format!("Avg {:.0} bytes/sec", spd));
-                ui.label(format!("ETA: {:02}:{:02} seconds remaining", eta/60, eta % 60));
+                if spd != 0 {
+                    let eta = (total - current) / spd;
+                    ui.label(format!("Avg {:.0} bytes/sec", spd));
+                    ui.label(format!("ETA: {:02}:{:02} seconds remaining", eta/60, eta % 60));
+                } else {
+                    ui.label("Please wait...");
+                }
+                
             }
             ui.label(text);
         }
