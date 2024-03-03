@@ -23,7 +23,7 @@ use self::cfg_structs::{
 use super::{StatusText};
 
 pub mod cfg_structs;
-
+pub mod egs_config;
 pub struct ConfigPage {
     nag: Nag52Diag,
     status: StatusText,
@@ -84,7 +84,7 @@ impl ConfigPage {
 impl crate::window::InterfacePage for ConfigPage {
     fn make_ui(&mut self, ui: &mut Ui, frame: &eframe::Frame) -> PageAction {
         ui.heading("TCM Configuration");
-
+        let mut action = PageAction::None;
         if ui.button("Read Configuration").clicked() {
             let _ = self.nag.with_kwp(|server| {
                 match server.kwp_read_custom_local_identifier(0xFE) {
@@ -357,6 +357,12 @@ impl crate::window::InterfacePage for ConfigPage {
                     })
                 };
             }
+            ui.strong("What to do next?");
+            if ui.button("Configure EGS compatibility data").clicked() {
+                action = PageAction::Add(Box::new(
+                    egs_config::EgsConfigPage::new(self.nag.clone())
+                ))
+            }
         }
 
         if let Some(efuse) = self.efuse.borrow_mut() {
@@ -443,7 +449,7 @@ impl crate::window::InterfacePage for ConfigPage {
         self.show_final_warning = tmp;
 
         ui.add(self.status.clone());
-        PageAction::None
+        action
     }
 
     fn get_title(&self) -> &'static str {

@@ -10,6 +10,7 @@ use eframe::epaint::mutex::RwLock;
 use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
+use super::configuration::egs_config;
 use super::nvs_editor::NvsEditor;
 use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
@@ -131,10 +132,12 @@ impl InterfacePage for MainPage {
                     ctx,
                 ))));
             }
-            if v.button("NVS Editor").on_hover_text("CAUTION. DANGEROUS!").clicked() {
-                create_page = Some(PageAction::Add(Box::new(NvsEditor::new(
-                    self.diag_server.clone(),
-                ))));
+            if v.button("Configure EGS compatibility data").clicked() {
+                create_page = Some(
+                    PageAction::Add(Box::new(
+                        egs_config::EgsConfigPage::new(self.diag_server.clone())
+                    ))
+                );
             }
             if v.button("Configure drive profiles").clicked() {
                 create_page = Some(

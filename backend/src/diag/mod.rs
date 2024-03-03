@@ -32,6 +32,8 @@ pub mod settings;
 pub mod nvs;
 pub mod device_modes;
 pub mod module_settings_flash_store;
+pub mod calibration;
+pub mod memory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {
