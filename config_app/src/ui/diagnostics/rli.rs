@@ -435,6 +435,9 @@ impl LocalRecordData {
 
                     make_row(ui, "Slip filtered", format!("{} RPM", s.slip_filtered));
                     make_row(ui, "Slip now", format!("{} RPM", s.slip_now));
+
+                    make_row(ui, "Engine output (Kw)", format!("{} Kw", s.engine_output_joule / 1000));
+                    make_row(ui, "Tcc absorbed power (J)", format!("{} J", s.tcc_absorbed_joule));
                 },
             }
         })
@@ -645,16 +648,24 @@ impl LocalRecordData {
                     ChartData::new(
                         "Clutch Slip".into(),
                         vec![
-                            ("Filtered", s.slip_filtered as f32, Some("RPM"), Color32::from_rgb(0, 128, 0)),
-                            ("Raw", s.slip_now as f32, Some("RPM"), Color32::from_rgb(0, 0, 128)),
+                            ("Filtered", s.slip_filtered as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
+                            ("Raw", s.slip_now as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
+                            ("Target", s.slip_target as f32, Some("RPM"), Color32::from_rgb(0, 0, 255)),
                         ],
                         None,
                     ),
                     ChartData::new(
                         "Pressures".into(),
                         vec![
-                            ("Target", s.target_pressure as f32, Some("mBar"), Color32::from_rgb(255, 0, 255)),
-                            ("Current", s.current_pressure as f32, Some("mBar"), Color32::from_rgb(0, 255, 255)),
+                            ("Target", s.target_pressure as f32, Some("mBar"), Color32::from_rgb(0, 0, 255)),
+                            ("Current", s.current_pressure as f32, Some("mBar"), Color32::from_rgb(0, 255, 0)),
+                        ],
+                        None,
+                    ),
+                    ChartData::new(
+                        "Absorbed power".into(),
+                        vec![
+                            ("Power", s.tcc_absorbed_joule as f32, Some("J"), Color32::from_rgb(255, 0, 255)),
                         ],
                         None,
                     )
@@ -680,6 +691,9 @@ pub struct TccProgramData {
     target_pressure: u16,
     slip_now: i16,
     slip_filtered: i16,
+    slip_target: u16,
+    pedal_now: u16,
+    pedal_filtered: u16,
     // 0 - Open
     // 1 - Slip
     // 2 - Closed
@@ -688,6 +702,8 @@ pub struct TccProgramData {
     // 0b1 - Open request 
     // 0b01 - Slip request
     can_request_bits: u8,
+    engine_output_joule: u32,
+    tcc_absorbed_joule: u32
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]

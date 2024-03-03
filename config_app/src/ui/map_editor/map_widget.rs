@@ -91,6 +91,7 @@ impl<'a> egui::Widget for MapWidget<'a> {
             override_text_color: None,
             fallback_color: Color32::PLACEHOLDER,
             angle: -1.5708,
+            opacity_factor: 0.0,
         });
 
         painter.line_segment(

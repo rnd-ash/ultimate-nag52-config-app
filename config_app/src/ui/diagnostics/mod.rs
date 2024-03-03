@@ -222,21 +222,20 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             .height(space_per_chart)
                             .allow_drag(false)
                             .include_x(std::cmp::max(20000, now) as f64)
-                            .auto_bounds_x()
-                            .auto_bounds_y()
-                            .legend(legend.clone())
-                            .x_axis_formatter(|f, _nc, r| {
-                                let seconds = f / 1000.0;
-                                let mins = (f / 60000.0) as u32;
-                                format!("{:02}:{:02.1}", mins, seconds)
-                            })
-                            .y_axis_formatter(move |f, _nc, r| {
-                                if let Some(u) = x.clone() {
-                                    format!("{}{}", f, u)
-                                } else {
-                                    f.to_string()
-                                }
-                            });
+                            .auto_bounds([true, true].into())
+                            .legend(legend.clone());
+                            //.x_axis_formatter(|f, _nc, r| {
+                            //    let seconds = f / 1000.0;
+                            //    let mins = (f / 60000.0) as u32;
+                            //    format!("{:02}:{:02.1}", mins, seconds)
+                            //})
+                            //.y_axis_formatter(move |f, _nc, r| {
+                            //    if let Some(u) = x.clone() {
+                            //        format!("{}{}", f, u)
+                            //    } else {
+                            //        f.to_string()
+                            //    }
+                            //});
                         if let Some((min, max)) = &d.bounds {
                             plot = plot.include_y(*min);
                             if *max > 0.1 {

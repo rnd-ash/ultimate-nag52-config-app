@@ -154,11 +154,11 @@ impl DrawingBackend for EguiPlotBackend {
                 egui_c,
             );
 
-            if fill {
-                self.painter.rect(rect, 0.0, egui_c, stroke)
-            } else {
-                self.painter.rect_stroke(rect, 0.0, stroke)
-            }
+            //if fill {
+            //    self.painter.rect(rect, 0.0, egui_c, stroke)
+            //} else {
+            //    self.painter.rect_stroke(rect, 0.0, stroke)
+            //}
 
             Ok(())
         }
