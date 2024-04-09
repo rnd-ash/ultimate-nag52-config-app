@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use eframe::{NativeOptions, egui::IconData};
+use eframe::{egui::IconData, NativeOptions, Renderer};
 use ui::launcher::Launcher;
 
 #[cfg(windows)]
@@ -18,8 +18,8 @@ compile_error!("Windows can ONLY be built using the i686-pc-windows-msvc target!
 fn main() {
     env_logger::init();
 
-    #[cfg(target_os="linux")]
-    std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+    //#[cfg(target_os="linux")]
+    //std::env::set_var("WINIT_UNIX_BACKEND", "x11");
 
     let mut app = window::MainWindow::new();
     app.add_new_page(Box::new(Launcher::new()));
@@ -44,6 +44,10 @@ fn main() {
     #[cfg(windows)]
     {
         native_options.renderer = Renderer::Wgpu;
+    }
+    #[cfg(unix)]
+    {
+        native_options.renderer = Renderer::Glow;
     }
     eframe::run_native(
         "Ultimate NAG52 config suite",

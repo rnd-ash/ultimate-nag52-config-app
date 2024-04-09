@@ -238,7 +238,7 @@ impl LocalRecordData {
                     ui.end_row();
 
                     ui.label("Engine RPM");
-                    ui.label(make_display_value(s.egs_req_torque, u16::MAX, DisplayErrorType::SignalNotAvailable, Some("RPM")));
+                    ui.label(make_display_value(s.engine_rpm, u16::MAX, DisplayErrorType::SignalNotAvailable, Some("RPM")));
                     ui.end_row();
 
                     ui.label("Engine minimum torque");
@@ -574,11 +574,16 @@ impl LocalRecordData {
                 vec![ChartData::new(
                     "Gearbox Pressures (In and calc)".into(),
                     vec![
-                        ("Calc. working pressure", s.working_pressure as f32, Some("mBar"), Color32::from_rgb(217,38,28)),
-                        ("Calc. inlet pressure", s.inlet_pressure as f32, Some("mBar"), Color32::from_rgb(0, 145, 64)),
-                        ("Req. modulating pressure", s.modulating_req_pressure as f32, Some("mBar"), Color32::from_rgb(255,245,0)),
-                        ("Req. shift pressure", s.shift_req_pressure as f32, Some("mBar"), Color32::from_rgb(0,148,222)),
-                        ("Req. TCC pressure", s.tcc_pressure as f32, Some("mBar"), Color32::from_rgb(232,120,23)),
+                        ("Calc (LINE)", s.working_pressure as f32, Some("mBar"), Color32::from_rgb(217,38,28)),
+                        ("Calc (INLET)", s.inlet_pressure as f32, Some("mBar"), Color32::from_rgb(0, 145, 64)),
+                        ("Req (MOD)", s.modulating_req_pressure as f32, Some("mBar"), Color32::from_rgb(255,245,0)),
+                        ("Req (SHIFT)", s.shift_req_pressure as f32, Some("mBar"), Color32::from_rgb(0,148,222)),
+                        ("Req (TCC)", s.tcc_pressure as f32, Some("mBar"), Color32::from_rgb(232,120,23)),
+
+                        ("On clutch", s.on_clutch_pressure as f32, Some("mBar"), Color32::from_rgb(0,0,255)),
+                        ("Off clutch", s.off_clutch_pressure as f32, Some("mBar"), Color32::from_rgb(255,0,0)),
+                        ("Overlap (SHIFT)", s.overlap_shift as f32, Some("mBar"), Color32::from_rgb(0,0,128)),
+                        ("Overlap (MOD)", s.overlap_mod as f32, Some("mBar"), Color32::from_rgb(128,0,0)),
                     ],
                     None
                 ),
@@ -716,7 +721,11 @@ pub struct DataPressures {
     pub inlet_pressure: u16,
     pub corrected_spc_pressure: u16,
     pub corrected_mpc_pressure: u16,
-    pub tcc_pressure: u16
+    pub tcc_pressure: u16,
+    pub on_clutch_pressure: u16,
+    pub off_clutch_pressure: u16,
+    pub overlap_mod: u16,
+    pub overlap_shift: u16,
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]

@@ -45,7 +45,8 @@ pub struct MainWindow {
     show_tracer: bool,
     last_data_query_time: Instant,
     last_tx_rate: u32,
-    last_rx_rate: u32
+    last_rx_rate: u32,
+    toasts: Toasts
 }
 
 impl MainWindow {
@@ -62,7 +63,16 @@ impl MainWindow {
             show_tracer: false,
             last_data_query_time: Instant::now(),
             last_tx_rate: 0,
-            last_rx_rate: 0
+            last_rx_rate: 0,
+            toasts: Toasts::new()
+            .anchor(
+                Align2::RIGHT_BOTTOM,
+                Pos2::new(
+                5.0,
+                0.0,
+            ))
+            .direction(Direction::BottomUp)
+
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
@@ -228,14 +238,6 @@ impl eframe::App for MainWindow {
                 self.pop_page();
             }
 
-            let mut toasts = Toasts::new()
-                .anchor(
-                    Align2::RIGHT_BOTTOM,
-                    Pos2::new(
-                    5.0,
-                    ctx.available_rect().height() - s_bar_height - 10.0,
-                ))
-                .direction(Direction::BottomUp);
             self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui, frame) {
@@ -259,7 +261,7 @@ impl eframe::App for MainWindow {
                     }
                     PageAction::SendNotification { text, kind } => {
                         println!("Pushing notification {}", text);
-                        toasts.add(Toast {
+                        self.toasts.add(Toast {
                             kind,
                             text: WidgetText::RichText(RichText::new(text)),
                             options: ToastOptions::default()
@@ -273,7 +275,7 @@ impl eframe::App for MainWindow {
                     },
                 }
             });
-            toasts.show(&ctx);
+            self.toasts.show(&ctx);
 
             // Show Log viewer
             if self.show_logger {

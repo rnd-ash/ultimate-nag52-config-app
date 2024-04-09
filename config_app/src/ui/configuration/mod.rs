@@ -14,6 +14,7 @@ use eframe::egui::{self, *};
 use egui_extras::RetainedImage;
 use image::{DynamicImage, ImageFormat};
 use packed_struct::PackedStructSlice;
+use strum::IntoEnumIterator;
 
 use self::cfg_structs::{
     BoardType, DefaultProfile, EgsCanType, EngineType, IOPinConfig, MosfetPurpose, ShifterStyle,
@@ -31,42 +32,10 @@ pub struct ConfigPage {
     efuse: Option<TcmEfuseConfig>,
     show_efuse: bool,
     show_final_warning: bool,
-    pcb_11_img: RetainedImage,
-    pcb_12_img: RetainedImage,
-    pcb_13_img: RetainedImage,
-}
-
-fn load_image(image: DynamicImage, name: &str) -> RetainedImage {
-    let size = [image.width() as usize, image.height() as usize];
-    let buffer = image.to_rgba8();
-    let pixels = buffer.as_flat_samples();
-    RetainedImage::from_color_image(
-        name,
-        ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()),
-    )
 }
 
 impl ConfigPage {
     pub fn new(nag: Nag52Diag) -> Self {
-        let red_img = image::load_from_memory_with_format(
-            include_bytes!("../../../res/pcb_11.jpg"),
-            ImageFormat::Jpeg,
-        )
-        .unwrap();
-        let blk_img = image::load_from_memory_with_format(
-            include_bytes!("../../../res/pcb_12.jpg"),
-            ImageFormat::Jpeg,
-        )
-        .unwrap();
-        let bet_img = image::load_from_memory_with_format(
-            include_bytes!("../../../res/pcb_13.jpg"),
-            ImageFormat::Jpeg,
-        )
-        .unwrap();
-
-        let pcb_11_img = load_image(red_img, "V11-PCB");
-        let pcb_12_img = load_image(blk_img, "V12-PCB");
-        let pcb_13_img = load_image(bet_img, "V13-PCB");
         Self {
             nag,
             status: StatusText::Ok("".into()),
@@ -74,9 +43,6 @@ impl ConfigPage {
             efuse: None,
             show_efuse: false,
             show_final_warning: false,
-            pcb_11_img,
-            pcb_12_img,
-            pcb_13_img,
         }
     }
 }
@@ -146,14 +112,7 @@ impl crate::window::InterfacePage for ConfigPage {
                     .width(100.0)
                     .selected_text(format!("{:?}", curr_profile))
                     .show_ui(ui, |cb_ui| {
-                        let profiles = vec![
-                            DefaultProfile::Standard,
-                            DefaultProfile::Comfort,
-                            DefaultProfile::Winter,
-                            DefaultProfile::Agility,
-                            DefaultProfile::Manual,
-                        ];
-                        for dev in profiles {
+                        for dev in DefaultProfile::iter() {
                             cb_ui.selectable_value(
                                 &mut curr_profile,
                                 dev.clone(),
@@ -164,20 +123,21 @@ impl crate::window::InterfacePage for ConfigPage {
                     });
                 ui.end_row();
 
-                let mut buffer = format!("{:.2}", scn.diff_ratio as f32 / 1000.0);
                 ui.label("Differential ratio");
-                ui.text_edit_singleline(&mut buffer);
-                if let Ok(new_ratio) = buffer.parse::<f32>() {
-                    scn.diff_ratio = (new_ratio * 1000.0) as u16;
-                }
+                ui.add(DragValue::new(&mut scn.diff_ratio).speed(0)
+                    .custom_formatter(|v, _| format!("{:.2}", v / 1000.0))
+                    .custom_parser(|s| {
+                        s.parse::<f64>().ok().map(|x| x * 1000.0)
+                    })
+                    .speed(0)
+                );
                 ui.end_row();
-
-                let mut buffer = format!("{}", scn.wheel_circumference);
-                ui.label("Wheel circumferance (mm)");
-                ui.text_edit_singleline(&mut buffer);
-                if let Ok(new_ratio) = buffer.parse::<u16>() {
-                    scn.wheel_circumference = new_ratio;
-                }
+                ui.label("Wheel circumferance");
+                ui.add(DragValue::new(&mut scn.wheel_circumference)
+                    .speed(0)
+                    .suffix("mm")
+                    .max_decimals(0)
+                );
                 ui.end_row();
 
                 let mut engine = scn.engine_type;
@@ -194,18 +154,17 @@ impl crate::window::InterfacePage for ConfigPage {
                     });
                 ui.end_row();
 
-                let mut buffer = match scn.engine_type {
-                    EngineType::Diesel => format!("{}", scn.red_line_dieselrpm),
-                    EngineType::Petrol => format!("{}", scn.red_line_petrolrpm),
+                let rpm_mut = match scn.engine_type {
+                    EngineType::Diesel => &mut scn.red_line_dieselrpm,
+                    EngineType::Petrol => &mut scn.red_line_petrolrpm
                 };
                 ui.label("Engine redline RPM");
-                ui.text_edit_singleline(&mut buffer);
-                if let Ok(rpm) = buffer.parse::<u16>() {
-                    match scn.engine_type {
-                        EngineType::Diesel => scn.red_line_dieselrpm = rpm,
-                        EngineType::Petrol => scn.red_line_petrolrpm = rpm,
-                    }
-                }
+                ui.add(DragValue::new(rpm_mut)
+                    .clamp_range(3000..=10000)
+                    .speed(0)
+                    .suffix("RPM")
+                    .max_decimals(0)
+                );
                 ui.end_row();
 
                 let mut x = scn.is_four_matic == 1;
@@ -215,33 +174,36 @@ impl crate::window::InterfacePage for ConfigPage {
                 ui.end_row();
 
                 if scn.is_four_matic == 1 {
-                    let mut buffer =
-                        format!("{:.2}", scn.transfer_case_high_ratio as f32 / 1000.0);
                     ui.label("Transfer case high ratio");
-                    ui.text_edit_singleline(&mut buffer);
-                    if let Ok(new_ratio) = buffer.parse::<f32>() {
-                        scn.transfer_case_high_ratio = (new_ratio * 1000.0) as u16;
-                    }
+                    ui.add(DragValue::new(&mut scn.transfer_case_high_ratio).speed(0)
+                    .custom_formatter(|v, _| format!("{:.2}", v / 1000.0))
+                    .custom_parser(|s| {
+                        s.parse::<f64>().ok().map(|x| x * 1000.0)
+                    })
+                    .speed(0)
+                );
                     ui.end_row();
-
-                    let mut buffer =
-                        format!("{:.2}", scn.transfer_case_low_ratio as f32 / 1000.0);
                     ui.label("Transfer case low ratio");
-                    ui.text_edit_singleline(&mut buffer);
-                    if let Ok(new_ratio) = buffer.parse::<f32>() {
-                        scn.transfer_case_low_ratio = (new_ratio * 1000.0) as u16;
-                    }
+                    ui.add(DragValue::new(&mut scn.transfer_case_low_ratio).speed(0)
+                    .custom_formatter(|v, _| format!("{:.2}", v / 1000.0))
+                    .custom_parser(|s| {
+                        s.parse::<f64>().ok().map(|x| x * 1000.0)
+                    })
+                    .speed(0)
+                );
                     ui.end_row();
                 }
 
-                let mut buffer =
-                        format!("{:.1}", scn.engine_drag_torque as f32 / 10.0);
-                    ui.label("Engine drag torque");
-                    ui.text_edit_singleline(&mut buffer);
-                    if let Ok(drg) = buffer.parse::<f32>() {
-                        scn.engine_drag_torque = (drg * 10.0) as u16;
-                    }
-                    ui.end_row();
+                ui.label("Engine drag torque");
+                ui.add(DragValue::new(&mut scn.engine_drag_torque).speed(0)
+                    .custom_formatter(|v, _| format!("{:.1}", v / 10.0))
+                    .suffix("Nm")
+                    .custom_parser(|s| {
+                        s.parse::<f64>().ok().map(|x| x * 10.0)
+                    })
+                    .speed(0)
+                );
+                ui.end_row();
 
                 ui.label("EGS CAN Layer: ");
                 let mut can = scn.egs_can_type;
@@ -253,12 +215,7 @@ impl crate::window::InterfacePage for ConfigPage {
                             BoardType::Unknown | BoardType::V11 => {
                                 vec![EgsCanType::UNKNOWN, EgsCanType::EGS52, EgsCanType::EGS53]
                             }
-                            _ => vec![
-                                EgsCanType::UNKNOWN,
-                                EgsCanType::EGS51,
-                                EgsCanType::EGS52,
-                                EgsCanType::EGS53,
-                            ],
+                            _ => EgsCanType::iter().collect()
                         };
                         for layer in layers {
                             cb_ui.selectable_value(&mut can, layer.clone(), format!("{:?}", layer));
@@ -266,6 +223,11 @@ impl crate::window::InterfacePage for ConfigPage {
                         scn.egs_can_type = can
                     });
                 ui.end_row();
+                if can == EgsCanType::CUSTOM_ECU {
+                    ui.strong("Custom ECU CAN is experimental! - It requires implementation on the ECU Side");
+                    ui.hyperlink_to("Read more", "https://docs.ultimate-nag52.net/en/advanced/custom-can");
+                    ui.end_row();
+                }
 
                 if board_ver == BoardType::V12 || board_ver == BoardType::V13 {
                     // 1.2 or 1.3 config
@@ -275,12 +237,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            let options = vec![
-                                ShifterStyle::EWM_CAN,
-                                ShifterStyle::TRRS,
-                                ShifterStyle::SLR_MCLAREN,
-                            ];
-                            for o in options {
+                            for o in ShifterStyle::iter() {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
                             scn.shifter_style = ss
@@ -296,12 +253,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            let options = vec![
-                                IOPinConfig::NotConnected,
-                                IOPinConfig::Input,
-                                IOPinConfig::Output,
-                            ];
-                            for o in options {
+                            for o in IOPinConfig::iter() {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
                             scn.io_0_usage = ss
@@ -309,20 +261,22 @@ impl crate::window::InterfacePage for ConfigPage {
                     ui.end_row();
 
                     if scn.io_0_usage == IOPinConfig::Input {
-                        let mut t = format!("{}", scn.input_sensor_pulses_per_rev);
                         ui.label("Input sensor pulses/rev");
-                        ui.text_edit_singleline(&mut t);
-                        if let Ok(prev) = t.parse::<u8>() {
-                            scn.input_sensor_pulses_per_rev = prev;
-                        }
+                        ui.add(DragValue::new(&mut scn.input_sensor_pulses_per_rev)
+                            .clamp_range(0..=0xFF)
+                            .speed(0)
+                            .suffix("/rev")
+                            .max_decimals(0)
+                        );
                         ui.end_row();
                     } else if scn.io_0_usage == IOPinConfig::Output {
-                        let mut t = format!("{}", scn.output_pulse_width_per_kmh);
-                        ui.label("Pulse width (us) per kmh");
-                        ui.text_edit_singleline(&mut t);
-                        if let Ok(prev) = t.parse::<u8>() {
-                            scn.output_pulse_width_per_kmh = prev;
-                        }
+                        ui.label("Pulse width (μs) per kmh");
+                        ui.add(DragValue::new(&mut scn.output_pulse_width_per_kmh)
+                            .clamp_range(0..=0xFF)
+                            .speed(0)
+                            .suffix("μs/kmh")
+                            .max_decimals(0)
+                        );
                         ui.end_row();
                     }
                     ui.label("General MOSFET usage: ");
@@ -331,12 +285,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            let options = vec![
-                                MosfetPurpose::NotConnected,
-                                MosfetPurpose::TorqueCutTrigger,
-                                MosfetPurpose::B3BrakeSolenoid,
-                            ];
-                            for o in options {
+                            for o in MosfetPurpose::iter() {
                                 cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
                             }
                             scn.mosfet_purpose = ss
@@ -346,7 +295,7 @@ impl crate::window::InterfacePage for ConfigPage {
             });
 
             if ui.button("Write SCN configuration").clicked() {
-                let res = {
+                match {
                     let mut x: Vec<u8> = vec![0x3B, 0xFE];
                     x.extend_from_slice(&scn.clone().pack_to_vec().unwrap());
                     self.nag.with_kwp(|server| {
@@ -355,7 +304,17 @@ impl crate::window::InterfacePage for ConfigPage {
                         server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                         Ok(())
                     })
-                };
+                } {
+                    Ok(_) => {
+                        action = PageAction::SendNotification { text: "Configuration applied!".into(), kind: egui_toast::ToastKind::Success }
+                    },
+                    Err(e) => {
+                        action = PageAction::SendNotification { 
+                            text: format!("Configuration failed to apply: {e}"), 
+                            kind: egui_toast::ToastKind::Error 
+                        }
+                    }
+                }
             }
             ui.strong("What to do next?");
             if ui.button("Configure EGS compatibility data").clicked() {
@@ -370,22 +329,6 @@ impl crate::window::InterfacePage for ConfigPage {
                 ui.heading("EFUSE CONFIG");
                 ui.label("IMPORTANT! This can only be set once! Be careful!");
                 ui.spacing();
-                ui.horizontal(|row| {
-                    row.vertical(|col| {
-                        col.label("V1.1 - Red PCB (12/12/21)");
-                        col.image(include_image!("../../../res/pcb_11.jpg"));
-                    });
-                    row.separator();
-                    row.vertical(|col| {
-                        col.label("V1.2 - Black PCB (07/07/22) with TRRS support");
-                        col.image(include_image!("../../../res/pcb_12.jpg"));
-                    });
-                    row.separator();
-                    row.vertical(|col| {
-                        col.label("V1.3 - Black PCB (12/12/22) - Latest PCB");
-                        col.image(include_image!("../../../res/pcb_13.jpg"));
-                    });
-                });
                 let mut ver = efuse.board_ver;
                 ui.label("Choose board variant: ");
                 egui::ComboBox::from_id_source("board_ver")
@@ -393,8 +336,12 @@ impl crate::window::InterfacePage for ConfigPage {
                     .selected_text(format!("{:?}", efuse.board_ver))
                     .show_ui(ui, |cb_ui| {
                         let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
-                        for (pos, dev) in profiles.iter().enumerate() {
-                            cb_ui.selectable_value(&mut ver, dev.clone(), dev.to_string());
+                        for dev in profiles.iter() {
+                            cb_ui.selectable_value(&mut ver, dev.clone(), dev.to_string()).on_hover_ui(|ui| {
+                                if let Some(img) = dev.image_source() {
+                                    ui.add(Image::new(img));
+                                }
+                            });
                         }
                         efuse.board_ver = ver
                     });
@@ -429,16 +376,25 @@ impl crate::window::InterfacePage for ConfigPage {
                         efuse.manf_week = date.iso_week().week() as u8;
                         efuse.manf_month = date.month() as u8;
                         efuse.manf_year = (date.year() - 2000) as u8;
-                        println!("EFUSE: {:?}", efuse);
 
                         let mut x = vec![0x3Bu8, 0xFD];
                         x.extend_from_slice(&efuse.pack_to_vec().unwrap());
-                        self.nag.with_kwp(|server| {
+                        match self.nag.with_kwp(|server| {
                             server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
                             server.send_byte_array_with_response(&x)?;
                             server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                             Ok(())
-                        });
+                        }) {
+                            Ok(_) => {
+                                action = PageAction::SendNotification { text: "EFUSE applied!".into(), kind: egui_toast::ToastKind::Success }
+                            },
+                            Err(e) => {
+                                action = PageAction::SendNotification { 
+                                    text: format!("EFUSE failed to apply: {e}"), 
+                                    kind: egui_toast::ToastKind::Error 
+                                }
+                            }
+                        }
                         tmp = false;
                     }
                 })

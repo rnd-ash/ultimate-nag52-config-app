@@ -1,5 +1,6 @@
 use std::{borrow::{Borrow, BorrowMut}, cmp::min, mem::size_of, thread::JoinHandle};
 
+use config_app_macros::include_base64;
 use eframe::egui::{Color32, Grid, Label, RichText, ScrollArea, Window};
 use egui_extras::Column;
 use packed_struct::PackedStructSlice;
@@ -198,6 +199,7 @@ impl InterfacePage for EgsConfigPage {
             let mut interpreted = EgsStoredCalibration::unpack_from_slice(&flash).unwrap();
             let db = self.db.as_ref().unwrap();
             // Show calibrations that are not valid
+            ui.hyperlink_to("Watch tutorial video for help", include_base64!("aHR0cHM6Ly95b3V0dS5iZS9ENlZmNWlqekpndw"));
             ui.strong("Status of calibration data:");
             let mut error_counter = 0;
             match String::from_utf8(interpreted.hydr_cal_name.to_vec()) {
