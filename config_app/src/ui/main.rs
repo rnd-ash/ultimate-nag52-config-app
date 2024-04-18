@@ -64,18 +64,17 @@ impl InterfacePage for MainPage {
                 egui::special_emojis::OS_APPLE
             };
             x.label(format!("Config app version {} for {} (Build {})", env!("CARGO_PKG_VERSION"), os_logo, env!("GIT_BUILD")));
-            if env!("GIT_BUILD").ends_with("-dirty") {
-                x.label(RichText::new("Warning. You have a modified copy of the config app! Bugs may be present!").color(Color32::RED));
+            if env!("GIT_BUILD").ends_with("-dirty") || env!("GIT_BUILD") == "UNKNOWN" {
+                x.strong(RichText::new("Warning. You have a modified or testing version of the config app! Bugs may be present!").color(Color32::RED));
             } else {
                 // Check for updates
-                if env!("GIT_BRANCH") == "main" {
-                    
-                } else {
-                    // Check dev branch
-
-                }
-                
             }
+            let link = if env!("GIT_BRANCH").contains("main") {
+                include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPW1haW4mZXhwYW5kZWQ9dHJ1ZQ")
+            } else {
+                include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPWRldiZleHBhbmRlZD10cnVl")
+            };
+            x.hyperlink_to("View config app updates", link);
         });
         ui.separator();
         ui.label(r#"
@@ -84,6 +83,7 @@ impl InterfacePage for MainPage {
             or join the Ultimate-NAG52 discussions Telegram group!
         "#);
         ui.heading("Useful links");
+        ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
         // Weblinks are base64 encoded to avoid potential scraping
         ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
         ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));

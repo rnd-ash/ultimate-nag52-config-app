@@ -7,7 +7,7 @@ use packed_struct::PackedStructSlice;
 
 use crate::window::{InterfacePage, PageAction};
 
-use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{DiagError, DiagServerResult}};
+use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagError, DiagServerResult}};
 
 
 const EGS_DB_BYTES: &[u8] = include_bytes!("../../../../egs_db.bin"); 
@@ -94,8 +94,8 @@ impl EgsConfigPage {
             let len = EgsStoredCalibration::packed_bytes_size(None).unwrap() as u32;
             let mut i = 0;
             let mut res: Vec<u8> = Vec::new();
-
             let size = match nag_c.with_kwp(|kwp| {
+                kwp.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())?;
                 kwp.kwp_read_custom_local_identifier(0xFB)
             }) {
                 Ok(res) => {

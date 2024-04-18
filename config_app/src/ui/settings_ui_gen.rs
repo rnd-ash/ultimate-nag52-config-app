@@ -75,6 +75,11 @@ impl TcuAdvSettingsUi {
                                     counter = counter.wrapping_add(1);
                                     if read_contents.len() > std::mem::size_of::<ModuleSettingsFlashHeader>() && header.is_none() {
                                         header = Some(ModuleSettingsFlashHeader::read_header_from_buffer(&read_contents));
+                                        if let Some(Err(_)) = header {
+                                            *status_c.write().unwrap() = PageLoadState::Err(format!("No YML header on flash"));
+                                            ctx.request_repaint();
+                                            return;
+                                        }
                                         println!("Header: {:?}", header);
                                     }
                                     ctx.request_repaint();
