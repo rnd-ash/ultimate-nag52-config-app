@@ -35,7 +35,7 @@ impl Nag52Diag {
             Err(DiagError::InvalidResponseLength)
         } else {
             let x: u16 = u16::from_be_bytes(res[3..].try_into().unwrap());
-            //self.set_device_mode(TcuDeviceMode::NORMAL, true)?;
+            //self.set_device_mode(TcuDeviceMode::SLAVE, true)?;
             //Ok(TcuDeviceMode::NORMAL)
             Ok(TcuDeviceMode::from_bits_retain(x))
         }
