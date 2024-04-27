@@ -332,7 +332,7 @@ impl Map {
                 )
                 .column(Column::initial(60.0).at_least(60.0));
             for _ in 0..self.x_values.len() {
-                table_builder = table_builder.column(Column::auto());
+                table_builder = table_builder.column(Column::auto().at_least(80.0));
             }
             table_builder
                 .header(15.0, |mut header| {
@@ -383,6 +383,7 @@ impl Map {
                                     }
                                     let edit = DragValue::new(&mut self.data_modify[map_idx])
                                         .suffix(self.meta.value_unit)
+                                        .update_while_editing(false)
                                         .speed(0);
                                     cell.add(edit);                             
                                 }
@@ -396,10 +397,6 @@ impl Map {
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
         let mut action = None;
         raw_ui.label(format!("EEPROM key: {}", self.eeprom_key));
-        raw_ui.label(format!(
-            "Map has {} elements",
-            self.x_values.len() * self.y_values.len()
-        ));
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
                 let mut copy = self.clone();
@@ -437,6 +434,66 @@ impl Map {
             row.selectable_value(&mut self.view_type, MapViewType::Modify, "User changes");
             row.selectable_value(&mut self.view_type, MapViewType::EEPROM, "EEPROM");
             row.selectable_value(&mut self.view_type, MapViewType::Default, "TCU default");
+        });
+        raw_ui.horizontal(|raw_ui| {
+            if self.data_modify != self.data_program {
+                if raw_ui.button("Reset to flash defaults").clicked() {
+                    self.data_modify = self.data_program.clone();
+                }
+            }
+            if self.data_modify != self.data_eeprom {
+                if raw_ui.button("Undo user changes").clicked() {
+                    action = match self.undo_changes() {
+                        Ok(_) => {
+                            self.data_modify = self.data_eeprom.clone();
+                            Some(PageAction::SendNotification {
+                                text: format!("Map {} undo OK!", self.eeprom_key),
+                                kind: ToastKind::Success,
+                            })
+                        }
+                        Err(e) => Some(PageAction::SendNotification {
+                            text: format!("Map {} undo failed! {}", self.eeprom_key, e),
+                            kind: ToastKind::Error,
+                        }),
+                    };
+                }
+                if raw_ui.button("Write changes (To RAM)").clicked() {
+                    action = match self.write_to_ram() {
+                        Ok(_) => {
+                            self.data_memory = self.data_modify.clone();
+                            Some(PageAction::SendNotification {
+                                text: format!("Map {} RAM write OK!", self.eeprom_key),
+                                kind: ToastKind::Success,
+                            })
+                        }
+                        Err(e) => Some(PageAction::SendNotification {
+                            text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
+                            kind: ToastKind::Error,
+                        }),
+                    };
+                }
+            }
+            if self.data_memory != self.data_eeprom {
+                if raw_ui.button("Write changes (To EEPROM)").clicked() {
+                    action = match self.save_to_eeprom() {
+                        Ok(_) => {
+                            if let Ok(new_data) =
+                                Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
+                            {
+                                *self = new_data;
+                            }
+                            Some(PageAction::SendNotification {
+                                text: format!("Map {} EEPROM save OK!", self.eeprom_key),
+                                kind: ToastKind::Success,
+                            })
+                        }
+                        Err(e) => Some(PageAction::SendNotification {
+                            text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
+                            kind: ToastKind::Error,
+                        }),
+                    };
+                }
+            }
         });
         self.gen_edit_table(raw_ui);
         ScrollArea::new([true, true])
@@ -558,64 +615,6 @@ impl Map {
                 let _ = area.present();
             };
         });
-        if self.data_modify != self.data_eeprom {
-            if raw_ui.button("Undo user changes").clicked() {
-                return match self.undo_changes() {
-                    Ok(_) => {
-                        self.data_modify = self.data_eeprom.clone();
-                        Some(PageAction::SendNotification {
-                            text: format!("Map {} undo OK!", self.eeprom_key),
-                            kind: ToastKind::Success,
-                        })
-                    }
-                    Err(e) => Some(PageAction::SendNotification {
-                        text: format!("Map {} undo failed! {}", self.eeprom_key, e),
-                        kind: ToastKind::Error,
-                    }),
-                };
-            }
-            if raw_ui.button("Write changes (To RAM)").clicked() {
-                return match self.write_to_ram() {
-                    Ok(_) => {
-                        self.data_memory = self.data_modify.clone();
-                        Some(PageAction::SendNotification {
-                            text: format!("Map {} RAM write OK!", self.eeprom_key),
-                            kind: ToastKind::Success,
-                        })
-                    }
-                    Err(e) => Some(PageAction::SendNotification {
-                        text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                        kind: ToastKind::Error,
-                    }),
-                };
-            }
-        }
-        if self.data_memory != self.data_eeprom {
-            if raw_ui.button("Write changes (To EEPROM)").clicked() {
-                return match self.save_to_eeprom() {
-                    Ok(_) => {
-                        if let Ok(new_data) =
-                            Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
-                        {
-                            *self = new_data;
-                        }
-                        Some(PageAction::SendNotification {
-                            text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                            kind: ToastKind::Success,
-                        })
-                    }
-                    Err(e) => Some(PageAction::SendNotification {
-                        text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                        kind: ToastKind::Error,
-                    }),
-                };
-            }
-        }
-        if self.data_modify != self.data_program {
-            if raw_ui.button("Reset to flash defaults").clicked() {
-                self.data_modify = self.data_program.clone();
-            }
-        }
         action
     }
 }
