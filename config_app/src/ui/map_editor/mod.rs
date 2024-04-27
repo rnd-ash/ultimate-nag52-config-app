@@ -1,9 +1,4 @@
-use std::{
-    borrow::BorrowMut,
-    collections::HashMap,
-    fmt::Display,
-    sync::{Arc, Mutex}, hash::Hash,
-};
+use std::{collections::HashMap, fs::File, io::{Read, Write}};
 
 use backend::{
     diag::Nag52Diag,
@@ -13,31 +8,20 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self,
-        Layout, Response, RichText, TextEdit, Ui,
-    },
-    epaint::{vec2, Color32, FontId, Stroke, TextShape, Rect, Pos2}, emath::lerp,
+        self, DragValue, Layout, RichText, ScrollArea, Ui, Vec2
+    }, emath::lerp, epaint::{vec2, Color32}, wgpu::rwh::HasDisplayHandle
 };
-use egui_plot::{Bar, BarChart, CoordinatesFormatter, HLine, Legend, Line, LineStyle, PlotPoints};
-use egui_extras::{Size, Table, TableBuilder, Column};
+use egui_plot::{Bar, BarChart, Line};
+use egui_extras::Column;
 use egui_toast::ToastKind;
-use nom::number::complete::le_u16;
-use plotters::{prelude::{IntoDrawingArea, ChartBuilder, Rectangle}, style::{WHITE, BLACK, BLUE, Color}, series::SurfaceSeries};
+use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
+use serde::Serialize;
 mod help_view;
 mod map_list;
 mod map_widget;
 use crate::{window::PageAction, plot_backend::{EguiPlotBackend, into_rgba_color}};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
-
-use self::{help_view::HelpView, map_widget::MapWidget};
-
-use super::{
-    configuration::{
-        self,
-        cfg_structs::{EngineType, TcmCoreConfig},
-    },
-};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -59,13 +43,12 @@ pub enum MapViewType {
     Modify,
 }
 
-fn pdf(x: f64, y: f64) -> f64 {
-    const SDX: f64 = 0.1;
-    const SDY: f64 = 0.1;
-    const A: f64 = 5.0;
-    let x = x as f64 / 10.0;
-    let y = y as f64 / 10.0;
-    A * (-x * x / 2.0 / SDX / SDX - y * y / 2.0 / SDY / SDY).exp()
+#[derive(Debug, Clone, Serialize, serde_derive::Deserialize)]
+pub struct MapSaveData {
+    id: u8,
+    x_values: Vec<i16>,
+    y_values: Vec<i16>,
+    state: Vec<i16>
 }
 
 #[derive(Debug, Clone)]
@@ -82,13 +65,10 @@ pub struct Map {
     data_program: Vec<i16>,
     /// User editing map
     data_modify: Vec<i16>,
-    showing_default: bool,
     ecu_ref: Nag52Diag,
-    curr_edit_cell: Option<(usize, String, Response)>,
     view_type: MapViewType,
     pitch: f64,
     rot: f64,
-    last_draw_hash: u32
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -120,7 +100,7 @@ fn color_from_contrast(ui: &Ui, contrast: f32) -> Color32 {
 }
 
 impl Map {
-    pub fn new(map_id: u8, mut nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
+    pub fn new(map_id: u8, nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
         // Read metadata
 
         let ecu_response = nag.with_kwp(|server| {
@@ -250,13 +230,10 @@ impl Map {
             data_program: default,
             data_modify: current,
             meta,
-            showing_default: false,
             ecu_ref: nag,
-            curr_edit_cell: None,
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
-            last_draw_hash: 0
         })
     }
 
@@ -331,7 +308,7 @@ impl Map {
             MapViewType::EEPROM => &self.data_eeprom,
             MapViewType::Default => &self.data_program,
             MapViewType::Modify => &self.data_modify,
-        };
+        }.clone();
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
         if self.meta.reset_adaptation {
@@ -346,7 +323,6 @@ impl Map {
         if !self.meta.v_desc.is_empty() {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
-        let mut copy = self.clone();
         let resp = raw_ui.push_id(&hash, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
@@ -355,19 +331,19 @@ impl Map {
                         .with_cross_align(egui::Align::Center),
                 )
                 .column(Column::initial(60.0).at_least(60.0));
-            for _ in 0..copy.x_values.len() {
-                table_builder = table_builder.column(Column::initial(70.0).at_least(70.0));
+            for _ in 0..self.x_values.len() {
+                table_builder = table_builder.column(Column::auto());
             }
             table_builder
                 .header(15.0, |mut header| {
                     header.col(|_| {}); // Nothing in corner cell
-                    if copy.x_values.len() == 1 {
+                    if self.x_values.len() == 1 {
                         header.col(|_| {});
                     } else {
-                        for v in 0..copy.x_values.len() {
+                        for v in 0..self.x_values.len() {
                             header.col(|u| {
                                 u.label(
-                                    RichText::new(format!("{}", copy.get_x_label(v)))
+                                    RichText::new(format!("{}", self.get_x_label(v)))
                                         .color(header_color),
                                 );
                             });
@@ -375,210 +351,212 @@ impl Map {
                     }
                 })
                 .body(|body| {
-                    body.rows(15.0, copy.y_values.len(), |mut row| {
+                    body.rows(15.0, self.y_values.len(), |mut row| {
                         let row_id = row.index();
                         // Header column
                         row.col(|c| {
                             c.label(
-                                RichText::new(format!("{}", copy.get_y_label(row_id)))
+                                RichText::new(format!("{}", self.get_y_label(row_id)))
                                     .color(header_color),
                             );
                         });
 
                         // Data columns
-                        for x_pos in 0..copy.x_values.len() {
+                        for x_pos in 0..self.x_values.len() {
                             row.col(|cell| match self.view_type {
                                 MapViewType::EEPROM => {
                                     cell.label(format!(
                                         "{}",
-                                        copy.data_eeprom[(row_id * copy.x_values.len()) + x_pos]
+                                        self.data_eeprom[(row_id * self.x_values.len()) + x_pos]
                                     ));
                                 }
                                 MapViewType::Default => {
                                     cell.label(format!(
                                         "{}",
-                                        copy.data_program[(row_id * copy.x_values.len()) + x_pos]
+                                        self.data_program[(row_id * self.x_values.len()) + x_pos]
                                     ));
                                 }
                                 MapViewType::Modify => {
-                                    let map_idx = (row_id * copy.x_values.len()) + x_pos;
-                                    let mut value = format!("{}", copy.data_modify[map_idx]);
-                                    if let Some((curr_edit_idx, current_edit_txt, resp)) =
-                                        &copy.curr_edit_cell
-                                    {
-                                        if *curr_edit_idx == map_idx {
-                                            value = current_edit_txt.clone();
-                                        }
+                                    let map_idx = (row_id * self.x_values.len()) + x_pos;
+                                    if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
+                                        cell.style_mut().visuals.override_text_color = Some(cell_edit_color)
                                     }
-                                    let changed_value =
-                                        value != format!("{}", copy.data_eeprom[map_idx]);
-                                    let mut edit = TextEdit::singleline(&mut value);
-                                    if changed_value {
-                                        edit = edit.text_color(cell_edit_color);
-                                    }
-                                    let mut response = cell.add(edit);
-                                    if changed_value {
-                                        response = response.on_hover_text(format!(
-                                            "Current in EEPROM: {}",
-                                            copy.data_eeprom[map_idx]
-                                        ));
-                                    }                              
-                                    if response.lost_focus()
-                                        || cell.ctx().input(|x| x.key_pressed(egui::Key::Enter))
-                                    {
-                                        if let Ok(new_v) = i16::from_str_radix(&value, 10) {
-                                            copy.data_modify[map_idx] = new_v;
-                                        }
-                                        copy.curr_edit_cell = None;
-                                    } else if response.gained_focus() || response.has_focus() {
-                                        if let Some((curr_edit_idx, current_edit_txt, _resp)) =
-                                            &copy.curr_edit_cell
-                                        {
-                                            if let Ok(new_v) =
-                                                i16::from_str_radix(&current_edit_txt, 10)
-                                            {
-                                                copy.data_modify[*curr_edit_idx] = new_v;
-                                            }
-                                        }
-                                        copy.curr_edit_cell = Some((map_idx, value, response));
-                                    }
+                                    let edit = DragValue::new(&mut self.data_modify[map_idx])
+                                        .suffix(self.meta.value_unit)
+                                        .speed(0);
+                                    cell.add(edit);                             
                                 }
                             });
                         }
                     })
                 });
         });
-        *self = copy;
     }
 
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
+        let mut action = None;
         raw_ui.label(format!("EEPROM key: {}", self.eeprom_key));
         raw_ui.label(format!(
             "Map has {} elements",
             self.x_values.len() * self.y_values.len()
         ));
-        self.gen_edit_table(raw_ui);
-        // Generate display chart
-        if self.x_values.len() == 1 {
-            // Bar chart
-            let mut bars = Vec::new();
-            for x in 0..self.y_values.len() {
-                // Distinct points
-                let value = match self.view_type {
-                    MapViewType::Default => self.data_program[x],
-                    MapViewType::EEPROM => self.data_eeprom[x],
-                    MapViewType::Modify => self.data_modify[x],
-                };
-                let key = self.get_y_label(x);
-                bars.push(Bar::new(x as f64, value as f64).name(key))
-            }
-            egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
-                .allow_drag(false)
-                .allow_scroll(false)
-                .allow_zoom(false)
-                .height(150.0)
-                .include_x(0)
-                .include_y((self.y_values.len() + 1) as f64 * 1.5)
-                .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new(bars)));
-        } else if (self.meta.x_replace.is_some() || self.meta.y_replace.is_some()) {
-            // Line chart
-            let mut lines: Vec<Line> = Vec::new();
-            for (y_idx, key) in self.y_values.iter().enumerate() {
-                let mut points: Vec<[f64; 2]> = Vec::new();
-                for (x_idx, key) in self.x_values.iter().enumerate() {
-                    let map_idx = (y_idx * self.x_values.len()) + x_idx;
-                    let data = match self.view_type {
-                        MapViewType::Default => self.data_program[map_idx],
-                        MapViewType::EEPROM => self.data_eeprom[map_idx],
-                        MapViewType::Modify => self.data_modify[map_idx],
-                    };
-                    points.push([*key as f64, data as f64]);
+        raw_ui.horizontal(|ui| {
+            if ui.button("Load from file").clicked() {
+                let mut copy = self.clone();
+                if let Some(res) = load_map(&mut copy) {
+                    match res {
+                        Ok(_) => {
+                            *self = copy;
+                            action = Some(PageAction::SendNotification { 
+                                text: format!("Map loading OK!"), 
+                                kind: ToastKind::Success 
+                            });
+                        },
+                        Err(e) => {
+                            action = Some(PageAction::SendNotification { 
+                                text: format!("Map loading failed: {e}"), 
+                                kind: ToastKind::Error 
+                            });
+                        },
+                    }
                 }
-                lines.push(Line::new(points).name(self.get_y_label(y_idx)));
             }
-            egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
-                .allow_drag(false)
-                .allow_scroll(false)
-                .allow_zoom(false)
-                .height(150.0)
-                .width(raw_ui.available_width())
-                .show(raw_ui, |plot_ui| {
-                    for l in lines {
-                        plot_ui.line(l);
-                    }
-                });
-        } else {
-            let src = match self.view_type {
-                MapViewType::Default => &self.data_program,
-                MapViewType::EEPROM => &self.data_eeprom,
-                MapViewType::Modify => &self.data_modify,
-            };
-            let desired_size = egui::Vec2::new(raw_ui.available_width(), 400.0);
-            let (rect, response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
-            let painter = raw_ui.painter_at(rect);
-            let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned()).into_drawing_area();
-            
-            let x_min = *self.x_values.iter().min().unwrap() as f64;
-            let x_max = *self.x_values.iter().max().unwrap() as f64;
-            let z_min = *self.y_values.iter().min().unwrap() as f64;
-            let z_max = *self.y_values.iter().max().unwrap() as f64;
-
-            let y_min = *src.iter().min().unwrap() as f64;
-            let y_max = *src.iter().max().unwrap() as f64;
-
-            self.pitch += response.drag_delta().y as f64 /30.0;
-            self.rot += response.drag_delta().x as f64 /30.0;
-            if self.pitch < 0.0 {
-                self.pitch = 0.0;
-            } else if self.pitch > 1.57 {
-                self.pitch = 1.57;
+            if ui.button("Save to file").clicked() {
+                if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
+                    action = Some(PageAction::SendNotification { 
+                        text: "You have unsaved data in the map. Please write to EEPROM before saving".into(), 
+                        kind: ToastKind::Warning 
+                    });
+                } else {
+                    save_map(&self);
+                }
             }
-            let vis = &raw_ui.ctx().style().visuals;
-            area.fill(&into_rgba_color(vis.extreme_bg_color));
-            let mut chart = ChartBuilder::on(&area)
-                .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
-                chart.with_projection(|mut p| {
-                p.pitch = self.pitch; //0.8;
-                p.scale = 0.75;
-                p.yaw = self.rot;
-                p.into_matrix() // build the projection matrix
-            });
-
-
-            chart
-                .configure_axes()
-                .x_labels(self.x_values.len())
-                .y_labels(10)
-                .z_labels(self.y_values.len())
-                .light_grid_style(into_rgba_color(vis.text_color()))
-                .max_light_lines(1)
-                .draw().unwrap();
-
-            chart.draw_series(
-                SurfaceSeries::xoz(
-                    self.x_values.iter().map(|x| *x as f64),
-                    self.y_values.iter().map(|y| *y as f64),
-                    |x, y| {
-                        let x_v = x as i16;
-                        let y_v = y as i16;
-                        let x_idx = self.x_values.iter().position(|s| *s == x_v).unwrap();
-                        let y_idx = self.y_values.iter().position(|s| *s == y_v).unwrap();
-                        let len = self.x_values.len();
-                        src[(len*y_idx)+x_idx] as f64
-                    }
-                )
-                .style_func(&|&v| {
-                    (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
-                })
-            )
-            .unwrap();
-            area.present();
-        }
+        });
         raw_ui.label("View mode:");
         raw_ui.horizontal(|row| {
             row.selectable_value(&mut self.view_type, MapViewType::Modify, "User changes");
             row.selectable_value(&mut self.view_type, MapViewType::EEPROM, "EEPROM");
             row.selectable_value(&mut self.view_type, MapViewType::Default, "TCU default");
+        });
+        self.gen_edit_table(raw_ui);
+        ScrollArea::new([true, true])
+            .max_height(raw_ui.available_height())
+            .show(raw_ui, |raw_ui| {
+            // Generate display chart
+            if self.x_values.len() == 1 {
+                // Bar chart
+                let mut bars = Vec::new();
+                for x in 0..self.y_values.len() {
+                    // Distinct points
+                    let value = match self.view_type {
+                        MapViewType::Default => self.data_program[x],
+                        MapViewType::EEPROM => self.data_eeprom[x],
+                        MapViewType::Modify => self.data_modify[x],
+                    };
+                    let key = self.get_y_label(x);
+                    bars.push(Bar::new(x as f64, value as f64).name(key))
+                }
+                egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                    .allow_drag(false)
+                    .allow_scroll(false)
+                    .allow_zoom(false)
+                    .width(raw_ui.available_width())
+                    .include_x(0)
+                    .include_y((self.y_values.len() + 1) as f64 * 1.5)
+                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new(bars)));
+            } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
+                // Line chart
+                let mut lines: Vec<Line> = Vec::new();
+                for (y_idx, key) in self.y_values.iter().enumerate() {
+                    let mut points: Vec<[f64; 2]> = Vec::new();
+                    for (x_idx, key) in self.x_values.iter().enumerate() {
+                        let map_idx = (y_idx * self.x_values.len()) + x_idx;
+                        let data = match self.view_type {
+                            MapViewType::Default => self.data_program[map_idx],
+                            MapViewType::EEPROM => self.data_eeprom[map_idx],
+                            MapViewType::Modify => self.data_modify[map_idx],
+                        };
+                        points.push([*key as f64, data as f64]);
+                    }
+                    lines.push(Line::new(points).name(self.get_y_label(y_idx)));
+                }
+                egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                    .allow_drag(false)
+                    .allow_scroll(false)
+                    .allow_zoom(false)
+                    .width(raw_ui.available_width())
+                    .show(raw_ui, |plot_ui| {
+                        for l in lines {
+                            plot_ui.line(l);
+                        }
+                    });
+            } else {
+                let src = match self.view_type {
+                    MapViewType::Default => &self.data_program,
+                    MapViewType::EEPROM => &self.data_eeprom,
+                    MapViewType::Modify => &self.data_modify,
+                };
+                let desired_size = egui::Vec2::new(raw_ui.available_width(), raw_ui.available_height());
+                let (rect, response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
+                let painter = raw_ui.painter_at(rect);
+                let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned()).into_drawing_area();
+                
+                let x_min = *self.x_values.iter().min().unwrap() as f64;
+                let x_max = *self.x_values.iter().max().unwrap() as f64;
+                let z_min = *self.y_values.iter().min().unwrap() as f64;
+                let z_max = *self.y_values.iter().max().unwrap() as f64;
+
+                let y_min = *src.iter().min().unwrap() as f64;
+                let y_max = *src.iter().max().unwrap() as f64;
+
+                self.pitch += response.drag_delta().y as f64 /30.0;
+                self.rot += response.drag_delta().x as f64 /30.0;
+                if self.pitch < 0.0 {
+                    self.pitch = 0.0;
+                } else if self.pitch > 1.57 {
+                    self.pitch = 1.57;
+                }
+                let vis = &raw_ui.ctx().style().visuals;
+                let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
+                let mut chart = ChartBuilder::on(&area)
+                    .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
+                    chart.with_projection(|mut p| {
+                    p.pitch = self.pitch; //0.8;
+                    p.scale = 0.75;
+                    p.yaw = self.rot;
+                    p.into_matrix() // build the projection matrix
+                });
+
+
+                chart
+                    .configure_axes()
+                    .x_labels(self.x_values.len())
+                    .y_labels(10)
+                    .z_labels(self.y_values.len())
+                    .light_grid_style(into_rgba_color(vis.text_color()))
+                    .max_light_lines(1)
+                    .draw().unwrap();
+
+                chart.draw_series(
+                    SurfaceSeries::xoz(
+                        self.x_values.iter().map(|x| *x as f64),
+                        self.y_values.iter().map(|y| *y as f64),
+                        |x, y| {
+                            let x_v = x as i16;
+                            let y_v = y as i16;
+                            let x_idx = self.x_values.iter().position(|s| *s == x_v).unwrap();
+                            let y_idx = self.y_values.iter().position(|s| *s == y_v).unwrap();
+                            let len = self.x_values.len();
+                            src[(len*y_idx)+x_idx] as f64
+                        }
+                    )
+                    .style_func(&|&v| {
+                        (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
+                    })
+                )
+                .unwrap();
+                let _ = area.present();
+            };
         });
         if self.data_modify != self.data_eeprom {
             if raw_ui.button("Undo user changes").clicked() {
@@ -638,7 +616,51 @@ impl Map {
                 self.data_modify = self.data_program.clone();
             }
         }
-        None
+        action
+    }
+}
+
+pub fn save_map(map: &Map) {
+    let save_data = MapSaveData {
+        id: map.meta.id,
+        x_values: map.x_values.clone(),
+        y_values: map.y_values.clone(),
+        state: map.data_eeprom.clone(),
+    };
+    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
+        let bin = bincode::serialize(&save_data).unwrap();
+        let mut f = File::create(picked).unwrap();
+        let _ = f.write_all(&bin);  
+    }
+}
+
+pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
+    let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
+    let mut f = File::open(path).unwrap();
+    let mut contents = Vec::new();
+    f.read_to_end(&mut contents).unwrap();
+    let save_data = bincode::deserialize::<MapSaveData>(&contents).map_err(|e| e.to_string());
+    match save_data {
+        Ok(data) => {
+            if data.id != map.meta.id {
+                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id, data.id)));
+            }
+            if data.x_values != map.x_values {
+                return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
+            }
+            if data.y_values != map.y_values {
+                return Some(Err(format!("Y sizes differ! Map spec has changed. Saved map is no longer valid")));
+            }
+            if data.state.len() != map.data_eeprom.len() {
+                return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
+            }
+            // All OK!
+            map.data_eeprom = data.state;
+            return Some(Ok(()))
+        },
+        Err(e) => {
+            return Some(Err(e))
+        }
     }
 }
 
@@ -691,8 +713,9 @@ impl MapData {
 
 pub struct MapEditor {
     nag: Nag52Diag,
-    loaded_maps: HashMap<String, Map>,
+    loaded_maps: HashMap<u8, Map>,
     error: Option<String>,
+    current_map: Option<u8>
 }
 
 impl MapEditor {
@@ -702,6 +725,7 @@ impl MapEditor {
             nag,
             loaded_maps: HashMap::new(),
             error: None,
+            current_map: None
         }
     }
 }
@@ -712,45 +736,43 @@ impl super::InterfacePage for MapEditor {
         ui: &mut eframe::egui::Ui,
         frame: &eframe::Frame,
     ) -> crate::window::PageAction {
-        for map in MAP_ARRAY {
-            if ui.button(map.name).clicked() {
-                self.error = None;
-                match Map::new(map.id, self.nag.clone(), map.clone()) {
-                    Ok(m) => {
-                        // Only if map is not already loaded
-                        if !self.loaded_maps.contains_key(&m.eeprom_key) {
-                            self.loaded_maps.insert(m.eeprom_key.clone(), m);
+        let mut action = None;
+        ScrollArea::new([true, false]).id_source("scroll-buttons").max_height(40.0).auto_shrink([true, false]).show(ui, |ui| {
+            ui.horizontal(|row| {
+                for map in MAP_ARRAY {
+                    if row.selectable_label(Some(map.id) == self.current_map, map.name).clicked() {
+                        self.current_map = Some(map.id);
+                        self.error = None;
+                        match Map::new(map.id, self.nag.clone(), map.clone()) {
+                            Ok(m) => {
+                                // Only if map is not already loaded
+                                if !self.loaded_maps.contains_key(&map.id) {
+                                    self.loaded_maps.insert(map.id, m);
+                                }
+                            }
+                            Err(e) => self.error = Some(e.to_string()),
                         }
                     }
-                    Err(e) => self.error = Some(e.to_string()),
                 }
+            });
+        });
+        ui.separator();
+        if self.current_map == None {
+            ui.centered_and_justified(|ui| ui.strong("Please select a map"));
+        } else {
+            let id = self.current_map.unwrap();
+            if let Some(err) = &self.error {
+                ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
+            } else {
+                let map = self.loaded_maps.get_mut(&id).unwrap();
+                action = map.generate_window_ui(ui);
             }
-        }
-
-        let mut remove_list: Vec<String> = Vec::new();
-        let mut action = None;
-        for (key, map) in self.loaded_maps.iter_mut() {
-            let mut open = true;
-            egui::Window::new(map.meta.name)
-                .auto_sized()
-                .collapsible(true)
-                .open(&mut open)
-                .vscroll(false)
-                .default_size(vec2(800.0, 400.0))
-                .show(ui.ctx(), |window| {
-                    action = map.generate_window_ui(window);
-                });
-            if !open {
-                remove_list.push(key.clone())
-            }
-        }
-        for key in remove_list {
-            self.loaded_maps.remove(&key);
         }
         if let Some(act) = action {
-            return act;
+            act
+        } else {
+            PageAction::None
         }
-        PageAction::None
     }
 
     fn get_title(&self) -> &'static str {
