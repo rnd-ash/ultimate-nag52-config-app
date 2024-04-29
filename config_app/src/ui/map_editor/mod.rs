@@ -654,7 +654,7 @@ pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
                 return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
             }
             // All OK!
-            map.data_eeprom = data.state;
+            map.data_modify = data.state;
             return Some(Ok(()))
         },
         Err(e) => {
