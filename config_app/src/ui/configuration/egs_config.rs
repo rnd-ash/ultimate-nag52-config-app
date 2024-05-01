@@ -395,7 +395,7 @@ impl InterfacePage for EgsConfigPage {
                         ui.label("Save to YML, edit, then load!");
                         ui.colored_label(Color32::RED, "EDITING CALIBRATIONS IS SUPER DANGEROUS. ENSURE YOU KNOW WHAT YOU ARE DOING");
                         if ui.button("Save to YML").clicked() {
-                            if let Some(f) = rfd::FileDialog::new().add_filter("YML", &[".yml"]).save_file() {
+                            if let Some(f) = rfd::FileDialog::new().add_filter("yml", &["yml"]).save_file() {
                                 let dump = match editing {
                                     CalibrationSection::Hyraulic => serde_yaml::to_string(&interpreted.hydr_cal).unwrap(),
                                     CalibrationSection::Mechanical => serde_yaml::to_string(&interpreted.mech_cal).unwrap(),
@@ -406,7 +406,7 @@ impl InterfacePage for EgsConfigPage {
                             }
                         }
                         if ui.button("Load from file").clicked() {
-                            if let Some(f) = rfd::FileDialog::new().add_filter("YML", &[".yml"]).pick_file() {
+                            if let Some(f) = rfd::FileDialog::new().add_filter("yml", &["yml"]).pick_file() {
                                 let mut r = File::open(f.clone()).unwrap();
                                 let mut buf = Vec::new();
                                 r.read_to_end(&mut buf).unwrap();
