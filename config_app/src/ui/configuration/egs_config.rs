@@ -1,16 +1,24 @@
-use std::{borrow::{Borrow, BorrowMut}, cmp::min, mem::size_of, thread::JoinHandle};
+use std::{borrow::{Borrow, BorrowMut}, cmp::min, fs::File, io::{Read, Write}, mem::size_of, thread::JoinHandle};
 
 use config_app_macros::include_base64;
 use eframe::egui::{Color32, Grid, Label, RichText, ScrollArea, Window};
 use egui_extras::Column;
+use egui_toast::ToastKind;
 use packed_struct::PackedStructSlice;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::window::{InterfacePage, PageAction};
 
-use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagError, DiagServerResult}};
+use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagError, DiagServerResult}, serde_yaml};
 
 
 const EGS_DB_BYTES: &[u8] = include_bytes!("../../../../egs_db.bin"); 
+
+pub enum CalibrationSection {
+    Hyraulic,
+    Mechanical,
+    TorqueConverter
+}
 
 #[derive(Debug, Clone)]
 pub struct EgsLinkedData {
@@ -31,6 +39,7 @@ pub struct EgsConfigPage {
     pub nag: Nag52Diag,
     pub gb_input: String,
     pub chassis_input: String,
+    pub editing_cal: Option<CalibrationSection>
 }
 
 fn sign_and_crc(egs: &mut EgsStoredCalibration) {
@@ -140,7 +149,8 @@ impl EgsConfigPage {
             calibration_contents: Ok(Vec::new()),
             res: Some(r),
             gb_input: String::default(),
-            chassis_input: String::default()
+            chassis_input: String::default(),
+            editing_cal: None
         }
     }
 
@@ -170,6 +180,7 @@ impl EgsConfigPage {
 
 impl InterfacePage for EgsConfigPage {
     fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+        let mut action = PageAction::None;
         let mut take = false;
         if let Some(h) = self.res.borrow_mut() {
             if h.is_finished() {
@@ -205,46 +216,61 @@ impl InterfacePage for EgsConfigPage {
             match String::from_utf8(interpreted.hydr_cal_name.to_vec()) {
                 Ok(name) => {
                     let parts_maybe = name.split(".").collect::<Vec<&str>>();
-                    if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
-                        // MB calibration
-                        ui.colored_label(Color32::GREEN,  format!("Hydraulic calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]))
-                    } else {
-                        ui.colored_label(Color32::GREEN,  format!("Custom Hydraulic calibration in use: '{name}'"))
-                    }
+                    ui.horizontal(|row| {
+                        if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
+                            // MB calibration
+                            row.colored_label(Color32::GREEN,  format!("Hydraulic calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
+                        } else {
+                            row.colored_label(Color32::GREEN,  format!("Custom Hydraulic calibration in use: '{name}'"));
+                        }
+                        if row.button("Load/Save from file").clicked() {
+                            self.editing_cal = Some(CalibrationSection::Hyraulic)
+                        }
+                    });
                 },
                 Err(_) => {
                     error_counter += 1;
-                    ui.colored_label(Color32::RED, "Hydraulic calibration NOT FOUND")
+                    ui.colored_label(Color32::RED, "Hydraulic calibration NOT FOUND");
                 }
             };
             match String::from_utf8(interpreted.mech_cal_name.to_vec()) {
                 Ok(name) => {
                     let parts_maybe = name.split(".").collect::<Vec<&str>>();
-                    if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
-                        // MB calibration
-                        ui.colored_label(Color32::GREEN,  format!("Mechanical calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]))
-                    } else {
-                        ui.colored_label(Color32::GREEN,  format!("Custom mechanical calibration in use: '{name}'"))
-                    }
+                    ui.horizontal(|row| {
+                        if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
+                            // MB calibration
+                            row.colored_label(Color32::GREEN,  format!("Mechanical calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
+                        } else {
+                            row.colored_label(Color32::GREEN,  format!("Custom mechanical calibration in use: '{name}'"));
+                        }
+                        if row.button("Load/Save from file").clicked() {
+                            self.editing_cal = Some(CalibrationSection::Mechanical)
+                        }
+                    });
                 },
                 Err(_) => {
                     error_counter += 1;
-                    ui.colored_label(Color32::RED, "Mechanical calibration NOT FOUND")
+                    ui.colored_label(Color32::RED, "Mechanical calibration NOT FOUND");
                 }
             };
             match String::from_utf8(interpreted.tcc_cal_name.to_vec()) {
                 Ok(name) => {
                     let parts_maybe = name.split(".").collect::<Vec<&str>>();
-                    if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
-                        // MB calibration
-                        ui.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]))
-                    } else {
-                        ui.colored_label(Color32::GREEN,  format!("Custom TCC properties calibration in use: '{name}'"))
-                    }
+                    ui.horizontal(|row| {
+                        if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
+                            // MB calibration
+                            row.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                        } else {
+                            row.colored_label(Color32::GREEN,  format!("Custom TCC properties calibration in use: '{name}'"));
+                        }
+                        if row.button("Load/Save from file").clicked() {
+                            self.editing_cal = Some(CalibrationSection::TorqueConverter)
+                        }
+                    });
                 },
                 Err(_) => {
                     error_counter += 1;
-                    ui.colored_label(Color32::RED, "TCC properties calibration NOT FOUND")
+                    ui.colored_label(Color32::RED, "TCC properties calibration NOT FOUND");
                 }
             };
 
@@ -358,8 +384,65 @@ impl InterfacePage for EgsConfigPage {
                     self.viewing_cal = None;
                 }
             }
+
+
+            if let Some(editing) = &self.editing_cal {
+                let mut open = true;
+                Window::new("Explore calibrations")
+                    .open(&mut open)
+                    .show(ui.ctx(), |ui| {
+                        ui.strong("Editing in the config app is unsupported at this time");
+                        ui.label("Save to YML, edit, then load!");
+                        ui.colored_label(Color32::RED, "EDITING CALIBRATIONS IS SUPER DANGEROUS. ENSURE YOU KNOW WHAT YOU ARE DOING");
+                        if ui.button("Save to YML").clicked() {
+                            if let Some(f) = rfd::FileDialog::new().add_filter("YML", &[".yml"]).save_file() {
+                                let dump = match editing {
+                                    CalibrationSection::Hyraulic => serde_yaml::to_string(&interpreted.hydr_cal).unwrap(),
+                                    CalibrationSection::Mechanical => serde_yaml::to_string(&interpreted.mech_cal).unwrap(),
+                                    CalibrationSection::TorqueConverter => serde_yaml::to_string(&interpreted.tcc_cal).unwrap(),
+                                };
+                                let mut r = File::create(f).unwrap();
+                                r.write_all(dump.as_bytes()).unwrap();
+                            }
+                        }
+                        if ui.button("Load from file").clicked() {
+                            if let Some(f) = rfd::FileDialog::new().add_filter("YML", &[".yml"]).pick_file() {
+                                let mut r = File::open(f.clone()).unwrap();
+                                let mut buf = Vec::new();
+                                r.read_to_end(&mut buf).unwrap();
+                                let contents = String::from_utf8(buf).unwrap();
+                                let res = match editing {
+                                    CalibrationSection::Hyraulic => serde_yaml::from_str::<EgsHydraulicConfiguration>(&contents).map(|x| interpreted.hydr_cal = x),
+                                    CalibrationSection::Mechanical => serde_yaml::from_str::<EgsMechanicalConfiguration>(&contents).map(|x| interpreted.mech_cal = x),
+                                    CalibrationSection::TorqueConverter => serde_yaml::from_str::<EgsTorqueConverterConfiguration>(&contents).map(|x| interpreted.tcc_cal = x),
+                                };
+                                if let Err(e) = res {
+                                    let msg = format!("Failed to load calibrations: {}", e.to_string());
+                                    action = PageAction::SendNotification { text: msg, kind: ToastKind::Error };
+                                } else {
+                                    let n = f.file_name().unwrap();
+                                    let sl= n.to_string_lossy();
+                                    let cal_name = sl.split(".yml").next().unwrap();
+                                    let mut buf = cal_name.as_bytes().to_vec();
+                                    buf.resize(16, 0x00);
+                                    match editing {
+                                        CalibrationSection::Hyraulic => interpreted.hydr_cal_name = buf.try_into().unwrap(),
+                                        CalibrationSection::Mechanical => interpreted.mech_cal_name = buf.try_into().unwrap(),
+                                        CalibrationSection::TorqueConverter => interpreted.tcc_cal_name = buf.try_into().unwrap()
+                                    }
+                                    // Sign and save
+                                    sign_and_crc(&mut interpreted);
+                                    interpreted.pack_to_slice(flash).unwrap();
+                                }
+                            }
+                        }
+                    });
+                if !open {
+                    self.editing_cal = None;
+                }
+            }
         }
-        PageAction::None
+        action
     }
 
     fn get_title(&self) -> &'static str {
