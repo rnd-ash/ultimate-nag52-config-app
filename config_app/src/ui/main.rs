@@ -1,3 +1,4 @@
+use backend::diag::device_modes::TcuDeviceMode;
 use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
@@ -25,7 +26,8 @@ pub struct MainPage {
     diag_server: &'static mut Nag52Diag,
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
-    first_run: bool
+    first_run: bool,
+    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>
 }
 
 impl MainPage {
@@ -38,12 +40,12 @@ impl MainPage {
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
-        
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
+            tcu_mode: Arc::new(RwLock::new(DataState::Unint)),
         }
     }
 }
@@ -94,6 +96,35 @@ impl InterfacePage for MainPage {
         ui.add(egui::Separator::default());
         let mut create_page = None;
         let ctx = ui.ctx().clone();
+        if let DataState::LoadOk(mode) = self.tcu_mode.read().clone() {
+            ui.vertical_centered(|ui| {
+                ui.heading("TCU Status");
+                if mode.contains(TcuDeviceMode::NO_CALIBRATION) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU requires calibrations, and will NOT function. Please go to the EGS compatibility page
+                        to correct this!"  
+                    );
+                } else if mode.contains(TcuDeviceMode::CANLOGGER) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is in CAN logging mode, and will NOT function. To disable this,
+                        please go to the Diagnostic routine executor page, and then CAN Logger."  
+                    );
+                } else if mode.contains(TcuDeviceMode::SLAVE) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is in slave mode! It will NOT function."  
+                    );
+                } else if mode.contains(TcuDeviceMode::ERROR) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU has encountered an error. Please consult the LOG window to
+                        see what is wrong."  
+                    );
+                } else {
+                    ui.label("TCU is running normally.");
+                }
+                ui.separator();
+            });
+        }
+        
         ui.vertical_centered(|v| {
             v.heading("Tools");
             if v.button("Updater").clicked() {
@@ -206,12 +237,11 @@ impl InterfacePage for MainPage {
     }
 
     fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>) {
-        println!("OnLoad called");
         let tcu = self.diag_server.clone();
         let setting_lock = self.info.clone();
         let sn_lock = self.sn.clone();
+        let mode_lock = self.tcu_mode.clone();
         std::thread::spawn(move|| {
-            println!("Querying TCU");
             let state = match tcu.query_ecu_data() {
                 Ok(info) => DataState::LoadOk(info),
                 Err(err) => DataState::LoadErr(err.to_string()),
@@ -222,6 +252,11 @@ impl InterfacePage for MainPage {
                 Err(err) => DataState::LoadErr(err.to_string()),
             };
             *sn_lock.write() = state;
+            let state: DataState<TcuDeviceMode> = match tcu.read_device_mode() {
+                Ok(sn) => DataState::LoadOk(sn),
+                Err(err) => DataState::LoadErr(err.to_string()),
+            };
+            *mode_lock.write() = state;
         });
     }
 
