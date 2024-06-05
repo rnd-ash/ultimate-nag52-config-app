@@ -18,9 +18,10 @@ use backend::{
 };
 use eframe::egui::{
     self,
-    plot::{Legend, Line, Plot},
     widgets, Color32, RichText,
 };
+
+use egui_plot::{Legend, Line, Plot};
 
 use crate::{window::PageAction};
 
@@ -33,7 +34,7 @@ pub struct SolenoidTestPage {
 
 const TempCoefficient: f32 = 0.393; // Copper coils and wires
 
-const ResistanceMeasureTemp: f32 = 25.0; // Mercedes tests resistance at 25C
+const ResistanceMeasureTemp: f32 = 20.0; // Mercedes tests resistance at 20C
 
 // From Sonnax data
 const ResitanceMPC: std::ops::RangeInclusive<f32> = (4.0..=8.0); // 6

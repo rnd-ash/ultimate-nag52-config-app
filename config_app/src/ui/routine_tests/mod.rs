@@ -4,11 +4,14 @@ use backend::diag::Nag52Diag;
 
 use crate::window::PageAction;
 
-use self::{solenoid_test::SolenoidTestPage, adaptation::AdaptationViewerPage, tcc_control::TccControlPage};
+use self::{solenoid_test::SolenoidTestPage, adaptation::AdaptationViewerPage, tcc_control::TccControlPage, canlogger::CanLoggerPage, atf_temp_cal::AtfTempCalibrationPage};
 
 pub mod solenoid_test;
 pub mod adaptation;
 pub mod tcc_control;
+pub mod canlogger;
+pub mod atf_temp_cal;
+
 pub struct RoutinePage {
     nag: Nag52Diag,
 }
@@ -68,6 +71,34 @@ impl crate::window::InterfacePage for RoutinePage {
             page_action = PageAction::Add(Box::new(TccControlPage::new(
                 self.nag.clone()
             )));
+        }
+
+        ui.label(
+            "
+            Calibrate ATF temperature curve to remove board to board variance
+        ",
+        );
+        if ui.button("ATF curve calibration").clicked() {
+            page_action = PageAction::Add(Box::new(AtfTempCalibrationPage::new(
+                self.nag.clone()
+            )));
+        }
+
+        if self.nag.has_logger() { // AKA USB connection
+
+            ui.label(
+                "
+            DEBUGGING ONLY! 
+            Can logger - Turn your TCU into a CANbus logging device.
+
+            NOTE: This can ONLY be done with a USB connection to the TCU
+            "
+            );
+            if ui.button("CAN Logger").clicked() {
+                page_action = PageAction::Add(Box::new(CanLoggerPage::new(
+                    self.nag.clone(), ui.ctx().clone()
+                )));
+            }
         }
 
         page_action

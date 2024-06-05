@@ -86,34 +86,6 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x07,
-        "Working pressure",
-        "%",
-        "",
-        "Input torque (% of rated)",
-        "Gear",
-        "Downshift RPM threshold",
-        "mBar",
-        None,
-        Some(&["P/N", "R1/R2", "1", "2", "3", "4", "5"]),
-        true
-        //None
-    ),
-    MapData::new(
-        0x08,
-        "Pressure solenoid current",
-        "mBar",
-        "C",
-        "Working pressure",
-        "ATF Temperature",
-        "Solenoid current (mA)",
-        "mA",
-        None,
-        None,
-        false
-        //None
-    ),
-    MapData::new(
         0x09,
         "TCC solenoid Pwm",
         "mBar",
@@ -152,20 +124,6 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
-        true
-        //None
-    ),
-    MapData::new(
-        0x0C,
-        "MPC fill phase adder",
-        "%",
-        "",
-        "Input torque % of rated box",
-        "Clutch",
-        "MPC pressure adderin millibar",
-        "mBar",
-        None,
-        Some(&["K1", "K2", "K3", "B1", "B2"]),
         true
         //None
     ),
@@ -311,15 +269,29 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
     ),
     MapData::new(
         0xA0,
-        "Torque converter lock adapt map (Low torque)",
+        "Torque converter slip adapt map",
+        "%",
         "",
+        "Gear",
+        "",
+        "Slipping pressure(mBar)",
+        "mBar",
+        None,
+        Some(&["D1", "D2", "D3", "D4", "D5"]),
+        false
+        //None
+    ),
+    MapData::new(
+        0xA1,
+        "Torque converter lock adapt map",
+        "%",
         "",
         "Gear",
         "",
         "Locking pressure(mBar)",
         "mBar",
-        Some(&["D1", "D2", "D3", "D4", "D5"]),
         None,
+        Some(&["D1", "D2", "D3", "D4", "D5"]),
         false
         //None
     ),

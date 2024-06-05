@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{Borrow, BorrowMut},
-    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}},
+    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}, atomic::AtomicU16},
 };
 
 use ecu_diagnostics::{hardware::{
@@ -16,7 +16,7 @@ use ecu_diagnostics::{
 };
 use ecu_diagnostics::{kwp2000::*, DiagServerResult};
 
-#[cfg(unix)]
+#[cfg(target_os="linux")]
 use ecu_diagnostics::hardware::socketcan::{SocketCanDevice, SocketCanScanner};
 
 use crate::hw::{
@@ -24,16 +24,22 @@ use crate::hw::{
     usb_scanner::Nag52UsbScanner,
 };
 
+use self::device_modes::TcuDeviceMode;
+
 pub mod flash;
 pub mod ident;
 pub mod settings;
 pub mod nvs;
+pub mod device_modes;
+pub mod module_settings_flash_store;
+pub mod calibration;
+pub mod memory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AdapterType {
     USB,
     Passthru,
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     SocketCAN,
 }
 
@@ -62,7 +68,7 @@ impl<T> DataState<T> {
 pub enum AdapterHw {
     Usb(Nag52USB),
     Passthru(PassthruDevice),
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     SocketCAN(SocketCanDevice),
 }
 
@@ -71,7 +77,7 @@ impl fmt::Debug for AdapterHw {
         match self {
             Self::Usb(_) => f.debug_tuple("Usb").finish(),
             Self::Passthru(_) => f.debug_tuple("Passthru").finish(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(_) => f.debug_tuple("SocketCAN").finish(),
         }
     }
@@ -82,7 +88,7 @@ impl AdapterHw {
         Ok(match ty {
             AdapterType::USB => Self::Usb(Nag52USB::try_connect(info)?),
             AdapterType::Passthru => Self::Passthru(PassthruDevice::try_connect(info)?),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             AdapterType::SocketCAN => Self::SocketCAN(SocketCanDevice::try_connect(info)?),
         })
     }
@@ -91,7 +97,7 @@ impl AdapterHw {
         match self {
             Self::Usb(_) => AdapterType::USB,
             Self::Passthru(_) => AdapterType::Passthru,
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(_) => AdapterType::SocketCAN,
         }
     }
@@ -100,7 +106,7 @@ impl AdapterHw {
         match self.borrow_mut() {
             Self::Usb(u) => u.create_iso_tp_channel(),
             Self::Passthru(p) => p.create_iso_tp_channel(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.create_iso_tp_channel(),
         }
     }
@@ -109,7 +115,7 @@ impl AdapterHw {
         match self {
             Self::Usb(u) => u.get_info().clone(),
             Self::Passthru(p) => p.get_info().clone(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.get_info().clone(),
         }
     }
@@ -118,7 +124,7 @@ impl AdapterHw {
         match self {
             Self::Usb(u) => u.get_data_rate(),
             Self::Passthru(p) => p.get_data_rate(),
-            #[cfg(unix)]
+            #[cfg(target_os="linux")]
             Self::SocketCAN(s) => s.get_data_rate(),
         }
     }
@@ -141,7 +147,7 @@ pub trait Nag52Endpoint: Hardware {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os="linux")]
 impl Nag52Endpoint for SocketCanDevice {
 
     fn is_connected(&self) -> bool {
@@ -243,6 +249,7 @@ impl NagAppLogger {
 
 #[derive(Debug, Clone)]
 pub struct Nag52Diag {
+    device_mode: TcuDeviceMode,
     info: HardwareInfo,
     endpoint: Option<AdapterHw>,
     endpoint_type: AdapterType,
@@ -266,10 +273,10 @@ impl Nag52Diag {
             can_use_ext_addr: false,
         };
 
-        #[cfg(unix)]
+        #[cfg(target_os="linux")]
         if let AdapterHw::SocketCAN(_) = hw {
             channel_cfg.block_size = 8;
-            channel_cfg.st_min = 0x20;
+            channel_cfg.st_min = 10;
         }
 
         let basic_opts = DiagServerBasicOptions {
@@ -308,15 +315,22 @@ impl Nag52Diag {
             inner_logger
         )?;
 
-        Ok(Self {
+        let mut s = Self {
+            device_mode: TcuDeviceMode::NORMAL,
             info: hw.get_hw_info(),
             endpoint_type: hw.get_type(),
             endpoint: Some(hw),
             server: Some(Arc::new(kwp)),
             logger,
             server_mutex: Arc::new(Mutex::new(()))
-        })
+        };
+
+        if let Ok(mode) = s.read_device_mode() {
+            s.device_mode = mode;
+        }
+        Ok(s)
     }
+
 
     pub fn try_reconnect(&mut self) -> DiagServerResult<()> {
         {
@@ -351,6 +365,22 @@ impl Nag52Diag {
 
     pub fn read_log_msg(&self) -> Option<EspLogMessage> {
         self.endpoint.as_ref().map(|x| x.read_log_msg()).flatten()
+    }
+
+    pub fn read_can_msg(&self) -> Option<CanFrame> {
+        let hw = self.endpoint.as_ref()?;
+        if let AdapterHw::Usb(usb) = hw {
+            return usb.read_can();
+        }
+        None
+    }
+
+    pub fn clear_can_buffer(&self) {
+        if let Some(hw) = self.endpoint.as_ref() {
+            if let AdapterHw::Usb(usb) = hw {
+                while usb.read_can().is_some(){}
+            }
+        }
     }
 
     pub fn has_logger(&self) -> bool {

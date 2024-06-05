@@ -1,3 +1,4 @@
+use backend::diag::device_modes::TcuDeviceMode;
 use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
@@ -10,6 +11,7 @@ use eframe::epaint::mutex::RwLock;
 use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
+use super::configuration::egs_config;
 use super::nvs_editor::NvsEditor;
 use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
@@ -24,7 +26,8 @@ pub struct MainPage {
     diag_server: &'static mut Nag52Diag,
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
-    first_run: bool
+    first_run: bool,
+    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>
 }
 
 impl MainPage {
@@ -37,12 +40,12 @@ impl MainPage {
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
-        
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
+            tcu_mode: Arc::new(RwLock::new(DataState::Unint)),
         }
     }
 }
@@ -63,18 +66,17 @@ impl InterfacePage for MainPage {
                 egui::special_emojis::OS_APPLE
             };
             x.label(format!("Config app version {} for {} (Build {})", env!("CARGO_PKG_VERSION"), os_logo, env!("GIT_BUILD")));
-            if env!("GIT_BUILD").ends_with("-dirty") {
-                x.label(RichText::new("Warning. You have a modified copy of the config app! Bugs may be present!").color(Color32::RED));
+            if env!("GIT_BUILD").ends_with("-dirty") || env!("GIT_BUILD") == "UNKNOWN" {
+                x.strong(RichText::new("Warning. You have a modified or testing version of the config app! Bugs may be present!").color(Color32::RED));
             } else {
                 // Check for updates
-                if env!("GIT_BRANCH") == "main" {
-                    
-                } else {
-                    // Check dev branch
-
-                }
-                
             }
+            let link = if env!("GIT_BRANCH").contains("main") {
+                include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPW1haW4mZXhwYW5kZWQ9dHJ1ZQ")
+            } else {
+                include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPWRldiZleHBhbmRlZD10cnVl")
+            };
+            x.hyperlink_to("View config app updates", link);
         });
         ui.separator();
         ui.label(r#"
@@ -83,6 +85,7 @@ impl InterfacePage for MainPage {
             or join the Ultimate-NAG52 discussions Telegram group!
         "#);
         ui.heading("Useful links");
+        ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
         // Weblinks are base64 encoded to avoid potential scraping
         ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
         ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
@@ -92,6 +95,36 @@ impl InterfacePage for MainPage {
         ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
         ui.add(egui::Separator::default());
         let mut create_page = None;
+        let ctx = ui.ctx().clone();
+        if let DataState::LoadOk(mode) = self.tcu_mode.read().clone() {
+            ui.vertical_centered(|ui| {
+                ui.heading("TCU Status");
+                if mode.contains(TcuDeviceMode::NO_CALIBRATION) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU requires calibrations, and will NOT function. Please go to the EGS compatibility page
+                        to correct this!"  
+                    );
+                } else if mode.contains(TcuDeviceMode::CANLOGGER) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is in CAN logging mode, and will NOT function. To disable this,
+                        please go to the Diagnostic routine executor page, and then CAN Logger."  
+                    );
+                } else if mode.contains(TcuDeviceMode::SLAVE) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is in slave mode! It will NOT function."  
+                    );
+                } else if mode.contains(TcuDeviceMode::ERROR) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU has encountered an error. Please consult the LOG window to
+                        see what is wrong."  
+                    );
+                } else {
+                    ui.label("TCU is running normally.");
+                }
+                ui.separator();
+            });
+        }
+        
         ui.vertical_centered(|v| {
             v.heading("Tools");
             if v.button("Updater").clicked() {
@@ -127,12 +160,15 @@ impl InterfacePage for MainPage {
             if v.button("TCU Program settings").on_hover_text("CAUTION. DANGEROUS!").clicked() {
                 create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
                     self.diag_server.clone(),
+                    ctx,
                 ))));
             }
-            if v.button("NVS Editor").on_hover_text("CAUTION. DANGEROUS!").clicked() {
-                create_page = Some(PageAction::Add(Box::new(NvsEditor::new(
-                    self.diag_server.clone(),
-                ))));
+            if v.button("Configure EGS compatibility data").clicked() {
+                create_page = Some(
+                    PageAction::Add(Box::new(
+                        egs_config::EgsConfigPage::new(self.diag_server.clone())
+                    ))
+                );
             }
             if v.button("Configure drive profiles").clicked() {
                 create_page = Some(
@@ -201,12 +237,11 @@ impl InterfacePage for MainPage {
     }
 
     fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>) {
-        println!("OnLoad called");
         let tcu = self.diag_server.clone();
         let setting_lock = self.info.clone();
         let sn_lock = self.sn.clone();
+        let mode_lock = self.tcu_mode.clone();
         std::thread::spawn(move|| {
-            println!("Querying TCU");
             let state = match tcu.query_ecu_data() {
                 Ok(info) => DataState::LoadOk(info),
                 Err(err) => DataState::LoadErr(err.to_string()),
@@ -217,6 +252,11 @@ impl InterfacePage for MainPage {
                 Err(err) => DataState::LoadErr(err.to_string()),
             };
             *sn_lock.write() = state;
+            let state: DataState<TcuDeviceMode> = match tcu.read_device_mode() {
+                Ok(sn) => DataState::LoadOk(sn),
+                Err(err) => DataState::LoadErr(err.to_string()),
+            };
+            *mode_lock.write() = state;
         });
     }
 

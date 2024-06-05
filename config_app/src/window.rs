@@ -45,7 +45,8 @@ pub struct MainWindow {
     show_tracer: bool,
     last_data_query_time: Instant,
     last_tx_rate: u32,
-    last_rx_rate: u32
+    last_rx_rate: u32,
+    toasts: Toasts
 }
 
 impl MainWindow {
@@ -62,7 +63,16 @@ impl MainWindow {
             show_tracer: false,
             last_data_query_time: Instant::now(),
             last_tx_rate: 0,
-            last_rx_rate: 0
+            last_rx_rate: 0,
+            toasts: Toasts::new()
+            .anchor(
+                Align2::RIGHT_BOTTOM,
+                Pos2::new(
+                5.0,
+                0.0,
+            ))
+            .direction(Direction::BottomUp)
+
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
@@ -87,7 +97,7 @@ pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
-
+        egui_extras::install_image_loaders(ctx);
         if unsafe { GLOBAL_EGUI_CONTEXT.is_none() } {
             unsafe { GLOBAL_EGUI_CONTEXT = Some(ctx.clone()) };
         }
@@ -204,8 +214,8 @@ impl eframe::App for MainWindow {
                             let c_tx = Color32::from_rgba_unmultiplied(0, 255, 0, a_tx as u8);
                             let c_rx = Color32::from_rgba_unmultiplied(255, 0, 0, a_rx as u8);
 
-                            p_tx.rect_filled(r_tx, Rounding::none(), c_tx);
-                            p_rx.rect_filled(r_rx, Rounding::none(), c_rx);
+                            p_tx.rect_filled(r_tx, Rounding::ZERO, c_tx);
+                            p_rx.rect_filled(r_rx, Rounding::ZERO, c_rx);
                             p_tx.text(r_tx.center(), Align2::CENTER_CENTER, "Tx", FontId::monospace(10.0), Color32::WHITE);
                             p_rx.text(r_rx.center(), Align2::CENTER_CENTER, "Rx", FontId::monospace(10.0), Color32::WHITE);
 
@@ -228,13 +238,6 @@ impl eframe::App for MainWindow {
                 self.pop_page();
             }
 
-            let mut toasts = Toasts::new()
-                .anchor(Pos2::new(
-                    5.0,
-                    ctx.available_rect().height() - s_bar_height - 10.0,
-                ))
-                .align_to_end(false)
-                .direction(Direction::BottomUp);
             self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui, frame) {
@@ -258,13 +261,13 @@ impl eframe::App for MainWindow {
                     }
                     PageAction::SendNotification { text, kind } => {
                         println!("Pushing notification {}", text);
-                        toasts.add(Toast {
+                        self.toasts.add(Toast {
                             kind,
                             text: WidgetText::RichText(RichText::new(text)),
-                            options: ToastOptions {
-                                show_icon: true,
-                                expires_at: Some(Instant::now().add(Duration::from_secs(5))),
-                            },
+                            options: ToastOptions::default()
+                                .duration_in_seconds(5.0)
+                                .show_progress(true)
+                                .show_icon(true),
                         });
                     }
                     PageAction::RegisterNag(n) => {
@@ -272,7 +275,7 @@ impl eframe::App for MainWindow {
                     },
                 }
             });
-            toasts.show(&ctx);
+            self.toasts.show(&ctx);
 
             // Show Log viewer
             if self.show_logger {
@@ -304,8 +307,8 @@ impl eframe::App for MainWindow {
                             ui.strong("Message");
                         });
                     }).body(|mut body| {
-                        body.rows(10.0, self.logs.len(), |row_index, mut row| {
-                            let msg = &self.logs[row_index];
+                        body.rows(10.0, self.logs.len(), |mut row| {
+                            let msg = &self.logs[row.index()];
                             let c = match msg.lvl {
                                 EspLogLevel::Debug => Color32::DEBUG_COLOR,
                                 EspLogLevel::Info => if is_dark { Color32::GREEN } else { Color32::DARK_GREEN },
