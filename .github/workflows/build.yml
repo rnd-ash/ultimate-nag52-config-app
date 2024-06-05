@@ -40,8 +40,8 @@ jobs:
       run: ls config_app/ -aslh
     - uses: actions/upload-artifact@v3
       with:
-        path: config_app/
-        name: config_app-${{env.APP_VERSION}}-x86_64.AppImage 
+        path: config_app/*.AppImage
+        name: config-app-linux 
 
         
   Windows-App:
@@ -66,7 +66,7 @@ jobs:
         run: ls target -R
       - uses: actions/upload-artifact@v3
         with:
-          name: config-app-${{env.BRANCH_NAME}}-exe
+          name: config-app-exe
           path: target/i686-pc-windows-msvc/release/*.exe
 
   OSX-app:
@@ -76,14 +76,16 @@ jobs:
       - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
         working-directory: ./config_app
-        run: cargo build --verbose --release
+        run: cargo bundle --release
       - uses: actions/upload-artifact@v3
         with:
-          name: config-app-${{env.BRANCH_NAME}}-osx
-          path: target/release/config_app
+          name: config-app-osx
+          path: target/release/bundle/osx/*.app
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app]
@@ -112,9 +114,9 @@ jobs:
         tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
         name: Release ${{ env.BRANCH_NAME }}
         files: |
-          config-app-${{env.BRANCH_NAME}}-exe/*.exe
-          config-app-${{env.BRANCH_NAME}}-appimage/*.AppImage
-          config-app-${{env.BRANCH_NAME}}-osx/config_app
+          config-app-exe/*.exe
+          config-app-linux/*.AppImage
+          config-app-osx/*.app
       
           
        

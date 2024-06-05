@@ -1,5 +1,5 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
-use eframe::egui::plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
+use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
 use std::{
     ops::RangeInclusive,
     sync::{
@@ -142,24 +142,24 @@ impl crate::window::InterfacePage for SolenoidPage {
 
         let mut bars = Vec::new();
         let mut legend = Legend::default();
-        let x_fmt = |y, _range: &RangeInclusive<f64>| {
-            match y as usize {
-                1 => "MPC",
-                2 => "SPC",
-                3 => "TCC",
-                4 => "Y3",
-                5 => "Y4",
-                6 => "Y5",
-                _ => "",
-            }
-            .to_string()
-        };
+        //let x_fmt = |y, _nc, _range: &RangeInclusive<f64>| {
+        //    match y as usize {
+        //        1 => "MPC",
+        //        2 => "SPC",
+        //        3 => "TCC",
+        //        4 => "Y3",
+        //        5 => "Y4",
+        //        6 => "Y5",
+        //        _ => "",
+        //    }
+        //    .to_string()
+        //};
 
         let mut plot = Plot::new("Solenoid data")
             .allow_drag(false)
             .include_y(0)
             .legend(legend.clone())
-            .x_axis_formatter(x_fmt)
+            //.x_axis_formatter(x_fmt)
             .allow_zoom(false)
             .allow_boxed_zoom(false)
             .allow_scroll(false)
@@ -214,8 +214,8 @@ impl crate::window::InterfacePage for SolenoidPage {
                 )
                 .name("Y5"),
             );
-            let mut y_fmt_pwm = |x, _range: &RangeInclusive<f64>| format!("{} %", x);
-            plot = plot.y_axis_formatter(y_fmt_pwm);
+            //let mut y_fmt_pwm = |x, _nc, _range: &RangeInclusive<f64>| format!("{} %", x);
+            //plot = plot.y_axis_formatter(y_fmt_pwm);
             plot = plot.include_y(100);
         } else {
             bars.push(
@@ -266,8 +266,8 @@ impl crate::window::InterfacePage for SolenoidPage {
                 )
                 .name("Y5"),
             );
-            let mut y_fmt_current = |x, _range: &RangeInclusive<f64>| format!("{} mA", x);
-            plot = plot.y_axis_formatter(y_fmt_current);
+            //let mut y_fmt_current = |x, _nc, _range: &RangeInclusive<f64>| format!("{} mA", x);
+            //plot = plot.y_axis_formatter(y_fmt_current);
             plot = plot.include_y(2000);
         }
         plot.show(ui, |plot_ui| {

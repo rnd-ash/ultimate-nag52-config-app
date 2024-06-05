@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
+use eframe::egui::{include_image, ImageSource};
 use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
+use strum_macros::EnumIter;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, PackedStruct)]
 #[packed_struct(endian="lsb")]
@@ -37,29 +39,31 @@ pub struct TcmCoreConfig {
     pub engine_drag_torque: u16
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum EgsCanType {
     UNKNOWN = 0,
     EGS51 = 1,
     EGS52 = 2,
     EGS53 = 3,
+    HFM = 4,
+    CUSTOM_ECU = 5
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum ShifterStyle {
     EWM_CAN = 0,
     TRRS = 1,
-    SLR_MCLAREN = 2, // NEEDS TESTING (Need to work out how this works)
+    SLR_MCLAREN = 2,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum IOPinConfig {
     NotConnected = 0,
     Input = 1,
     Output = 2,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum MosfetPurpose {
     NotConnected = 0,
     TorqueCutTrigger = 1,
@@ -76,7 +80,7 @@ pub struct TcmEfuseConfig {
     pub manf_year: u8,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum DefaultProfile {
     Standard = 0,
     Comfort = 1,
@@ -85,18 +89,29 @@ pub enum DefaultProfile {
     Manual = 4,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum EngineType {
     Diesel,
     Petrol,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum BoardType {
     Unknown = 0,
     V11 = 1,
     V12 = 2,
     V13 = 3,
+}
+
+impl BoardType {
+    pub fn image_source(&self) -> Option<ImageSource> {
+        match self {
+            BoardType::Unknown => None,
+            BoardType::V11 => Some(include_image!("../../../res/pcb_11.jpg")),
+            BoardType::V12 => Some(include_image!("../../../res/pcb_12.jpg")),
+            BoardType::V13 => Some(include_image!("../../../res/pcb_13.jpg")),
+        }   
+    }
 }
 
 impl Display for BoardType {

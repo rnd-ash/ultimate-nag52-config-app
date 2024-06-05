@@ -1,5 +1,5 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::KwpSessionType};
-use eframe::egui::plot::{Legend, Line, Plot};
+use egui_plot::{Legend, Line, Plot};
 use std::{
     char::MAX,
     sync::{
