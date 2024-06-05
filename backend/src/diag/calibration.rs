@@ -44,13 +44,15 @@ pub struct EgsHydraulicConfiguration {
 pub struct EgsMechanicalConfiguration {
     pub gb_ty: u8,
     pub ratio_table: [u16; 8],
-    pub shift_something_unk1: [u16; 8],
+    #[serde(alias="shift_something_unk1")]
+    pub intertia_factor_table: [u16; 8],
     #[serde(with = "BigArray")]
     pub friction_map: [u16; 48],
     pub max_torque_on_clutch: [u16; 4],
     pub max_torque_off_clutch: [u16; 4],
     pub release_spring_pressure: [u16; 6],
-    pub torque_byte_unk2: [u16; 8],
+    #[serde(alias="torque_byte_unk2")]
+    pub intertia_torque: [u16; 8],
     pub strongest_loaded_clutch_idx: [u8; 8],
     pub unk3: [u16; 8],
     pub atf_density_minus_50c: u16,
