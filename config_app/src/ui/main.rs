@@ -104,6 +104,11 @@ impl InterfacePage for MainPage {
                         "Your TCU requires calibrations, and will NOT function. Please go to the EGS compatibility page
                         to correct this!"  
                     );
+                } else if mode.contains(TcuDeviceMode::NO_EFUSE) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is freshly built and requires EFUSE configuration. Go to the configuration page
+                        to correct this!"  
+                    );
                 } else if mode.contains(TcuDeviceMode::CANLOGGER) {
                     ui.colored_label(Color32::RED, 
                         "Your TCU is in CAN logging mode, and will NOT function. To disable this,
