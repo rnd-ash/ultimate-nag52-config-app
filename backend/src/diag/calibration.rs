@@ -3,6 +3,76 @@ use packed_struct::derive::PackedStruct;
 use serde_big_array::BigArray;
 use serde_derive::{Serialize, Deserialize};
 
+#[derive(PackedStruct, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[repr(C)]
+#[packed_struct(endian = "lsb")]
+pub struct EgsShiftMapConfiguration {
+    // Momentum maps
+    pub momentum_1_2_x: [u8; 3],
+    pub momentum_2_3_x: [u8; 3],
+    pub momentum_3_4_x: [u8; 3],
+    pub momentum_4_5_x: [u8; 3],
+    pub momentum_1_2_y: [u8; 2],
+    pub momentum_2_3_y: [u8; 2],
+    pub momentum_3_4_y: [u8; 2],
+    pub momentum_4_5_y: [u8; 2],
+    pub momentum_1_2_z: [u8; 6],
+    pub momentum_2_3_z: [u8; 6],
+    pub momentum_3_4_z: [u8; 6],
+    pub momentum_4_5_z: [u8; 6],
+
+    pub momentum_2_1_x: [u8; 6],
+    pub momentum_3_2_x: [u8; 6],
+    pub momentum_4_3_x: [u8; 6],
+    pub momentum_5_4_x: [u8; 6],
+    pub momentum_2_1_y: [u8; 10],
+    pub momentum_3_2_y: [u8; 10],
+    pub momentum_4_3_y: [u8; 10],
+    pub momentum_5_4_y: [u8; 10],
+    #[serde(with = "BigArray")]
+    pub momentum_2_1_z: [u8; 60],
+    #[serde(with = "BigArray")]
+    pub momentum_3_2_z: [u8; 60],
+    #[serde(with = "BigArray")]
+    pub momentum_4_3_z: [u8; 60],
+    #[serde(with = "BigArray")]
+    pub momentum_5_4_z: [u8; 60],
+
+    pub trq_adder_1_2_x: [u8; 6],
+    pub trq_adder_2_3_x: [u8; 6],
+    pub trq_adder_3_4_x: [u8; 6],
+    pub trq_adder_4_5_x: [u8; 6],
+    pub trq_adder_1_2_y: [u8; 8],
+    pub trq_adder_2_3_y: [u8; 8],
+    pub trq_adder_3_4_y: [u8; 8],
+    pub trq_adder_4_5_y: [u8; 8],
+    #[serde(with = "BigArray")]
+    pub trq_adder_1_2_z: [u8; 48],
+    #[serde(with = "BigArray")]
+    pub trq_adder_2_3_z: [u8; 48],
+    #[serde(with = "BigArray")]
+    pub trq_adder_3_4_z: [u8; 48],
+    #[serde(with = "BigArray")]
+    pub trq_adder_4_5_z: [u8; 48],
+
+    pub torque_adder_2_1_x: [u8; 3],
+    pub torque_adder_3_2_x: [u8; 3],
+    pub torque_adder_4_3_x: [u8; 3],
+    pub torque_adder_5_4_x: [u8; 3],
+    pub torque_adder_2_1_y: [u8; 4],
+    pub torque_adder_3_2_y: [u8; 4],
+    pub torque_adder_4_3_y: [u8; 4],
+    pub torque_adder_5_4_y: [u8; 4],
+    #[serde(with = "BigArray")]
+    pub torque_adder_2_1_z: [u8; 12],
+    #[serde(with = "BigArray")]
+    pub torque_adder_3_2_z: [u8; 12],
+    #[serde(with = "BigArray")]
+    pub torque_adder_4_3_z: [u8; 12],
+    #[serde(with = "BigArray")]
+    pub torque_adder_5_4_z: [u8; 12],
+}
+
 #[derive(PackedStruct, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[repr(C)]
 #[packed_struct(endian = "lsb")]
@@ -84,7 +154,8 @@ pub struct ChassisConfig {
     pub chassis: String,
     pub hydr_cfg: String,
     pub mech_cfg: String,
-    pub tcc_cfg: String
+    pub tcc_cfg: String,
+    pub shift_algo_cfg: String
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,7 +169,8 @@ pub struct CalibrationDatabase {
     pub egs_list: Vec<EgsData>,
     pub hydralic_calibrations: Vec<CalibrationRecord<EgsHydraulicConfiguration>>,
     pub mechanical_calibrations: Vec<CalibrationRecord<EgsMechanicalConfiguration>>,
-    pub torqueconverter_calibrations: Vec<CalibrationRecord<EgsTorqueConverterConfiguration>>
+    pub torqueconverter_calibrations: Vec<CalibrationRecord<EgsTorqueConverterConfiguration>>,
+    pub shift_algo_map_calibration: Vec<CalibrationRecord<EgsShiftMapConfiguration>>
 }
 
 // On the TCU itself (At address 0x34900)
@@ -117,5 +189,8 @@ pub struct EgsStoredCalibration {
     pub mech_cal: EgsMechanicalConfiguration,
     pub hydr_cal_name: [u8;16],
     #[packed_field(element_size_bytes="182")]
-    pub hydr_cal: EgsHydraulicConfiguration
+    pub hydr_cal: EgsHydraulicConfiguration,
+    pub shift_algo_cal_name: [u8;16],
+    #[packed_field(element_size_bytes="672")]
+    pub shift_algo_cal: EgsShiftMapConfiguration
 }
