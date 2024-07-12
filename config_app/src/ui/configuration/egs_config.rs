@@ -17,7 +17,8 @@ const EGS_DB_BYTES: &[u8] = include_bytes!("../../../../egs_db.bin");
 pub enum CalibrationSection {
     Hyraulic,
     Mechanical,
-    TorqueConverter
+    TorqueConverter,
+    ShiftAlgo
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,7 @@ pub struct EgsLinkedData {
     pub tcc: String,
     pub mech: String,
     pub hydr: String,
+    pub shift_algo: String
 }
 
 pub struct EgsConfigPage {
@@ -90,6 +92,7 @@ impl EgsConfigPage {
                             tcc: cal.tcc_cfg.clone(),
                             mech: cal.mech_cfg.clone(),
                             hydr: cal.hydr_cfg.clone(),
+                            shift_algo: cal.shift_algo_cfg.clone()
                         });
                     }
                 }
@@ -274,6 +277,27 @@ impl InterfacePage for EgsConfigPage {
                 }
             };
 
+            match String::from_utf8(interpreted.shift_algo_cal_name.to_vec()) {
+                Ok(name) => {
+                    let parts_maybe = name.split(".").collect::<Vec<&str>>();
+                    ui.horizontal(|row| {
+                        if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
+                            // MB calibration
+                            row.colored_label(Color32::GREEN,  format!("Shift algo pack calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                        } else {
+                            row.colored_label(Color32::GREEN,  format!("Custom shift algo pack calibration in use: '{name}'"));
+                        }
+                        if row.button("Load/Save from file").clicked() {
+                            self.editing_cal = Some(CalibrationSection::TorqueConverter)
+                        }
+                    });
+                },
+                Err(_) => {
+                    error_counter += 1;
+                    ui.colored_label(Color32::RED, "Shift algo pack calibration NOT FOUND");
+                }
+            };
+
             if error_counter == 0 {
                 // We can save!
                 if ui.button("Apply calibrations").clicked() {
@@ -302,7 +326,7 @@ impl InterfacePage for EgsConfigPage {
 
             // SCN Columns - [EGS PN, Chassis, GB Code, TCC, MECH, HYDR]
             egui_extras::TableBuilder::new(ui)
-                .columns(Column::auto(), 6)
+                .columns(Column::auto(), 7)
                 .column(Column::exact(100.0))
                 .striped(true)
                 .header(30.0, |mut header| {
@@ -312,6 +336,7 @@ impl InterfacePage for EgsConfigPage {
                     header.col(|c| {c.add(Label::new(RichText::new("TCC property CAL").strong()).wrap(false));});
                     header.col(|c| {c.add(Label::new(RichText::new("Mechanical CAL").strong()).wrap(false));});
                     header.col(|c| {c.add(Label::new(RichText::new("Hydraulic CAL").strong()).wrap(false));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Shift algo CAL").strong()).wrap(false));});
                     header.col(|c| {c.add(Label::new(RichText::new("").strong()).wrap(false));});
                 }).body(|body| {
                     body.rows(20.0, linked_data.len(), |mut row| {
@@ -323,6 +348,7 @@ impl InterfacePage for EgsConfigPage {
                         row.col(|c| {c.add(Label::new(&cal.tcc).wrap(false));});
                         row.col(|c| {c.add(Label::new(&cal.mech).wrap(false));});
                         row.col(|c| {c.add(Label::new(&cal.hydr).wrap(false));});
+                        row.col(|c| {c.add(Label::new(&cal.shift_algo).wrap(false));});
                         row.col(|c| {
                             if c.button("Apply").clicked() {
                                 let c: EgsLinkedData = cal.clone();
@@ -344,6 +370,10 @@ impl InterfacePage for EgsConfigPage {
 
                 let tcc = db.torqueconverter_calibrations.iter().find(|x| {
                     x.valid_egs_pns.contains(&linked_data.pn) && x.name == linked_data.tcc
+                }).unwrap();
+
+                let shift_algo = db.shift_algo_map_calibration.iter().find(|x| {
+                    x.valid_egs_pns.contains(&linked_data.pn) && x.name == linked_data.shift_algo
                 }).unwrap();
 
                 Window::new("Explore calibrations")
@@ -374,6 +404,14 @@ impl InterfacePage for EgsConfigPage {
                             interpreted.tcc_cal_name[0..name.len()].copy_from_slice(name.as_bytes());
                             modified = true;
                         }
+                        if ui.button("Use Shift algo pack calibration").clicked() {
+                            interpreted.shift_algo_cal = shift_algo.data;
+                            let name = format!("{}.{}", linked_data.pn, linked_data.shift_algo);
+                            assert!(name.len() <= 16);
+                            interpreted.shift_algo_cal_name.fill(0);
+                            interpreted.shift_algo_cal_name[0..name.len()].copy_from_slice(name.as_bytes());
+                            modified = true;
+                        }
                         if modified {
                             // Sign and save
                             sign_and_crc(&mut interpreted);
@@ -400,6 +438,7 @@ impl InterfacePage for EgsConfigPage {
                                     CalibrationSection::Hyraulic => serde_yaml::to_string(&interpreted.hydr_cal).unwrap(),
                                     CalibrationSection::Mechanical => serde_yaml::to_string(&interpreted.mech_cal).unwrap(),
                                     CalibrationSection::TorqueConverter => serde_yaml::to_string(&interpreted.tcc_cal).unwrap(),
+                                    CalibrationSection::ShiftAlgo => serde_yaml::to_string(&interpreted.shift_algo_cal).unwrap(),
                                 };
                                 let mut r = File::create(f).unwrap();
                                 r.write_all(dump.as_bytes()).unwrap();
@@ -415,6 +454,7 @@ impl InterfacePage for EgsConfigPage {
                                     CalibrationSection::Hyraulic => serde_yaml::from_str::<EgsHydraulicConfiguration>(&contents).map(|x| interpreted.hydr_cal = x),
                                     CalibrationSection::Mechanical => serde_yaml::from_str::<EgsMechanicalConfiguration>(&contents).map(|x| interpreted.mech_cal = x),
                                     CalibrationSection::TorqueConverter => serde_yaml::from_str::<EgsTorqueConverterConfiguration>(&contents).map(|x| interpreted.tcc_cal = x),
+                                    CalibrationSection::ShiftAlgo => serde_yaml::from_str::<EgsShiftMapConfiguration>(&contents).map(|x| interpreted.shift_algo_cal = x),
                                 };
                                 if let Err(e) = res {
                                     let msg = format!("Failed to load calibrations: {}", e.to_string());
@@ -428,7 +468,8 @@ impl InterfacePage for EgsConfigPage {
                                     match editing {
                                         CalibrationSection::Hyraulic => interpreted.hydr_cal_name = buf.try_into().unwrap(),
                                         CalibrationSection::Mechanical => interpreted.mech_cal_name = buf.try_into().unwrap(),
-                                        CalibrationSection::TorqueConverter => interpreted.tcc_cal_name = buf.try_into().unwrap()
+                                        CalibrationSection::TorqueConverter => interpreted.tcc_cal_name = buf.try_into().unwrap(),
+                                        CalibrationSection::ShiftAlgo => interpreted.shift_algo_cal_name = buf.try_into().unwrap()
                                     }
                                     // Sign and save
                                     sign_and_crc(&mut interpreted);

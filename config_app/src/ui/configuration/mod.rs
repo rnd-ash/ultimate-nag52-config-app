@@ -100,11 +100,11 @@ impl crate::window::InterfacePage for ConfigPage {
             ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
 
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-                let mut x = scn.is_large_nag == 1;
-                ui.label("Using large 722.6");
-                ui.checkbox(&mut x, "");
-                scn.is_large_nag = x as u8;
-                ui.end_row();
+                //let mut x = scn.is_large_nag == 1;
+                //ui.label("Using large 722.6");
+                //ui.checkbox(&mut x, "");
+                //scn.is_large_nag = x as u8;
+                //ui.end_row();
 
                 let mut curr_profile = scn.default_profile;
                 ui.label("Default drive profile");

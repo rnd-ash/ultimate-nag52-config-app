@@ -1,4 +1,4 @@
-use bitflags::{bitflags, Flags};
+use bitflags::{bitflags};
 use ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::KwpSessionType, dynamic_diag::DiagSessionMode};
 
 use super::Nag52Diag;
@@ -12,9 +12,9 @@ bitflags! {
         const SLAVE = 1 << 3;
         const TEMPORARY_ERROR = 1 << 4;
         // Bit 5?
-        const ERROR1 = 1 << 6;
-        // Bit 7?
-        // Bit 8?
+        const ERROR = 1 << 6;
+        const NO_CALIBRATION = 1 << 7;
+        const NO_EFUSE = 1 << 8;
         // Bit 9?
         // Bit 10?
         // Bit 11?

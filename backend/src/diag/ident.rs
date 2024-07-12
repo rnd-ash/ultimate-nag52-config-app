@@ -35,6 +35,7 @@ impl Display for EgsMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum PCBVersion {
     OnePointOne,
     OnePointTwo,
