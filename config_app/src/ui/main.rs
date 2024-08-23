@@ -40,6 +40,7 @@ impl MainPage {
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
+
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
@@ -60,7 +61,7 @@ impl InterfacePage for MainPage {
             x.heading("Welcome to the Ultimate-NAG52 configuration app!");
             let os_logo = if cfg!(windows) {
                 egui::special_emojis::OS_WINDOWS
-            } else if cfg!(unix) {
+            } else if cfg!(target_os = "linux") {
                 egui::special_emojis::OS_LINUX
             } else {
                 egui::special_emojis::OS_APPLE
@@ -178,9 +179,9 @@ impl InterfacePage for MainPage {
             }
             if v.button("Configure drive profiles").clicked() {
                 create_page = Some(
-                    PageAction::SendNotification { 
-                        text: "You have found a unimplemented feature!".into(), 
-                        kind: egui_toast::ToastKind::Info 
+                    PageAction::SendNotification {
+                        text: "You have found a unimplemented feature!".into(),
+                        kind: egui_toast::ToastKind::Info
                     }
                 );
             }

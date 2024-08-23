@@ -42,7 +42,7 @@ fn main() {
     {
         native_options.renderer = Renderer::Wgpu;
     }
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     {
         native_options.renderer = Renderer::Glow;
     }
