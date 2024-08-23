@@ -253,8 +253,11 @@ impl crate::window::InterfacePage for ConfigPage {
                         .width(200.0)
                         .selected_text(format!("{:?}", ss))
                         .show_ui(ui, |cb_ui| {
-                            for o in IOPinConfig::iter() {
-                                cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::NotConnected, "None");
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::Input, "Output shaft sensor");
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::Output, "Vehicle speed pulse");
+                            if board_ver == BoardType::V13 {
+                                cb_ui.selectable_value(&mut ss, IOPinConfig::TCCMod13, "TCC Zener mod");
                             }
                             scn.io_0_usage = ss
                         });
@@ -278,6 +281,8 @@ impl crate::window::InterfacePage for ConfigPage {
                             .max_decimals(0)
                         );
                         ui.end_row();
+                    } else if scn.io_0_usage == IOPinConfig::TCCMod13 {
+                        // TODO
                     }
                     ui.label("General MOSFET usage: ");
                     let mut ss = scn.mosfet_purpose;
@@ -335,7 +340,7 @@ impl crate::window::InterfacePage for ConfigPage {
                     .width(100.0)
                     .selected_text(format!("{:?}", efuse.board_ver))
                     .show_ui(ui, |cb_ui| {
-                        let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
+                        let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13, BoardType::V14];
                         for dev in profiles.iter() {
                             cb_ui.selectable_value(&mut ver, dev.clone(), dev.to_string()).on_hover_ui(|ui| {
                                 if let Some(img) = dev.image_source() {

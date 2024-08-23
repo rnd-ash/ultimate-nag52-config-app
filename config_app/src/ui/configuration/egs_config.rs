@@ -199,12 +199,12 @@ impl InterfacePage for EgsConfigPage {
         }
 
         if let Err(e) = &self.calibration_contents {
-            ui.centered_and_justified(|ui| {
+            ui.vertical_centered(|ui| {
                 ui.strong("Failed to initialize calibration");
                 ui.label(e);
             });
         } else if let Err(e) = self.db.borrow() {
-            ui.vertical_centered_justified(|ui| {
+            ui.vertical_centered(|ui| {
                 ui.strong("Database decode failed");
                 ui.label(e)
             });
@@ -288,7 +288,7 @@ impl InterfacePage for EgsConfigPage {
                             row.colored_label(Color32::GREEN,  format!("Custom shift algo pack calibration in use: '{name}'"));
                         }
                         if row.button("Load/Save from file").clicked() {
-                            self.editing_cal = Some(CalibrationSection::TorqueConverter)
+                            self.editing_cal = Some(CalibrationSection::ShiftAlgo)
                         }
                     });
                 },
@@ -330,25 +330,25 @@ impl InterfacePage for EgsConfigPage {
                 .column(Column::exact(100.0))
                 .striped(true)
                 .header(30.0, |mut header| {
-                    header.col(|c| {c.add(Label::new(RichText::new("EGS PN").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("Chassis").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("Gearbox").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("TCC property CAL").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("Mechanical CAL").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("Hydraulic CAL").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("Shift algo CAL").strong()).wrap(false));});
-                    header.col(|c| {c.add(Label::new(RichText::new("").strong()).wrap(false));});
+                    header.col(|c| {c.add(Label::new(RichText::new("EGS PN").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Chassis").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Gearbox").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("TCC property CAL").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Mechanical CAL").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Hydraulic CAL").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("Shift algo CAL").strong()));});
+                    header.col(|c| {c.add(Label::new(RichText::new("").strong()));});
                 }).body(|body| {
                     body.rows(20.0, linked_data.len(), |mut row| {
                         let idx = row.index();
                         let cal = linked_data[idx];
-                        row.col(|c| {c.add(Label::new(&cal.pn).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.chassis).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.gb).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.tcc).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.mech).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.hydr).wrap(false));});
-                        row.col(|c| {c.add(Label::new(&cal.shift_algo).wrap(false));});
+                        row.col(|c| {c.add(Label::new(&cal.pn));});
+                        row.col(|c| {c.add(Label::new(&cal.chassis));});
+                        row.col(|c| {c.add(Label::new(&cal.gb));});
+                        row.col(|c| {c.add(Label::new(&cal.tcc));});
+                        row.col(|c| {c.add(Label::new(&cal.mech));});
+                        row.col(|c| {c.add(Label::new(&cal.hydr));});
+                        row.col(|c| {c.add(Label::new(&cal.shift_algo));});
                         row.col(|c| {
                             if c.button("Apply").clicked() {
                                 let c: EgsLinkedData = cal.clone();

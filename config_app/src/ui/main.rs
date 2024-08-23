@@ -84,15 +84,16 @@ impl InterfacePage for MainPage {
             If you are lost or need help, you can always consult the wiki below,
             or join the Ultimate-NAG52 discussions Telegram group!
         "#);
-        ui.heading("Useful links");
-        ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
-        // Weblinks are base64 encoded to avoid potential scraping
-        ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
-        ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
-        ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
-        ui.label("Code repositories");
-        ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
-        ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
+        ui.collapsing("Useful links", |ui| {
+            ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
+            // Weblinks are base64 encoded to avoid potential scraping
+            ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
+            ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
+            ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
+            ui.label("Code repositories");
+            ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
+            ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
+        });
         ui.add(egui::Separator::default());
         let mut create_page = None;
         let ctx = ui.ctx().clone();

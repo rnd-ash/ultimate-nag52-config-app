@@ -224,12 +224,12 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             .include_x(std::cmp::max(20000, now) as f64)
                             .auto_bounds([true, true].into())
                             .legend(legend.clone())
-                            .x_axis_formatter(|f, _nc, r| {
+                            .x_axis_formatter(|f, r| {
                                 let seconds = f.value / 1000.0;
                                 let mins = (f.value / 60000.0) as u32;
                                 format!("{:02}:{:02.1}", mins, seconds)
                             })
-                            .y_axis_formatter(move |f, _nc, r| {
+                            .y_axis_formatter(move |f, r| {
                                 if let Some(u) = x.clone() {
                                     format!("{}{}", f.value, u)
                                 } else {

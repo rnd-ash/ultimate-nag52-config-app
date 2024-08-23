@@ -240,7 +240,7 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
             SettingsType::Struct { raw, s }
         },
     };
-    ui.add(Label::new(var.description.clone().unwrap_or("-".into())).wrap(true));
+    ui.add(Label::new(var.description.clone().unwrap_or("-".into())).wrap());
     v
 }
 
