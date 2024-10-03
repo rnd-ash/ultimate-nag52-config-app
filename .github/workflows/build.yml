@@ -81,8 +81,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
         working-directory: ./config_app
-        run: cargo bundle --release
-        run: ls target/release/bundle/
+        run: |
+          cargo bundle --release
+          ls target/release/bundle/
       - uses: actions/upload-artifact@v3
         with:
           name: config-app-osx
