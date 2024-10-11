@@ -100,12 +100,6 @@ impl crate::window::InterfacePage for ConfigPage {
             ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
 
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
-                //let mut x = scn.is_large_nag == 1;
-                //ui.label("Using large 722.6");
-                //ui.checkbox(&mut x, "");
-                //scn.is_large_nag = x as u8;
-                //ui.end_row();
-
                 let mut curr_profile = scn.default_profile;
                 ui.label("Default drive profile");
                 egui::ComboBox::from_id_source("profile")
@@ -223,6 +217,11 @@ impl crate::window::InterfacePage for ConfigPage {
                         scn.egs_can_type = can
                     });
                 ui.end_row();
+                let mut x = scn.jeep_chrysler;
+                ui.label("Vehicle is a Jeep/Chrysler car");
+                ui.checkbox(&mut x, "");
+                scn.jeep_chrysler = x;
+                ui.end_row();
                 if can == EgsCanType::CUSTOM_ECU {
                     ui.strong("Custom ECU CAN is experimental! - It requires implementation on the ECU Side");
                     ui.hyperlink_to("Read more", "https://docs.ultimate-nag52.net/en/advanced/custom-can");
@@ -251,13 +250,13 @@ impl crate::window::InterfacePage for ConfigPage {
                     let mut ss = scn.io_0_usage;
                     egui::ComboBox::from_id_source("gpio_usage")
                         .width(200.0)
-                        .selected_text(format!("{:?}", ss))
+                        .selected_text(ss.to_string())
                         .show_ui(ui, |cb_ui| {
-                            cb_ui.selectable_value(&mut ss, IOPinConfig::NotConnected, "None");
-                            cb_ui.selectable_value(&mut ss, IOPinConfig::Input, "Output shaft sensor");
-                            cb_ui.selectable_value(&mut ss, IOPinConfig::Output, "Vehicle speed pulse");
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::NotConnected, IOPinConfig::NotConnected.to_string());
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::Input, IOPinConfig::Input.to_string());
+                            cb_ui.selectable_value(&mut ss, IOPinConfig::Output, IOPinConfig::Output.to_string());
                             if board_ver == BoardType::V13 {
-                                cb_ui.selectable_value(&mut ss, IOPinConfig::TCCMod13, "TCC Zener mod");
+                                cb_ui.selectable_value(&mut ss, IOPinConfig::TCCMod13, IOPinConfig::TCCMod13.to_string());
                             }
                             scn.io_0_usage = ss
                         });

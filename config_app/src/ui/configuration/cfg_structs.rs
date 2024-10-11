@@ -36,7 +36,9 @@ pub struct TcmCoreConfig {
     // Value here is 1000x value ECU uses (Like diff ratio)
     pub c_eng: u16,
     // Value here is 10x value ECU uses
-    pub engine_drag_torque: u16
+    pub engine_drag_torque: u16,
+    #[packed_field(size_bytes="1")]
+    pub jeep_chrysler: bool
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
@@ -62,6 +64,17 @@ pub enum IOPinConfig {
     Input = 1,
     Output = 2,
     TCCMod13 = 3
+}
+
+impl ToString for IOPinConfig {
+    fn to_string(&self) -> String {
+        match self {
+            IOPinConfig::NotConnected => "Not connected",
+            IOPinConfig::Input => "Speed sensor input",
+            IOPinConfig::Output => "Speedometer pulse output",
+            IOPinConfig::TCCMod13 => "TCC Zener cutoff (With mod PCB)",
+        }.into()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
