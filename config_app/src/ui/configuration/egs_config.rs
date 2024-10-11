@@ -40,6 +40,7 @@ pub struct EgsConfigPage {
     pub res: Option<JoinHandle<Result<Vec<u8>, String>>>,
     pub nag: Nag52Diag,
     pub gb_input: String,
+    pub egs_pn: String,
     pub chassis_input: String,
     pub editing_cal: Option<CalibrationSection>
 }
@@ -152,6 +153,7 @@ impl EgsConfigPage {
             calibration_contents: Ok(Vec::new()),
             res: Some(r),
             gb_input: String::default(),
+            egs_pn: String::default(),
             chassis_input: String::default(),
             editing_cal: None
         }
@@ -319,9 +321,13 @@ impl InterfacePage for EgsConfigPage {
                 row.strong("Filter by gearbox");
                 row.text_edit_singleline(&mut self.gb_input);
             });
+            ui.horizontal(|row| {
+                row.strong("Filter by EGS PN.");
+                row.text_edit_singleline(&mut self.egs_pn);
+            });
 
             let linked_data: Vec<&EgsLinkedData> = l.iter().filter(|ld| {
-                ld.gb.contains(&self.gb_input) && ld.chassis.contains(&self.chassis_input)
+                ld.gb.contains(&self.gb_input) && ld.chassis.contains(&self.chassis_input) && ld.pn.contains(&self.egs_pn)
             }).collect();
 
             // SCN Columns - [EGS PN, Chassis, GB Code, TCC, MECH, HYDR]
