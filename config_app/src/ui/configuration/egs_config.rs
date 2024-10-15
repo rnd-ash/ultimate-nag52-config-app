@@ -216,7 +216,7 @@ impl InterfacePage for EgsConfigPage {
             let db = self.db.as_ref().unwrap();
             // Show calibrations that are not valid
             ui.hyperlink_to("Watch tutorial video for help", include_base64!("aHR0cHM6Ly95b3V0dS5iZS9ENlZmNWlqekpndw"));
-            ui.strong("Status of calibration data:");
+            ui.strong("Status of calibration data (Your TCU):");
             let mut error_counter = 0;
             match String::from_utf8(interpreted.hydr_cal_name.to_vec()) {
                 Ok(name) => {
@@ -332,7 +332,7 @@ impl InterfacePage for EgsConfigPage {
 
             // SCN Columns - [EGS PN, Chassis, GB Code, TCC, MECH, HYDR]
             egui_extras::TableBuilder::new(ui)
-                .columns(Column::auto(), 7)
+                .columns(Column::auto().at_least(100.0), 7)
                 .column(Column::exact(100.0))
                 .striped(true)
                 .header(30.0, |mut header| {
