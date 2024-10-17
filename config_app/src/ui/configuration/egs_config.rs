@@ -404,7 +404,12 @@ impl InterfacePage for EgsConfigPage {
                         }
                         if ui.button("Use torque converter calibration").clicked() {
                             interpreted.tcc_cal = tcc.data;
-                            let name = format!("{}.{}", linked_data.pn, linked_data.tcc);
+                            let name = if linked_data.tcc == "NO NAME" {
+                                "NN"
+                            } else {
+                                &linked_data.tcc
+                            };
+                            let name = format!("{}.{}", linked_data.pn, name);
                             assert!(name.len() <= 16);
                             interpreted.tcc_cal_name.fill(0);
                             interpreted.tcc_cal_name[0..name.len()].copy_from_slice(name.as_bytes());
