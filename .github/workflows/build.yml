@@ -69,28 +69,28 @@ jobs:
           name: config-app-exe
           path: target/i686-pc-windows-msvc/release/*.exe
 
-  OSX-app:
-    runs-on: macos-latest # X86 since M1 can use rosetta to run this
-    steps:
-      - uses: actions/checkout@v3
-      - run: |
-          rustup set auto-self-update disable
-          rustup toolchain install stable --profile minimal
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
-      - uses: Swatinem/rust-cache@v2
-      - name: Build executable
-        working-directory: ./config_app
-        run: |
-          cargo bundle --release
-          ls target/release/bundle/
-      - uses: actions/upload-artifact@v3
-        with:
-          name: config-app-osx
-          path: target/release/bundle/osx/*.app
+  #OSX-app:
+  #  runs-on: macos-latest # X86 since M1 can use rosetta to run this
+  #  steps:
+  #    - uses: actions/checkout@v3
+  #    - run: |
+  #        rustup set auto-self-update disable
+  #        rustup toolchain install stable --profile minimal
+  #    - name: Install cargo-bundle
+  #      run: cargo install cargo-bundle
+  #    - uses: Swatinem/rust-cache@v2
+  #    - name: Build executable
+  #      working-directory: ./config_app
+  #      run: |
+  #        cargo bundle --release
+  #        ls target/release/bundle/
+  #    - uses: actions/upload-artifact@v3
+  #      with:
+  #        name: config-app-osx
+  #        path: target/release/bundle/osx/*.app
 
   Create-Upload:
-    needs: [Windows-App, Linux-App, OSX-app]
+    needs: [Windows-App, Linux-App] #, OSX-app
     runs-on: [ubuntu-latest]
     steps:
     - name: Download all artifacts
