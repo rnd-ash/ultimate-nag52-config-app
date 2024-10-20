@@ -94,7 +94,7 @@ jobs:
     runs-on: [ubuntu-latest]
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
     - name: View artifacts
       run: ls -R
     - name: create release
