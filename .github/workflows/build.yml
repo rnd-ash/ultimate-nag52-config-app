@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "dev" ]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,14 +36,11 @@ jobs:
     - name: Build appimage
       working-directory: ./config_app
       run: cargo appimage
-    - name: Test
-      run: ls config_app/ -aslh
     - uses: actions/upload-artifact@v3
       with:
         path: config_app/*.AppImage
         name: config-app-linux 
 
-        
   Windows-App:
     runs-on: windows-latest
     steps:
@@ -93,8 +90,14 @@ jobs:
     needs: [Windows-App, Linux-App] #, OSX-app
     runs-on: [ubuntu-latest]
     steps:
-    - name: Download all artifacts
+    - name: Download Windows artifact
       uses: actions/download-artifact@v4
+      with:
+        name: config-app-exe
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: config-app-linux
     - name: View artifacts
       run: ls -R
     - name: create release
