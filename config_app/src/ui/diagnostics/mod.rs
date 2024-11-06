@@ -171,8 +171,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     *self.record_to_query.write() = Some(RecordIdents::ClutchSpeeds);
                     rli_reset = true;
                 }
-                if ui.button("Query shift clutch velocities").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::ClutchVelocities);
+                if ui.button("Query shift algorithm data").clicked() {
+                    *self.record_to_query.write() = Some(RecordIdents::ShiftingAlgoFeedback);
                     rli_reset = true;
                 }
                 if ui.button("Query TCC Program data").clicked() {
