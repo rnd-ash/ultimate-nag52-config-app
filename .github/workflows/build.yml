@@ -119,8 +119,8 @@ jobs:
         tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
         name: Release ${{ env.BRANCH_NAME }}
         files: |
-          config-app-exe/*.exe
-          config-app-linux/*.AppImage
+          *.exe
+          *.AppImage
           config-app-osx/*.app
       
           
