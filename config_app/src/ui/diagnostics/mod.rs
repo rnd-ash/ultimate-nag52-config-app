@@ -2,6 +2,7 @@ use crate::window::{PageAction, StatusBar, get_context};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use chrono::Local;
+use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use eframe::egui::{Color32, RichText, Ui, Context};
 use eframe::epaint::Stroke;
@@ -136,7 +137,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
     fn make_ui(&mut self, ui: &mut Ui, _frame: &eframe::Frame) -> PageAction {
         ui.heading("This is experimental, use with MOST up-to-date firmware");
         ui.add_space(5.0);
-        let ui_height = ui.available_height() - 20.0;
+        let ui_height = ui.available_height();
         let current_val = self.curr_values.read().clone();
         let chart_data = self.charting_data.read().clone();
         ui.horizontal(|ui| {
@@ -199,56 +200,63 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                 ui.vertical(|col| {
                     let start_time = self.rli_start_time.load(Ordering::Relaxed);
                     let legend = Legend::default().position(egui_plot::Corner::LeftTop);
-                    let space_per_chart = (ui_height / data.get_chart_data().len() as f32) - (10.0 * data.get_chart_data().len() as f32);
-                    for (idx, d) in data.get_chart_data().iter().enumerate() {
-                        let mut lines: Vec<Line> = Vec::new();
-                        col.heading(d.group_name.clone());
-                        let unit: Option<&'static str> =  d.data[0].2.clone();
-                        
-                        for (i, (key, _, _, color)) in d.data.iter().enumerate() {
-                            let points: PlotPoints = chart_data.iter().map(|(timestamp, value)| {
-                                [*timestamp as f64 - start_time as f64, value[idx].data[i].1 as f64]
-                            }).collect();
-                            lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, color.clone())));
-                        }
+                    let space_per_chart = (ui_height / data.get_chart_data().len() as f32);
 
-                        let now = self.launch_time.elapsed().as_millis() - start_time as u128;
-                        let mut last_bound = now as f64 - 20000.0;
-                        if last_bound < 0.0 {
-                            last_bound = 0.0;
-                        }
-                        let x = unit.clone();
-                        let mut plot = Plot::new(d.group_name.clone())
-                            .height(space_per_chart)
-                            .allow_drag(false)
-                            .include_x(std::cmp::max(20000, now) as f64)
-                            .auto_bounds([true, true].into())
-                            .legend(legend.clone())
-                            .x_axis_formatter(|f, r| {
-                                let seconds = f.value / 1000.0;
-                                let mins = (f.value / 60000.0) as u32;
-                                format!("{:02}:{:02.1}", mins, seconds)
-                            })
-                            .y_axis_formatter(move |f, r| {
-                                if let Some(u) = x.clone() {
-                                    format!("{}{}", f.value, u)
-                                } else {
-                                    f.value.to_string()
-                                }
-                            });
-                        if let Some((min, max)) = &d.bounds {
-                            plot = plot.include_y(*min);
-                            if *max > 0.1 {
-                                // 0.0 check
-                                plot = plot.include_y(*max);
-                            }
-                        }
-                        plot.show(col, |f| {
-                            for line in lines {
-                                f.line(line);
+                    let builder = egui_extras::StripBuilder::new(col)
+                        .sizes(Size::exact(space_per_chart), data.get_chart_data().len())
+                        .vertical(|mut strip| {
+                            for (idx, d) in data.get_chart_data().iter().enumerate() {
+                                strip.cell(|ui| {
+                                    let mut lines: Vec<Line> = Vec::new();
+                                    ui.strong(d.group_name.clone());
+                                    let unit: Option<&'static str> =  d.data[0].2.clone();
+                                    
+                                    for (i, (key, _, _, color)) in d.data.iter().enumerate() {
+                                        let points: PlotPoints = chart_data.iter().map(|(timestamp, value)| {
+                                            [*timestamp as f64 - start_time as f64, value[idx].data[i].1 as f64]
+                                        }).collect();
+                                        lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, color.clone())));
+                                    }
+            
+                                    let now = self.launch_time.elapsed().as_millis() - start_time as u128;
+                                    let mut last_bound = now as f64 - 20000.0;
+                                    if last_bound < 0.0 {
+                                        last_bound = 0.0;
+                                    }
+                                    let x = unit.clone();
+                                    let mut plot = Plot::new(d.group_name.clone())
+                                        //.height(space_per_chart)
+                                        .allow_drag(false)
+                                        .include_x(std::cmp::max(20000, now) as f64)
+                                        .auto_bounds([true, true].into())
+                                        .legend(legend.clone())
+                                        .x_axis_formatter(|f, r| {
+                                            let seconds = f.value / 1000.0;
+                                            let mins = (f.value / 60000.0) as u32;
+                                            format!("{:02}:{:02.1}", mins, seconds)
+                                        })
+                                        .y_axis_formatter(move |f, r| {
+                                            if let Some(u) = x.clone() {
+                                                format!("{}{}", f.value, u)
+                                            } else {
+                                                f.value.to_string()
+                                            }
+                                        });
+                                    if let Some((min, max)) = &d.bounds {
+                                        plot = plot.include_y(*min);
+                                        if *max > 0.1 {
+                                            // 0.0 check
+                                            plot = plot.include_y(*max);
+                                        }
+                                    }
+                                    plot.show(ui, |f| {
+                                        for line in lines {
+                                            f.line(line);
+                                        }
+                                    });
+                                });
                             }
                         });
-                    }
                 });
             }
         });
