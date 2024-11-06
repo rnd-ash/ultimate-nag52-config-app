@@ -36,7 +36,7 @@ jobs:
     - name: Build appimage
       working-directory: ./config_app
       run: cargo appimage
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         path: config_app/*.AppImage
         name: config-app-linux 
@@ -61,7 +61,7 @@ jobs:
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
         run: ls target -R
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: config-app-exe
           path: target/i686-pc-windows-msvc/release/*.exe
