@@ -47,7 +47,7 @@ impl ecu_diagnostics::hardware::HardwareScanner<Nag52USB> for Nag52UsbScanner {
     fn list_devices(&self) -> Vec<ecu_diagnostics::hardware::HardwareInfo> {
         let mut ports = self.ports.iter().map(|(info, _)| info.clone()).collect::<Vec<HardwareInfo>>();
 
-        #[cfg(unix)]
+        #[cfg(target_os="linux")]
         {
             ports = ports.into_iter().filter(|x| x.name.contains("USB")).collect();
         }

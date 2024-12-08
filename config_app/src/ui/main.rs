@@ -40,6 +40,7 @@ impl MainPage {
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
+
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
@@ -60,7 +61,7 @@ impl InterfacePage for MainPage {
             x.heading("Welcome to the Ultimate-NAG52 configuration app!");
             let os_logo = if cfg!(windows) {
                 egui::special_emojis::OS_WINDOWS
-            } else if cfg!(unix) {
+            } else if cfg!(target_os = "linux") {
                 egui::special_emojis::OS_LINUX
             } else {
                 egui::special_emojis::OS_APPLE
@@ -84,15 +85,16 @@ impl InterfacePage for MainPage {
             If you are lost or need help, you can always consult the wiki below,
             or join the Ultimate-NAG52 discussions Telegram group!
         "#);
-        ui.heading("Useful links");
-        ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
-        // Weblinks are base64 encoded to avoid potential scraping
-        ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
-        ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
-        ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
-        ui.label("Code repositories");
-        ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
-        ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
+        ui.collapsing("Useful links", |ui| {
+            ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
+            // Weblinks are base64 encoded to avoid potential scraping
+            ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
+            ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
+            ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
+            ui.label("Code repositories");
+            ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
+            ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
+        });
         ui.add(egui::Separator::default());
         let mut create_page = None;
         let ctx = ui.ctx().clone();
@@ -102,6 +104,11 @@ impl InterfacePage for MainPage {
                 if mode.contains(TcuDeviceMode::NO_CALIBRATION) {
                     ui.colored_label(Color32::RED, 
                         "Your TCU requires calibrations, and will NOT function. Please go to the EGS compatibility page
+                        to correct this!"  
+                    );
+                } else if mode.contains(TcuDeviceMode::NO_EFUSE) {
+                    ui.colored_label(Color32::RED, 
+                        "Your TCU is freshly built and requires EFUSE configuration. Go to the configuration page
                         to correct this!"  
                     );
                 } else if mode.contains(TcuDeviceMode::CANLOGGER) {
@@ -172,9 +179,9 @@ impl InterfacePage for MainPage {
             }
             if v.button("Configure drive profiles").clicked() {
                 create_page = Some(
-                    PageAction::SendNotification { 
-                        text: "You have found a unimplemented feature!".into(), 
-                        kind: egui_toast::ToastKind::Info 
+                    PageAction::SendNotification {
+                        text: "You have found a unimplemented feature!".into(),
+                        kind: egui_toast::ToastKind::Info
                     }
                 );
             }
