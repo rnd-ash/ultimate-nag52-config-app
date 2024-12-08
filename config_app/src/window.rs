@@ -10,7 +10,7 @@ use eframe::{
     epaint::{Pos2, Vec2, Color32, Rect, Rounding, FontId}, emath::Align2,
 };
 use egui_extras::{TableBuilder, Column};
-use egui_toast::{Toast, ToastKind, ToastOptions, Toasts, ERROR_COLOR};
+use egui_toast::{Toast, ToastKind, ToastOptions, ToastStyle, Toasts};
 
 static mut GLOBAL_EGUI_CONTEXT: Option<Context> = None;
 
@@ -123,7 +123,7 @@ impl eframe::App for MainWindow {
                                         row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
                                     } 
                                 } else {
-                                    row.label(RichText::new("Disconnected").color(ERROR_COLOR));
+                                    row.label(RichText::new("Disconnected").color(Color32::RED));
                                 }
                                 Ok(())
                             });
@@ -268,6 +268,7 @@ impl eframe::App for MainWindow {
                                 .duration_in_seconds(5.0)
                                 .show_progress(true)
                                 .show_icon(true),
+                            style: ToastStyle::default()
                         });
                     }
                     PageAction::RegisterNag(n) => {

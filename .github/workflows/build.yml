@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "dev" ]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,14 +36,11 @@ jobs:
     - name: Build appimage
       working-directory: ./config_app
       run: cargo appimage
-    - name: Test
-      run: ls config_app/ -aslh
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         path: config_app/*.AppImage
         name: config-app-linux 
 
-        
   Windows-App:
     runs-on: windows-latest
     steps:
@@ -64,35 +61,43 @@ jobs:
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
         run: ls target -R
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: config-app-exe
           path: target/i686-pc-windows-msvc/release/*.exe
 
-  OSX-app:
-    runs-on: macos-latest # X86 since M1 can use rosetta to run this
-    steps:
-      - uses: actions/checkout@v3
-      - run: |
-          rustup set auto-self-update disable
-          rustup toolchain install stable --profile minimal
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
-      - uses: Swatinem/rust-cache@v2
-      - name: Build executable
-        working-directory: ./config_app
-        run: cargo bundle --release
-      - uses: actions/upload-artifact@v3
-        with:
-          name: config-app-osx
-          path: target/release/bundle/osx/*.app
+  #OSX-app:
+  #  runs-on: macos-latest # X86 since M1 can use rosetta to run this
+  #  steps:
+  #    - uses: actions/checkout@v3
+  #    - run: |
+  #        rustup set auto-self-update disable
+  #        rustup toolchain install stable --profile minimal
+  #    - name: Install cargo-bundle
+  #      run: cargo install cargo-bundle
+  #    - uses: Swatinem/rust-cache@v2
+  #    - name: Build executable
+  #      working-directory: ./config_app
+  #      run: |
+  #        cargo bundle --release
+  #        ls target/release/bundle/
+  #    - uses: actions/upload-artifact@v3
+  #      with:
+  #        name: config-app-osx
+  #        path: target/release/bundle/osx/*.app
 
   Create-Upload:
-    needs: [Windows-App, Linux-App, OSX-app]
+    needs: [Windows-App, Linux-App] #, OSX-app
     runs-on: [ubuntu-latest]
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v2
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: config-app-exe
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: config-app-linux
     - name: View artifacts
       run: ls -R
     - name: create release
@@ -114,8 +119,8 @@ jobs:
         tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
         name: Release ${{ env.BRANCH_NAME }}
         files: |
-          config-app-exe/*.exe
-          config-app-linux/*.AppImage
+          *.exe
+          *.AppImage
           config-app-osx/*.app
       
           

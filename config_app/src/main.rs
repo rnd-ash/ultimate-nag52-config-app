@@ -42,13 +42,13 @@ fn main() {
     {
         native_options.renderer = Renderer::Wgpu;
     }
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     {
         native_options.renderer = Renderer::Glow;
     }
     eframe::run_native(
         "Ultimate NAG52 config suite",
         native_options,
-        Box::new(|cc| Box::new(app)),
+        Box::new(|cc| Ok(Box::new(app))),
     );
 }

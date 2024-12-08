@@ -14,7 +14,7 @@ bitflags! {
         // Bit 5?
         const ERROR = 1 << 6;
         const NO_CALIBRATION = 1 << 7;
-        // Bit 8?
+        const NO_EFUSE = 1 << 8;
         // Bit 9?
         // Bit 10?
         // Bit 11?

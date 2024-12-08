@@ -226,29 +226,29 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                     ));
 
                     egui::Grid::new("S").striped(true).show(ui, |g_ui| {
-                        g_ui.label("MPC Solenoid");
-                        g_ui.add(make_resistance_text(
-                            results.mpc_on_current,
-                            calc_resistance(
-                                results.mpc_on_current,
-                                results.vbatt_mpc,
-                                results.atf_temp,
-                            ),
-                            ResitanceMPC,
-                        ));
-                        g_ui.end_row();
+                        //g_ui.label("MPC Solenoid");
+                        //g_ui.add(make_resistance_text(
+                        //    results.mpc_on_current,
+                        //    calc_resistance(
+                        //        results.mpc_on_current,
+                        //        results.vbatt_mpc,
+                        //        results.atf_temp,
+                        //    ),
+                        //    ResitanceMPC,
+                        //));
+                        //g_ui.end_row();
 
-                        g_ui.label("SPC Solenoid");
-                        g_ui.add(make_resistance_text(
-                            results.spc_on_current,
-                            calc_resistance(
-                                results.spc_on_current,
-                                results.vbatt_spc,
-                                results.atf_temp,
-                            ),
-                            ResitanceSPC,
-                        ));
-                        g_ui.end_row();
+                        //g_ui.label("SPC Solenoid");
+                        //g_ui.add(make_resistance_text(
+                        //    results.spc_on_current,
+                        //    calc_resistance(
+                        //        results.spc_on_current,
+                        //        results.vbatt_spc,
+                        //        results.atf_temp,
+                        //    ),
+                        //    ResitanceSPC,
+                        //));
+                        //g_ui.end_row();
 
                         g_ui.label("TCC Solenoid");
                         g_ui.add(make_resistance_text(

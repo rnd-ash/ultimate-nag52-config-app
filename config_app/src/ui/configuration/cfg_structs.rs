@@ -36,7 +36,9 @@ pub struct TcmCoreConfig {
     // Value here is 1000x value ECU uses (Like diff ratio)
     pub c_eng: u16,
     // Value here is 10x value ECU uses
-    pub engine_drag_torque: u16
+    pub engine_drag_torque: u16,
+    #[packed_field(size_bytes="1")]
+    pub jeep_chrysler: bool
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
@@ -61,6 +63,18 @@ pub enum IOPinConfig {
     NotConnected = 0,
     Input = 1,
     Output = 2,
+    TCCMod13 = 3
+}
+
+impl ToString for IOPinConfig {
+    fn to_string(&self) -> String {
+        match self {
+            IOPinConfig::NotConnected => "Not connected",
+            IOPinConfig::Input => "Speed sensor input",
+            IOPinConfig::Output => "Speedometer pulse output",
+            IOPinConfig::TCCMod13 => "TCC Zener cutoff (With mod PCB)",
+        }.into()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
@@ -101,6 +115,8 @@ pub enum BoardType {
     V11 = 1,
     V12 = 2,
     V13 = 3,
+    V14 = 4,
+    V14HGS = 0xF4
 }
 
 impl BoardType {
@@ -110,6 +126,8 @@ impl BoardType {
             BoardType::V11 => Some(include_image!("../../../res/pcb_11.jpg")),
             BoardType::V12 => Some(include_image!("../../../res/pcb_12.jpg")),
             BoardType::V13 => Some(include_image!("../../../res/pcb_13.jpg")),
+            BoardType::V14 => Some(include_image!("../../../res/pcb_13.jpg")),
+            BoardType::V14HGS => Some(include_image!("../../../res/pcb_13.jpg")),
         }   
     }
 }
@@ -121,6 +139,8 @@ impl Display for BoardType {
             BoardType::V11 => write!(f, "V1.1 (12/12/21)"),
             BoardType::V12 => write!(f, "V1.2 (07/07/22)"),
             BoardType::V13 => write!(f, "V1.3 (12/12/22)"),
+            BoardType::V14 => write!(f, "V1.4 (13/05/24)"),
+            BoardType::V14HGS => write!(f, "V1.4 (HGS) (13/05/24)"),
         }
     }
 }

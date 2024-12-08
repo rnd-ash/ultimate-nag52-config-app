@@ -23,7 +23,7 @@ pub enum RecordIdents {
     PressureStatus = 0x25,
     SSData = 0x27,
     ClutchSpeeds = 0x30,
-    ClutchVelocities = 0x31,
+    ShiftingAlgoFeedback = 0x31,
 }
 
 pub(crate) fn read_struct<T>(c: &[u8]) -> DiagServerResult<T>
@@ -48,7 +48,7 @@ impl RecordIdents {
             Self::PressureStatus => Ok(LocalRecordData::Pressures(read_struct(&resp)?)),
             Self::SSData => Ok(LocalRecordData::ShiftMonitorLive(read_struct(&resp)?)),
             Self::ClutchSpeeds => Ok(LocalRecordData::ClutchSpeeds(read_struct(&resp)?)),
-            Self::ClutchVelocities => Ok(LocalRecordData::ClutchVelocities(read_struct(&resp)?))
+            Self::ShiftingAlgoFeedback => Ok(LocalRecordData::ShiftAlgoFeedback(read_struct(&resp)?))
         }
     }
 }
@@ -63,7 +63,7 @@ pub enum LocalRecordData {
     Pressures(DataPressures),
     ShiftMonitorLive(DataShiftManager),
     ClutchSpeeds(DataClutchSpeeds),
-    ClutchVelocities(DataShiftClutchVelocity),
+    ShiftAlgoFeedback(DataShiftAlgoFeedback),
 }
 
 fn make_row<T: Into<WidgetText>, X: Into<WidgetText>>(ui: &mut Ui, key: T, value: X) {
@@ -422,9 +422,20 @@ impl LocalRecordData {
                     make_row(ui, "B2 speed", format!("{} RPM", s.b2));
                     make_row(ui, "B3 speed", format!("{} RPM", s.b3));
                 },
-                LocalRecordData::ClutchVelocities(s) => {
-                    make_row(ui, "Applying clutch acceleration", format!("{} RPM/100ms", s.on_vel));
-                    make_row(ui, "Releasing clutch acceleration", format!("{} RPM/100ms", s.off_vel));
+                LocalRecordData::ShiftAlgoFeedback(s) => {
+                    if s.active != 0 {
+                        make_row(ui, "Algo phase", format!("{}", s.shift_phase));
+                        make_row(ui, "Algo subphase mod", format!("{}", s.subphase_mod));
+                        make_row(ui, "Algo subphase shift", format!("{}", s.subphase_shift));
+
+                        make_row(ui, "On clutch speed", format!("{}", s.s_on));
+                        make_row(ui, "Off clutch speed", format!("{}", s.s_off));
+
+                        make_row(ui, "On clutch pressure", format!("{}", s.p_on));
+                        make_row(ui, "Off clutch pressure", format!("{}", s.p_off));
+                    } else {
+                        ui.strong("No shift active");
+                    }
                 },
                 LocalRecordData::TccProgram(s) => {
                     make_row(ui, "Target state", tcc_state_to_name(s.targ_state));
@@ -638,15 +649,36 @@ impl LocalRecordData {
                     None,
                 )]
             },
-            LocalRecordData::ClutchVelocities(s) => {
+            LocalRecordData::ShiftAlgoFeedback(s) => {
                 vec![ChartData::new(
-                    "Velocities".into(),
+                    "Clutch speeds".into(),
                     vec![
-                        ("On clutch", s.on_vel as f32, Some("RPM/100 msec"), Color32::from_rgb(255, 0, 255)),
-                        ("Off clutch", s.off_vel as f32, Some("RPM/100 msec"), Color32::from_rgb(0, 255, 255)),
+                        ("On clutch", s.s_on as f32, Some("RPM"), Color32::from_rgb(255, 0, 255)),
+                        ("Off clutch", s.s_off as f32, Some("RPM"), Color32::from_rgb(0, 255, 255)),
+                        ("Syncronize speed", s.sync_rpm as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
                     ],
-                    None,
-                )]
+                    None),
+                    ChartData::new(
+                        "Pressures".into(),
+                        vec![
+                            ("On clutch", s.p_on as f32, Some("mBar"), Color32::from_rgb(255, 0, 255)),
+                            ("Off clutch", s.p_off as f32, Some("mBar"), Color32::from_rgb(0, 255, 255)),
+                        ],
+                    None),
+                    ChartData::new(
+                        "Phase IDs".into(),
+                        vec![
+                            ("Shift", s.subphase_shift as f32 + (10.0 * s.shift_phase as f32), None, Color32::from_rgb(255, 0, 255)),
+                            ("Mod", s.subphase_mod as f32 + (10.0 * s.subphase_mod as f32), None, Color32::from_rgb(0, 255, 255)),
+                        ],
+                    None),
+                    ChartData::new(
+                        "Torques".into(),
+                        vec![
+                            ("Inertia", s.inertia as f32, Some("Nm"), Color32::from_rgb(255, 0, 255)),
+                        ],
+                    None),
+                ]
             },
             LocalRecordData::TccProgram(s) => {
                 vec![
@@ -930,7 +962,15 @@ pub struct DataClutchSpeeds {
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
 #[packed_struct(endian="lsb")]
-pub struct DataShiftClutchVelocity {
-    on_vel: i16,
-    off_vel: i16
+pub struct DataShiftAlgoFeedback {
+    active: u8,
+    shift_phase: u8,
+    subphase_shift: u8,
+    subphase_mod: u8,
+    sync_rpm: u16,
+    inertia: i16,
+    p_on: u16,
+    p_off: u16,
+    s_off: i16,
+    s_on: i16,
 }
