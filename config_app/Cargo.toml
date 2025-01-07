@@ -18,7 +18,7 @@ config_app_macros={path="../config_app_macros/"}
 image = "0.25.1"
 rfd="0.15.0"
 pollster = "0.4.0"
-eframe = {version="0.30.0", features=["default_fonts"]}
+eframe = {version="0.30.0", features=["wgpu", "glow", "default_fonts"]}
 egui_extras = {default-features=false, version="0.30.0", features=["image"]}
 static_assertions = "1.1.0"
 env_logger="0.11.2"
