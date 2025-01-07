@@ -9,7 +9,7 @@ use backend::{
 use eframe::{
     egui::{
         self, DragValue, Layout, RichText, ScrollArea, Ui, Vec2
-    }, emath::lerp, epaint::{vec2, Color32}, wgpu::rwh::HasDisplayHandle
+    }, emath::lerp, epaint::{vec2, Color32},
 };
 use egui_plot::{Bar, BarChart, Line};
 use egui_extras::Column;
