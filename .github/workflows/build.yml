@@ -79,6 +79,7 @@ jobs:
       - name: Build executable
         run: |
           cd config_app
+          ln -s ../target target
           cargo bundle --release
           ls target/release/bundle/
       - uses: actions/upload-artifact@v4
