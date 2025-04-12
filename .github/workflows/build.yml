@@ -126,7 +126,7 @@ jobs:
         files: |
           *.exe
           *.AppImage
-          config-app-osx/*.app
+          *.app
       
           
        
