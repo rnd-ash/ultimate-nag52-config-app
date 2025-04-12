@@ -99,6 +99,10 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: config-app-linux
+    - name: Download OSX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: config-app-osx
     - name: View artifacts
       run: ls -R
     - name: create release
