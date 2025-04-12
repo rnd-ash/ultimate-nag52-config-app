@@ -77,8 +77,8 @@ jobs:
         run: cargo install cargo-bundle
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
-        working-directory: ./config_app
         run: |
+          cd config_app
           cargo bundle --release
           ls target/release/bundle/
       - uses: actions/upload-artifact@v4
