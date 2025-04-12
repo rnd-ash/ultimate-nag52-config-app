@@ -81,7 +81,7 @@ jobs:
         run: |
           cargo bundle --release
           ls target/release/bundle/
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: config-app-osx
           path: target/release/bundle/osx/*.app
