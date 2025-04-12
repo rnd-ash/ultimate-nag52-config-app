@@ -67,7 +67,7 @@ jobs:
           path: target/i686-pc-windows-msvc/release/*.exe
 
   OSX-app:
-    runs-on: macos-latest # X86 since M1 can use rosetta to run this
+    runs-on: macos-13 # X86 since M1 can use rosetta to run this
     steps:
       - uses: actions/checkout@v3
       - run: |
