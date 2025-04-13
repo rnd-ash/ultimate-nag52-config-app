@@ -126,7 +126,7 @@ jobs:
         files: |
           *.exe
           *.AppImage
-          *.app
+          Ultimate-NAG52-Config-App.app
       
           
        
