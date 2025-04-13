@@ -38,7 +38,7 @@ jobs:
       run: cargo appimage
     - uses: actions/upload-artifact@v4
       with:
-        path: config_app/*.AppImage
+        path: target/appimage/*.AppImage
         name: config-app-linux 
 
   Windows-App:
