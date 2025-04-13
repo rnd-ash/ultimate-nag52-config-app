@@ -12,8 +12,6 @@ use crate::window::{InterfacePage, PageAction, get_context};
 pub enum CurrentFlashState {
     None,
     Download(usize, usize),
-    DownloadYml(usize, usize),
-    Unzip,
     Prepare,
     Read { start_addr: u32, current: u32, total: u32 },
     Write { ty: &'static str, start_addr: u32, current: u32, total: u32 },
@@ -49,7 +47,7 @@ impl CurrentFlashState {
 
 pub struct UpdatePage {
     nag: Nag52Diag,
-    fw: Arc<RwLock<Option<(Firmware, Vec<u8>)>>>,
+    fw: Arc<RwLock<Option<Firmware>>>,
     status: Arc<RwLock<CurrentFlashState>>,
     flash_start: Option<Instant>,
     coredump: Option<PartitionInfo>,
@@ -82,6 +80,7 @@ impl UpdatePage {
                         r_list.push(release);
                     }
                     *fw_list_c.write().unwrap() = DataState::LoadOk(r_list);
+                    
                 },
                 Err(e) => {
                     *fw_list_c.write().unwrap() = DataState::LoadErr(format!("{:?}", e));
@@ -241,55 +240,14 @@ impl InterfacePage for UpdatePage {
                                 
                                 let code = easy.response_code().unwrap_or(0);
                                 if code == 200 || code == 302 {
-                                    *state_c.write().unwrap() = CurrentFlashState::DownloadYml(0,0);
-                                    url = format!("https://api.github.com{}",yml.url.path());
-                                    // Now try YML download
-                                    let mut easy = Easy::new();
-                                    let mut list = List::new();
-                                    list.append("Accept: application/octet-stream").unwrap();
-                                    easy.http_headers(list).unwrap();
-                                    easy.useragent("request").unwrap();
-                                    easy.follow_location(true).unwrap();
-                                    easy.progress(true);
-
-                                    let state_progress = state_c.clone();
-
-                                    easy.progress_function(move|dltotal,dlnow,_,_| {
-                                        *state_progress.write().unwrap() = CurrentFlashState::DownloadYml(dlnow as usize, dltotal as usize);
-                                        return true;
-                                    });
-                                    easy.url(&url).unwrap();
-                                    {
-                                        let mut transfer = easy.transfer();
-                                        let _ = transfer.write_function(|data| {
-                                            buffer_yml.extend_from_slice(data);
-                                            Ok(data.len())
-                                        });
-                                        let _ = transfer.perform();
-                                    }
-                                    // Encode
-                                    
-                                    let s = String::from_utf8(buffer_yml).unwrap();
-                                    if let Some((header, compressed)) = ModuleSettingsFlashHeader::new_from_yml_content(&s) {
-                                        let tx_yml = header.merge_to_tx_data(&compressed);
-
-                                        let code = easy.response_code().unwrap_or(0);
-                                        if code == 200 || code == 302 {
-                                            // Try and load FW from here
-                                            match load_binary(buffer_firmware) {
-                                                Ok(bin) => {
-                                                    *fw_c.write().unwrap() = Some((bin, tx_yml));
-                                                    *state_c.write().unwrap() = CurrentFlashState::None;
-                                                }
-                                                Err(e) => {
-                                                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware was invalid: {:?}", e));
-                                                }
-                                            }
-                                        } else {
-                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download YML response code was {code}"));
+                                    match load_binary(buffer_firmware) {
+                                        Ok(fw) => {
+                                            *fw_c.write().unwrap() = Some(fw);
+                                            *state_c.write().unwrap() = CurrentFlashState::None;
+                                        },
+                                        Err(e) => {
+                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware is corrupt!"));
                                         }
-                                    } else {
-                                        *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download YML was invalid"));
                                     }
                                 } else {
                                     *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download firmware response code was {code}"));
@@ -325,24 +283,7 @@ impl InterfacePage for UpdatePage {
                 .pick_file() {
                 match load_binary_from_path(bin_path.into_os_string().into_string().unwrap()) {
                     Ok(fw) => {
-                        if let Some(yml_path) = rfd::FileDialog::new()
-                            .add_filter("MODULE_SETTINGS.yml", &["yml"])
-                            .pick_file() {
-                                let mut f = File::open(yml_path).unwrap();
-                                let mut b = String::new();
-                                f.read_to_string(&mut b);
-                                match ModuleSettingsFlashHeader::new_from_yml_content(&b) {
-                                    Some(mf) => {
-                                        let tx_yml = mf.0.merge_to_tx_data(&mf.1);
-                                        *self.fw.write().unwrap() = Some((fw, tx_yml));
-                                        
-                                    },
-                                    None => {
-                                        *self.fw.write().unwrap() = None;
-                                        *self.status.write().unwrap() = CurrentFlashState::Failed(format!("MODULE_SETTINGS.yml is invalid"));
-                                    }
-                                }
-                        }
+                        *self.fw.write().unwrap() = Some(fw);
                     },
                     Err(e) => {
                         *self.status.write().unwrap() = CurrentFlashState::Failed(format!("Firmware.bin loading failed: {e:?}"));
@@ -351,7 +292,7 @@ impl InterfacePage for UpdatePage {
             }
         }
         let c_fw = self.fw.clone().read().unwrap().clone();
-        if let Some((fw, yml)) = &c_fw {
+        if let Some(fw) = &c_fw {
             make_fw_info(ui, "nfw",&fw.header, None);
             let mut flash = false;
             let mut disclaimer = false;
@@ -377,7 +318,7 @@ impl InterfacePage for UpdatePage {
             }
             if flash {
                 let mut ng = self.nag.clone();
-                let (fw_c, yml_c) = c_fw.clone().unwrap();
+                let fw_c = c_fw.clone().unwrap();
                 let state_c = self.status.clone();
                 std::thread::spawn(move || {
                     get_context().request_repaint();
@@ -399,32 +340,6 @@ impl InterfacePage for UpdatePage {
                             },
                             Err(e) => {
                                 *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to write to address 0x{:08X?} (Firmware) for update. {}", start_addr + written ,e));
-                                return;
-                            }
-                        }
-                        get_context().request_repaint();
-                    }
-
-                    // Write block 2 (YML)
-                    *state_c.write().unwrap() = CurrentFlashState::Prepare;
-                    let (start_addr, bs) = match ng.begin_yml_ota(yml_c.len() as u32) {
-                        Ok((a, b)) => (a, b),
-                        Err(e) => {
-                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to prepare SCN coding definition update. {}", e));
-                            return;
-                        },
-                    };
-
-                    get_context().request_repaint();
-                    let mut written = 0;
-                    for (bid, block) in yml_c.chunks(bs as usize).enumerate() {
-                        match ng.transfer_data(((bid + 1) & 0xFF) as u8, block) {
-                            Ok(_) => { 
-                                written += block.len() as u32;
-                                *state_c.write().unwrap() = CurrentFlashState::Write { ty: "SCN Coding definition", start_addr, current: written, total: fw_c.raw.len() as u32 } 
-                            },
-                            Err(e) => {
-                                *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to write to address 0x{:08X?} (SCN Coding definition) for update. {}", start_addr + written ,e));
                                 return;
                             }
                         }
@@ -520,17 +435,7 @@ impl InterfacePage for UpdatePage {
                     if total != 0 {
                         f = (now as f32 * 100.0) / total as f32;
                     }
-                    (f, format!("1/2: Downloading firmware. {now} bytes done"))
-                },
-                CurrentFlashState::DownloadYml(now, total) => {
-                    let mut f = 0.0;
-                    if total != 0 {
-                        f = (now as f32 * 100.0) / total as f32;
-                    }
-                    (f, format!("2/2: Downloading SCN coding information. {now} bytes done"))
-                },
-                CurrentFlashState::Unzip => {
-                    (0.0, "Unzipping firmware".to_string())
+                    (f, format!("Downloading firmware. {now} bytes done"))
                 },
             };
             ui.add(egui::widgets::ProgressBar::new(progress_percent).animate(true).show_percentage());

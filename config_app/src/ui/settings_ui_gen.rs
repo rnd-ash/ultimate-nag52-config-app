@@ -1,10 +1,11 @@
-use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
+use std::{any::Any, borrow::Borrow, fmt::format, fs::File, io::{BufReader, Cursor, Read, Write}, num::Wrapping, ops::RangeInclusive, sync::{atomic::AtomicBool, Arc, RwLock}, time::{Duration, Instant}};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
 use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
 use egui_extras::{TableBuilder, Column};
 use egui_toast::ToastKind;
 use egui_plot::{PlotPoints, Line, Plot};
 use serde::{Serialize, Deserialize, de::DeserializeOwned, __private::de};
+use zip::{read::ZipFile, ZipArchive};
 
 use crate::window::{InterfacePage, PageLoadState, PageAction};
 
@@ -40,13 +41,67 @@ impl TcuAdvSettingsUi {
         let nag_c = nag.clone();
         // Firstly, try to read from flash
         std::thread::spawn(move || {
+
+            fn load_file(status: Arc<RwLock<PageLoadState>>, nag: Nag52Diag, ctx: egui::Context) -> Result<ModuleSettingsData, String> {
+                *status.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
+                ctx.request_repaint();
+                nag.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).map_err(|e| e.to_string())?;
+                *status.write().unwrap() = PageLoadState::Waiting(format!("Locating embedded container"));
+                ctx.request_repaint();
+                let part_info = nag.get_embed_file_info().map_err(|e| e.to_string())?;
+                let mut read_contents = Vec::new();
+                while read_contents.len() < part_info.size as usize {
+                    let to_read = std::cmp::min(250, part_info.size as usize - read_contents.len()) as u8;
+                    let addr = part_info.address + read_contents.len() as u32;
+                    *status.write().unwrap() = PageLoadState::Waiting(format!("Reading flash address 0x{:06X}", part_info.address + read_contents.len() as u32));
+                    ctx.request_repaint();
+                    let data = nag.read_mem_by_addr_ext(addr, to_read).map_err(|e| e.to_string())?;
+                    read_contents.extend_from_slice(&data);
+                }
+                let reader = BufReader::new(Cursor::new( read_contents));
+                let mut zip = ZipArchive::new(reader).map_err(|e| format!("Data on EGS is corrupt!"))?;
+                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|e| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
+                let mut s = String::new();
+                let bytes = mod_settings.read_to_string(&mut s).unwrap();
+                println!("{s}");
+                serde_yaml::from_str::<ModuleSettingsData>(&s).map_err(|e| e.to_string())
+            }   
+
+            match load_file(status_c.clone(), nag_c.clone(), ctx.clone()) {
+                Ok(yml) => {
+                    *yml_c.write().unwrap() = Some(yml.clone());
+                    for setting in &yml.settings {
+                        let scn_id = setting.scn_id.unwrap();
+                        let _ = nag_c.with_kwp(|k| {
+                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                .map(|x| x[3..].to_vec());
+                            ctx.request_repaint();
+                            current_settings_c.write().unwrap().insert(scn_id, res);
+                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                .map(|x| x[3..].to_vec());
+                            default_settings_c.write().unwrap().insert(scn_id, res);
+                            ctx.request_repaint();
+                            Ok(())
+                        });
+                    }
+                    *status_c.write().unwrap() = PageLoadState::Ok;
+                    *status_c.write().unwrap() = PageLoadState::Ok
+                },
+                Err(e) => {
+                    *status_c.write().unwrap() = PageLoadState::Err(e)
+                }
+            }
+            ctx.request_repaint();
+            /*
             *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
             ctx.request_repaint();
             if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
                 *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
             } else {
                 // Read flash
-                let part_info = nag_c.get_module_settings_desc_partition();
+                let part_info = nag_c.get_embed_file_info();
                 *status_c.write().unwrap() = PageLoadState::Waiting(format!("Initializing download from flash"));
                 ctx.request_repaint();
                 match nag_c.begin_download(&part_info) {
@@ -131,6 +186,7 @@ impl TcuAdvSettingsUi {
                     }
                 }
             }
+            */
         });
 
         Self {

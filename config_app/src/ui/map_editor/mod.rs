@@ -314,6 +314,9 @@ impl Map {
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
+        if let Some(h) = self.meta.help {
+            raw_ui.label(h);
+        }
         if !self.meta.x_desc.is_empty() {
             raw_ui.label(format!("X: {}", self.meta.x_desc));
         }
@@ -675,7 +678,7 @@ pub struct MapData {
     value_unit: &'static str,
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
-    show_help: bool,
+    help: Option<&'static str>,
     reset_adaptation: bool
 }
 
@@ -704,9 +707,14 @@ impl MapData {
             value_unit,
             x_replace,
             y_replace,
-            show_help: false,
+            help: None,
             reset_adaptation
         }
+    }
+
+    pub const fn with_help(mut self, s: &'static str) -> Self {
+        self.help = Some(s);
+        self
     }
 }
 
