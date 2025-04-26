@@ -309,4 +309,18 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         false
         //None
     ),
+    MapData::new(
+        0xB0,
+        "Torque converter slipping target",
+        "%",
+        "RPM",
+        "Load",
+        "Input speed",
+        "Target slip",
+        "RPM",
+        None,
+        None,
+        false
+        //None
+    ),
 ];
