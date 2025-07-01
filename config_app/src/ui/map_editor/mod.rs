@@ -523,7 +523,7 @@ impl Map {
                     .width(raw_ui.available_width())
                     .include_x(0)
                     .include_y((self.y_values.len() + 1) as f64 * 1.5)
-                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new(bars)));
+                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new("", bars)));
             } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
                 // Line chart
                 let mut lines: Vec<Line> = Vec::new();
@@ -538,7 +538,7 @@ impl Map {
                         };
                         points.push([*key as f64, data as f64]);
                     }
-                    lines.push(Line::new(points).name(self.get_y_label(y_idx)));
+                    lines.push(Line::new(self.get_y_label(y_idx), points));
                 }
                 egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                     .allow_drag(false)
@@ -630,7 +630,7 @@ pub fn save_map(map: &Map) {
         state: map.data_eeprom.clone(),
     };
     if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
-        let bin = bincode::serialize(&save_data).unwrap();
+        let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
         let _ = f.write_all(&bin);  
     }
@@ -641,9 +641,9 @@ pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data = bincode::deserialize::<MapSaveData>(&contents).map_err(|e| e.to_string());
+    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
     match save_data {
-        Ok(data) => {
+        Ok((data, _)) => {
             if data.id != map.meta.id {
                 return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id, data.id)));
             }

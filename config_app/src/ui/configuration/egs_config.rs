@@ -70,8 +70,8 @@ impl EgsConfigPage {
         }) {
             Err(e) => Err(e),
             Ok(bytes) => {
-                match bincode::deserialize::<CalibrationDatabase>(&bytes) {
-                    Ok(d) => Ok(d),
+                match bincode::serde::decode_from_slice::<CalibrationDatabase, _>(&bytes, bincode::config::legacy()) {
+                    Ok((d, _)) => Ok(d),
                     Err(e) => {
                         Err(e.to_string())
                     }

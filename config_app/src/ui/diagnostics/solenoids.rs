@@ -272,7 +272,7 @@ impl crate::window::InterfacePage for SolenoidPage {
         }
         plot.show(ui, |plot_ui| {
             for bar in bars {
-                plot_ui.bar_chart(BarChart::new(vec![bar]))
+                plot_ui.bar_chart(BarChart::new("", vec![bar]))
             }
         });
         PageAction::None

@@ -57,6 +57,7 @@ impl<'a> egui::Widget for MapWidget<'a> {
                 0.0,
                 c,
                 Stroke::NONE,
+                egui::StrokeKind::Middle
             );
 
             b = !b;

@@ -55,21 +55,24 @@ pub fn range_display<T: Into<f32> + Copy + Display>(
 
     painter.rect(
         bar_region,
-        Rounding::from(4.0),
+        4.0,
         Color32::RED,
         visuals.bg_stroke,
+        egui::StrokeKind::Middle
     );
     painter.rect(
         ok_region_rect,
         0.0,
         Color32::GREEN,
         visuals.fg_stroke,
+        egui::StrokeKind::Middle
     );
     painter.rect(
         value_region,
         0.0,
         Color32::BLACK,
         visuals.fg_stroke,
+        egui::StrokeKind::Middle
     );
 
     painter.text(
