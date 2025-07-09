@@ -142,12 +142,21 @@ impl LocalRecordData {
                         ui.label(make_display_value(s.output_rpm, u16::MAX, DisplayErrorType::Error, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Calculated ratio")
+                        ui.label("Observed ratio")
                             .on_hover_text("Calculated gear ratio");
-                        ui.label(if s.calculated_rpm == u16::MAX {
+                        ui.label(if s.calc_ratio == u16::MAX {
                             RichText::new("ERROR").color(Color32::RED)
                         } else {
                             RichText::new(format!("{:.2}", s.calc_ratio as f32 / 100.0))
+                        });
+                        ui.end_row();
+
+                        ui.label("Target ratio")
+                            .on_hover_text("Target gear ratio");
+                        ui.label(if s.targ_ratio == u16::MAX {
+                            RichText::new("ERROR").color(Color32::RED)
+                        } else {
+                            RichText::new(format!("{:.2}", s.targ_ratio as f32 / 100.0))
                         });
                         ui.end_row();
 
@@ -483,6 +492,11 @@ impl LocalRecordData {
                 } else {
                     s.calc_ratio as f32 / 100.0
                 };
+                let ratio_targ_float = if s.targ_ratio == u16::MAX {
+                    0.0
+                } else {
+                    s.targ_ratio as f32 / 100.0
+                };
                 vec![ChartData::new(
                     "RPM sensors".into(),
                     vec![
@@ -496,7 +510,8 @@ impl LocalRecordData {
                 ChartData::new(
                     "RPM sensors".into(),
                     vec![
-                        ("Calculated ratio", ratio_float as f32, None, Color32::from_rgb(0, 0, 255)),
+                        ("Observed ratio", ratio_float as f32, None, Color32::from_rgb(0, 0, 255)),
+                        ("Target ratio", ratio_targ_float as f32, None, Color32::from_rgb(0, 255, 0)),
                     ],
                     Some((0.0, 0.0)),
                 )
@@ -798,6 +813,7 @@ pub struct DataGearboxSensors {
     pub n3_rpm: u16,
     pub calculated_rpm: u16,
     pub calc_ratio: u16,
+    pub targ_ratio: u16,
     pub v_batt: u16,
     pub atf_temp_c: u32,
     pub parking_lock: u8,
