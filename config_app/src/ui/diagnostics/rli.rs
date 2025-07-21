@@ -426,20 +426,44 @@ impl LocalRecordData {
                         make_row(ui, "Engine shaft speed", format!("{} RPM", s.engine_rpm));
                         make_row(ui, "output shaft speed", format!("{} RPM", s.output_rpm));
 
-                        let state_text = match s.shift_idx {
-                            0 => "None",
-                            1 => "1 -> 2",
-                            2 => "2 -> 3",
-                            3 => "3 -> 4",
-                            4 => "4 -> 5",
-                            5 => "5 -> 4",
-                            6 => "4 -> 3",
-                            7 => "3 -> 2",
-                            8 => "2 -> 1",
-                            _ => "UNKNOWN",
+                        let targ = (s.targ_act_gear >> 4) & 0x0F;
+                        let actual = s.targ_act_gear & 0x0F;
+
+                        fn geartext(b: u8) -> &'static str {
+                            match b {
+                                1 => "1",
+                                2 => "2",
+                                3 => "3",
+                                4 => "4",
+                                5 => "5",
+                                8 => "P",
+                                9 => "N",
+                                10 => "R1",
+                                11 => "R2",
+                                _ => "UNKNOWN"
+                            }
+                        }
+
+                        let state_text = if targ == actual {
+                            geartext(actual).to_string()
+                        } else {
+                            format!("{} -> {}", geartext(actual), geartext(targ))
+                        };
+                        make_row(ui, "Gear", state_text);
+
+                        let profile = match s.profile_id {
+                            0 => "(S)tandard",
+                            1 => "(C)omfort",
+                            2 => "(W)inter",
+                            3 => "(A)gility",
+                            4 => "(M)anual",
+                            5 => "(R)ace",
+                            6 => "(I)ndividual",
+                            7 => "_Init",
+                            _ => "UNKNOWN"
                         };
 
-                        make_row(ui, "Shift state", state_text);
+                        make_row(ui, "Profile", profile);
                     },
                     LocalRecordData::ClutchSpeeds(s) => {
 
@@ -993,7 +1017,8 @@ pub struct DataShiftManager {
     pub input_torque: i16,
     pub req_engine_torque: i16,
     pub atf_temp: u8,
-    pub shift_idx: u8,
+    pub targ_act_gear: u8,
+    pub profile_id: u8
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
