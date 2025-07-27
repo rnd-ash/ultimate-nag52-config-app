@@ -1,6 +1,6 @@
 use std::io::{Write, Read};
 
-use flate2::{write::ZlibEncoder, Compression, read::GzDecoder, bufread::ZlibDecoder};
+use flate2::{write::ZlibEncoder, Compression, bufread::ZlibDecoder};
 use packed_struct::prelude::PackedStruct;
 
 use super::settings::ModuleSettingsData;

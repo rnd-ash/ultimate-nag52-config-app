@@ -1,16 +1,14 @@
-use crate::window::{PageAction, StatusBar, get_context};
+use crate::window::{PageAction, get_context};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
-use chrono::Local;
 use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use eframe::egui::{Color32, RichText, Ui, Context};
+use eframe::egui::{CentralPanel, Color32, RichText, SidePanel, Ui};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
-use std::borrow::Borrow;
-use std::collections::hash_map::DefaultHasher;
+use strum::VariantArray;
 use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -39,7 +37,8 @@ pub struct DiagnosticsPage {
     chart_idx: u128,
     read_error: Arc<RwLock<Option<String>>>,
     rli_start_time: Arc<AtomicU64>,
-    launch_time: Instant
+    launch_time: Instant,
+    sidebar_shown: bool,
 }
 
 impl DiagnosticsPage {
@@ -128,79 +127,65 @@ impl DiagnosticsPage {
             chart_idx: 0,
             read_error: err_text,
             rli_start_time,
-            launch_time
+            launch_time,
+            sidebar_shown: true
         }
     }
 }
 
 impl crate::window::InterfacePage for DiagnosticsPage {
     fn make_ui(&mut self, ui: &mut Ui, _frame: &eframe::Frame) -> PageAction {
-        ui.heading("This is experimental, use with MOST up-to-date firmware");
         ui.add_space(5.0);
-        let ui_height = ui.available_height();
         let current_val = self.curr_values.read().clone();
         let chart_data = self.charting_data.read().clone();
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                let mut rli_reset = false;
-                if ui.button("Query gearbox sensor").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::GearboxSensors);
-                    rli_reset = true;
-                }
-                if ui.button("Query gearbox solenoids").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::SolenoidStatus);
-                    rli_reset = true;
-                }
-                if ui.button("Query solenoid pressures").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::PressureStatus);
-                    rli_reset = true;
-                }
-                if ui.button("Query can Rx data").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::CanDataDump);
-                    rli_reset = true;
-                }
-                if ui.button("Query Shift data").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::SSData);
-                    rli_reset = true;
-                }
-                if ui.button("Query Performance metrics").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::SysUsage);
-                    rli_reset = true;
-                }
-                if ui.button("Query Clutch speeds").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::ClutchSpeeds);
-                    rli_reset = true;
-                }
-                if ui.button("Query shift algorithm data").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::ShiftingAlgoFeedback);
-                    rli_reset = true;
-                }
-                if ui.button("Query TCC Program data").clicked() {
-                    *self.record_to_query.write() = Some(RecordIdents::TccProgram);
-                    rli_reset = true;
-                }
 
+        SidePanel::left("Side bar")
+            .show_animated_inside(ui, self.sidebar_shown, |ui| {
+
+                ui.heading("Select data to graph");
+                if ui.button("Hide sidepanel").clicked() {
+                    self.sidebar_shown = false;
+                }
+                ui.separator();
+
+
+                let mut now = *self.record_to_query.read();
+                let mut rli_reset = false;
+                for entry in RecordIdents::VARIANTS {
+                    if ui.selectable_value(&mut now, Some(*entry), entry.to_string()).clicked() {
+                        *self.record_to_query.write() = Some(*entry);
+                        rli_reset = true;
+                    }
+                }
                 if rli_reset {
                     self.chart_idx = 0;
                     self.charting_data.write().clear();
+                    *self.read_error.write() = None;
                     *self.curr_values.write() = None;
                     *self.prev_values.write() = None;
                     self.rli_start_time.store(self.launch_time.elapsed().as_millis() as u64, Ordering::Relaxed);
                 }
-
                 if let Some(e) = self.read_error.read().clone() {
                     ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
                 }
+                ui.separator();
                 if let Some(data) = current_val.clone() {
                     data.to_table(ui);
                 }
-            });
-
+        });
+        CentralPanel::default().show_inside(ui, |ui| {
+            if !self.sidebar_shown {
+                if ui.button("Show sidepanel").clicked() {
+                    self.sidebar_shown = true;
+                }
+            }
             if let Some(data) = current_val {
+                let ui_height = ui.available_height();
                 ui.vertical(|col| {
+                    
                     let start_time = self.rli_start_time.load(Ordering::Relaxed);
                     let legend = Legend::default().position(egui_plot::Corner::LeftTop);
-                    let space_per_chart = (ui_height / data.get_chart_data().len() as f32);
+                    let space_per_chart = ui_height / data.get_chart_data().len() as f32;
 
                     let builder = egui_extras::StripBuilder::new(col)
                         .sizes(Size::exact(space_per_chart), data.get_chart_data().len())
@@ -208,14 +193,13 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             for (idx, d) in data.get_chart_data().iter().enumerate() {
                                 strip.cell(|ui| {
                                     let mut lines: Vec<Line> = Vec::new();
-                                    ui.strong(d.group_name.clone());
                                     let unit: Option<&'static str> =  d.data[0].2.clone();
                                     
                                     for (i, (key, _, _, color)) in d.data.iter().enumerate() {
                                         let points: PlotPoints = chart_data.iter().map(|(timestamp, value)| {
                                             [*timestamp as f64 - start_time as f64, value[idx].data[i].1 as f64]
                                         }).collect();
-                                        lines.push(Line::new(points).name(key.clone()).stroke(Stroke::new(2.0, color.clone())));
+                                        lines.push(Line::new(format!("{} ({}{})", key.clone(), points.points().last().map(|x| x.y).unwrap_or_default(), unit.unwrap_or_default()), points).stroke(Stroke::new(2.0, color.clone())).id(key.clone()));
                                     }
             
                                     let now = self.launch_time.elapsed().as_millis() - start_time as u128;
@@ -228,7 +212,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                         //.height(space_per_chart)
                                         .allow_drag(false)
                                         .include_x(std::cmp::max(20000, now) as f64)
-                                        .auto_bounds([true, true].into())
+                                        .auto_bounds([true, true])
                                         .legend(legend.clone())
                                         .x_axis_formatter(|f, r| {
                                             let seconds = f.value / 1000.0;

@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 
 use ecu_diagnostics::hardware::{HardwareCapabilities, HardwareError, HardwareInfo};
 use serial_rs::PortInfo;

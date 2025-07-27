@@ -12,7 +12,6 @@ use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
 use super::configuration::egs_config;
-use super::nvs_editor::NvsEditor;
 use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
 use super::{
@@ -181,7 +180,7 @@ impl InterfacePage for MainPage {
                 create_page = Some(
                     PageAction::SendNotification {
                         text: "You have found a unimplemented feature!".into(),
-                        kind: egui_toast::ToastKind::Info
+                        kind: egui_notify::ToastLevel::Info
                     }
                 );
             }

@@ -1,8 +1,7 @@
-use std::sync::{Arc, Mutex};
 
 use backend::diag::Nag52Diag;
 
-use crate::window::PageAction;
+use crate::{ui::routine_tests::slave::SlaveModePage, window::PageAction};
 
 use self::{solenoid_test::SolenoidTestPage, adaptation::AdaptationViewerPage, tcc_control::TccControlPage, canlogger::CanLoggerPage, atf_temp_cal::AtfTempCalibrationPage};
 
@@ -11,7 +10,7 @@ pub mod adaptation;
 pub mod tcc_control;
 pub mod canlogger;
 pub mod atf_temp_cal;
-
+pub mod slave;
 pub struct RoutinePage {
     nag: Nag52Diag,
 }
@@ -100,6 +99,18 @@ impl crate::window::InterfacePage for RoutinePage {
                 )));
             }
         }
+
+        ui.label(
+                "
+            DEBUGGING ONLY! 
+            Slave mode - Only for Development - Manipulate IO over CAN
+            "
+            );
+            if ui.button("Slave mode toggle").clicked() {
+                page_action = PageAction::Add(Box::new(SlaveModePage::new(
+                    self.nag.clone(), ui.ctx().clone()
+                )));
+            }
 
         page_action
     }

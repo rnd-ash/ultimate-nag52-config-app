@@ -1,5 +1,11 @@
-# 1.0.8 (Dev)
-* Add new YML based SCN coding wizard
+# 1.3.1 (07/01/25)
+* Update EGS DB to fix crashing with various EGS51 calibrations
+* Update EGUI to 0.30
+
+# 1.3.0 (08/12/24)
+* Added in support for EGS calibration
+* Added support for new TCC zener addon PCB
+* Added shift algorithm data diagnostics page
 
 # 1.0.7 (08/08/23)
 * Move diagnostic executor to seperate thread

@@ -1,10 +1,8 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::KwpSessionType};
-use egui_plot::{Legend, Line, Plot};
 use std::{
-    char::MAX,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread,
     time::{Duration, Instant},
@@ -41,7 +39,7 @@ impl IoManipulatorPage {
 
         let last_update = Arc::new(AtomicU64::new(0));
         let last_update_t = last_update.clone();
-        let mut nag_c = nag.clone();
+        let nag_c = nag.clone();
         thread::spawn(move || {
             let _ = nag_c.with_kwp(|mut server| {
                 server.kwp_set_session(KwpSessionType::Normal.into())?;

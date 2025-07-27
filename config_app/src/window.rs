@@ -1,16 +1,14 @@
 use std::{
     collections::VecDeque,
-    ops::Add,
-    time::{Duration, Instant}, sync::Arc, borrow::BorrowMut, fs::OpenOptions, io::Write,
+    time::{Duration, Instant}, sync::Arc, fs::OpenOptions, io::Write,
 };
 
-use backend::{diag::Nag52Diag, ecu_diagnostics::{DiagError, dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
+use backend::{diag::Nag52Diag, ecu_diagnostics::{dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
 use eframe::{
-    egui::{self, Direction, RichText, WidgetText, Sense, Button, ScrollArea, Context},
-    epaint::{Pos2, Vec2, Color32, Rect, Rounding, FontId}, emath::Align2,
+    egui::{self, Button, Context, CornerRadius, RichText, ScrollArea, Sense}, emath::Align2, epaint::{Color32, FontId, Vec2}
 };
 use egui_extras::{TableBuilder, Column};
-use egui_toast::{Toast, ToastKind, ToastOptions, ToastStyle, Toasts};
+use egui_notify::{Toast, ToastLevel, Toasts};
 
 static mut GLOBAL_EGUI_CONTEXT: Option<Context> = None;
 
@@ -65,13 +63,10 @@ impl MainWindow {
             last_tx_rate: 0,
             last_rx_rate: 0,
             toasts: Toasts::new()
-            .anchor(
-                Align2::RIGHT_BOTTOM,
-                Pos2::new(
-                5.0,
-                0.0,
-            ))
-            .direction(Direction::BottomUp)
+            .with_anchor(
+                egui_notify::Anchor::BottomRight
+            )
+            .with_margin(Vec2::new(0.0, 5.0))
 
         }
     }
@@ -109,7 +104,7 @@ impl eframe::App for MainWindow {
             if self.show_sbar {
                 egui::TopBottomPanel::bottom("NAV").show(ctx, |nav| {
                     nav.horizontal(|row| {
-                        egui::widgets::global_dark_light_mode_buttons(row);
+                        egui::widgets::global_theme_preference_buttons(row);
                         if stack_size > 1 {
                             if row.add_enabled(self.show_back, Button::new("Back")).clicked() {
                                 pop_page = true;
@@ -214,8 +209,8 @@ impl eframe::App for MainWindow {
                             let c_tx = Color32::from_rgba_unmultiplied(0, 255, 0, a_tx as u8);
                             let c_rx = Color32::from_rgba_unmultiplied(255, 0, 0, a_rx as u8);
 
-                            p_tx.rect_filled(r_tx, Rounding::ZERO, c_tx);
-                            p_rx.rect_filled(r_rx, Rounding::ZERO, c_rx);
+                            p_tx.rect_filled(r_tx, CornerRadius::ZERO, c_tx);
+                            p_rx.rect_filled(r_rx, CornerRadius::ZERO, c_rx);
                             p_tx.text(r_tx.center(), Align2::CENTER_CENTER, "Tx", FontId::monospace(10.0), Color32::WHITE);
                             p_rx.text(r_rx.center(), Align2::CENTER_CENTER, "Rx", FontId::monospace(10.0), Color32::WHITE);
 
@@ -248,7 +243,7 @@ impl eframe::App for MainWindow {
                         }
                         self.pop_page()
                     },
-                    PageAction::Add(mut p) => {
+                    PageAction::Add(p) => {
                         self.add_new_page(p)
                     },
                     PageAction::Overwrite(p) => {
@@ -260,16 +255,10 @@ impl eframe::App for MainWindow {
                         self.show_back = false;
                     }
                     PageAction::SendNotification { text, kind } => {
-                        println!("Pushing notification {}", text);
-                        self.toasts.add(Toast {
-                            kind,
-                            text: WidgetText::RichText(RichText::new(text)),
-                            options: ToastOptions::default()
-                                .duration_in_seconds(5.0)
-                                .show_progress(true)
-                                .show_icon(true),
-                            style: ToastStyle::default()
-                        });
+                        let mut t = Toast::custom(text, kind);
+                        t.closable(true);
+                        t.duration(Some(Duration::from_secs(5)));
+                        self.toasts.add(t);
                     }
                     PageAction::RegisterNag(n) => {
                         self.nag = Some(n)
@@ -307,7 +296,7 @@ impl eframe::App for MainWindow {
                         header.col(|ui| {
                             ui.strong("Message");
                         });
-                    }).body(|mut body| {
+                    }).body(|body| {
                         body.rows(10.0, self.logs.len(), |mut row| {
                             let msg = &self.logs[row.index()];
                             let c = match msg.lvl {
@@ -381,7 +370,7 @@ pub enum PageAction {
     Add(Box<dyn InterfacePage>),
     DisableBackBtn,
     Overwrite(Box<dyn InterfacePage>),
-    SendNotification { text: String, kind: ToastKind },
+    SendNotification { text: String, kind: ToastLevel },
 }
 
 pub trait InterfacePage {

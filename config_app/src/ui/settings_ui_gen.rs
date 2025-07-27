@@ -1,19 +1,26 @@
-use std::{sync::{atomic::AtomicBool, Arc, RwLock}, borrow::Borrow, time::{Instant, Duration}, ops::RangeInclusive, fs::File, io::{Write, Read}, any::Any, fmt::format, num::Wrapping};
-use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
-use egui_extras::{TableBuilder, Column};
-use egui_toast::ToastKind;
-use egui_plot::{PlotPoints, Line, Plot};
-use serde::{Serialize, Deserialize, de::DeserializeOwned, __private::de};
+use std::{fs::File, io::{BufReader, Cursor, Read, Write}, sync::{Arc, RwLock}, time::Instant};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Label, RichText}, epaint::{Color32, ahash::HashMap}, emath};
+use zip::ZipArchive;
 
-use crate::window::{InterfacePage, PageLoadState, PageAction};
+use crate::window::{InterfacePage, PageAction};
 
 pub const PAGE_LOAD_TIMEOUT: f32 = 10000.0;
 
-
+#[derive(Debug, Clone)]
+pub enum LoadState {
+    Msg(String),
+    Download {
+        curr_addr: u32,
+        total: u32,
+        done: u32
+    },
+    Ready,
+    Err(String)
+}
 
 pub struct TcuAdvSettingsUi {
-    status: Arc<RwLock<PageLoadState>>,
+    status: Arc<RwLock<LoadState>>,
     error: Option<String>,
     nag: Nag52Diag,
     start_time: Instant,
@@ -26,7 +33,7 @@ pub struct TcuAdvSettingsUi {
 impl TcuAdvSettingsUi {
     pub fn new(nag: Nag52Diag, ctx: egui::Context) -> Self {
 
-        let status = Arc::new(RwLock::new(PageLoadState::Waiting(format!("Init"))));
+        let status = Arc::new(RwLock::new(LoadState::Msg(format!("Init"))));
         let status_c = status.clone();
 
         let yml = Arc::new(RwLock::new(None));
@@ -40,97 +47,62 @@ impl TcuAdvSettingsUi {
         let nag_c = nag.clone();
         // Firstly, try to read from flash
         std::thread::spawn(move || {
-            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
-            ctx.request_repaint();
-            if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
-                *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
-            } else {
-                // Read flash
-                let part_info = nag_c.get_module_settings_desc_partition();
-                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Initializing download from flash"));
+
+            fn load_file(status: Arc<RwLock<LoadState>>, nag: Nag52Diag, ctx: egui::Context) -> Result<ModuleSettingsData, String> {
+                *status.write().unwrap() = LoadState::Msg(format!("Entering NAG52 diag mode"));
                 ctx.request_repaint();
-                match nag_c.begin_download(&part_info) {
-                    Err(e) => {
-                        *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to start download {e}"));
-                        ctx.request_repaint();
-                        return;
-                    },
-                    Ok(_block_size) => {
-                        let mut counter: u8 = 0;
-                        let mut read_contents = Vec::new();
-                        let mut header: Option<Result<ModuleSettingsFlashHeader, MsFlashReadError>> = None;
+                nag.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).map_err(|e| e.to_string())?;
+                *status.write().unwrap() = LoadState::Msg(format!("Locating embedded container"));
+                ctx.request_repaint();
+                let part_info = nag.get_embed_file_info().map_err(|e| e.to_string())?;
+                let mut read_contents = Vec::new();
+                while read_contents.len() < part_info.size as usize {
+                    let to_read = std::cmp::min(250, part_info.size as usize - read_contents.len()) as u8;
+                    let addr = part_info.address + read_contents.len() as u32;
+                    *status.write().unwrap() = LoadState::Download {
+                        curr_addr: part_info.address + read_contents.len() as u32,
+                        total: part_info.size,
+                        done: read_contents.len() as u32,
+                    };
+                    ctx.request_repaint();
+                    let data = nag.read_mem_by_addr_ext(addr, to_read).map_err(|e| e.to_string())?;
+                    read_contents.extend_from_slice(&data);
+                }
+                let reader = BufReader::new(Cursor::new( read_contents));
+                let mut zip = ZipArchive::new(reader).map_err(|e| format!("Data on EGS is corrupt!"))?;
+                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|e| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
+                let mut s = String::new();
+                let _ = mod_settings.read_to_string(&mut s).unwrap();
+                serde_yaml::from_str::<ModuleSettingsData>(&s).map_err(|e| e.to_string())
+            }   
 
-
-                        let mut read_len = part_info.size;
-                        if let Some(Ok(r)) = header {
-                            read_len = r.length_compressed + std::mem::size_of::<ModuleSettingsFlashHeader>() as u32;
-                        }
-
-                        while read_contents.len() < read_len as usize {
-                            *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading flash address 0x{:06X}", part_info.address + read_contents.len() as u32));
+            match load_file(status_c.clone(), nag_c.clone(), ctx.clone()) {
+                Ok(yml) => {
+                    *yml_c.write().unwrap() = Some(yml.clone());
+                    for setting in &yml.settings {
+                        let scn_id = setting.scn_id.unwrap();
+                        let _ = nag_c.with_kwp(|k| {
+                            *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                .map(|x| x[3..].to_vec());
                             ctx.request_repaint();
-                            match nag_c.read_data(counter) {
-                                Ok(data) => {
-                                    read_contents.extend_from_slice(&data);
-                                    counter = counter.wrapping_add(1);
-                                    if read_contents.len() > std::mem::size_of::<ModuleSettingsFlashHeader>() && header.is_none() {
-                                        header = Some(ModuleSettingsFlashHeader::read_header_from_buffer(&read_contents));
-                                        if let Some(Err(_)) = header {
-                                            *status_c.write().unwrap() = PageLoadState::Err(format!("No YML header on flash"));
-                                            ctx.request_repaint();
-                                            return;
-                                        }
-                                        println!("Header: {:?}", header);
-                                    }
-                                    ctx.request_repaint();
-                                },
-                                Err(e) => {
-                                    *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to read flash at address 0x{:06X}: {e:?}", part_info.address + read_contents.len() as u32));
-                                    ctx.request_repaint();
-                                    return;
-                                }
-                            }
-                        }
-                        match ModuleSettingsFlashHeader::from_flash_bytes_to_yml_bytes(&read_contents) {
-                            Ok((_header, yml_bytes)) => {
-                                let s = String::from_utf8(yml_bytes).unwrap();
-                                match serde_yaml::from_str::<ModuleSettingsData>(&s) {
-                                    Ok(s) => {
-                                        *yml_c.write().unwrap() = Some(s.clone());
-                                        for setting in &s.settings {
-                                            let scn_id = setting.scn_id.unwrap();
-                                            let _ = nag_c.with_kwp(|k| {
-                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
-                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
-                                                    .map(|x| x[3..].to_vec());
-                                                ctx.request_repaint();
-                                                current_settings_c.write().unwrap().insert(scn_id, res);
-                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
-                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
-                                                    .map(|x| x[3..].to_vec());
-                                                default_settings_c.write().unwrap().insert(scn_id, res);
-                                                ctx.request_repaint();
-                                                Ok(())
-                                            });
-                                        }
-                                        *status_c.write().unwrap() = PageLoadState::Ok;
-                                        ctx.request_repaint();
-                                        // Now read all the states
-                                    },
-                                    Err(e) => {
-                                        *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
-                                        ctx.request_repaint();
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to inflate YML from flash: {e:?}"));
-                                ctx.request_repaint();
-                            }
-                        }
+                            current_settings_c.write().unwrap().insert(scn_id, res);
+                            *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                .map(|x| x[3..].to_vec());
+                            default_settings_c.write().unwrap().insert(scn_id, res);
+                            ctx.request_repaint();
+                            Ok(())
+                        });
                     }
+                    *status_c.write().unwrap() = LoadState::Ready;
+                    *status_c.write().unwrap() = LoadState::Ready
+                },
+                Err(e) => {
+                    *status_c.write().unwrap() = LoadState::Err(e)
                 }
             }
+            ctx.request_repaint();
         });
 
         Self {
@@ -285,7 +257,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} OK!", setting.name),
-                            kind: ToastKind::Success
+                            kind: egui_notify::ToastLevel::Success
                         }
                     )
                 },
@@ -293,7 +265,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} failed: {e:?}", setting.name),
-                            kind: ToastKind::Error
+                            kind: egui_notify::ToastLevel::Error
                         }
                     )
                 }
@@ -325,7 +297,7 @@ impl InterfacePage for TcuAdvSettingsUi {
         let curr_settings = self.current_settings.read().unwrap().clone();
         let mut action = PageAction::None;
         match state {
-            PageLoadState::Ok => {
+            LoadState::Ready => {
                 let yml = yml.as_ref().unwrap().clone();
                 ui.heading("Select coding string");
                 ui.horizontal(|row| {
@@ -354,10 +326,17 @@ impl InterfacePage for TcuAdvSettingsUi {
                     ui.label("No coding string selected");
                 }
             },
-            PageLoadState::Waiting(txt) => {
+            LoadState::Msg(txt) => {
                 ui.label(txt);
             },
-            PageLoadState::Err(e) => {
+            LoadState::Download { curr_addr, total, done } => {
+                let pb = ProgressBar::new(done as f32 / total as f32)
+                    .animate(true)
+                    .show_percentage()
+                    .text(format!("Downloading diagnostic info. Addr: {:08X}", curr_addr));
+                ui.add(pb);
+            },
+            LoadState::Err(e) => {
                 ui.strong("Page load failed:");
                 ui.label(e);
 
@@ -379,20 +358,20 @@ impl InterfacePage for TcuAdvSettingsUi {
                             match serde_yaml::from_str::<ModuleSettingsData>(&s) {
                                 Ok(s) => {
                                     *yml_c.write().unwrap() = Some(s.clone());
-                                    *status_c.write().unwrap() = PageLoadState::Waiting(format!("Entering NAG52 diag mode"));
+                                    *status_c.write().unwrap() = LoadState::Msg(format!("Entering NAG52 diag mode"));
                                     ctx.request_repaint();
                                     if nag_c.with_kwp(|x| x.kwp_set_session(KwpSessionTypeByte::Extended(0x93))).is_err() {
-                                        *status_c.write().unwrap() = PageLoadState::Err("Cannot enter 0x93 diag mode".into())
+                                        *status_c.write().unwrap() = LoadState::Err("Cannot enter 0x93 diag mode".into())
                                     } else {
                                         for setting in &s.settings {
                                             let scn_id = setting.scn_id.unwrap();
                                             let _ = nag_c.with_kwp(|k| {
-                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} current configuration", setting.name));
+                                                *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
                                                 let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
                                                     .map(|x| x[3..].to_vec());
                                                 ctx.request_repaint();
                                                 current_settings_c.write().unwrap().insert(scn_id, res);
-                                                *status_c.write().unwrap() = PageLoadState::Waiting(format!("Reading {} default configuration", setting.name));
+                                                *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
                                                 let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
                                                     .map(|x| x[3..].to_vec());
                                                 default_settings_c.write().unwrap().insert(scn_id, res);
@@ -400,13 +379,13 @@ impl InterfacePage for TcuAdvSettingsUi {
                                                 Ok(())
                                             });
                                         }
-                                        *status_c.write().unwrap() = PageLoadState::Ok;
+                                        *status_c.write().unwrap() = LoadState::Ready;
                                     }
                                     ctx.request_repaint();
                                     // Now read all the states
                                 },
                                 Err(e) => {
-                                    *status_c.write().unwrap() = PageLoadState::Err(format!("Failed to decode YML: {e:?}"));
+                                    *status_c.write().unwrap() = LoadState::Err(format!("Failed to decode YML: {e:?}"));
                                 }
                             }
                         }); 

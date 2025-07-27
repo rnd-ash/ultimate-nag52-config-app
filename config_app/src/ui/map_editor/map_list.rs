@@ -112,21 +112,35 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         Some(&["K1", "K2", "K3", "B1", "B2"]),
         true
         //None
-    ),
+    ).with_help("Duration of stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
         0x0B,
         "Clutch filling pressure",
-        "%",
         "",
-        "Input torque load",
-        "Clutch",
-        "filling pressure in millibar",
+        "",
+        "",
+        "",
+        "Filling pressure in millibar",
         "mBar",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
         true
         //None
-    ),
+    ).with_help("Clutch filling pressure for stage 1 of the filling process (Priming the clutch)."),
+    MapData::new(
+        0x0C,
+        "Clutch low filling pressure",
+        "",
+        "",
+        "",
+        "",
+        "Filling pressure in millibar",
+        "mBar",
+        None,
+        Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
+        true
+        //None
+    ).with_help("Clutch filling pressure for stage 2 of the filling process (Tolorance clearning)."),
     MapData::new(
         0x10,
         "Upshift overlap time (Agility)",
@@ -292,6 +306,20 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["D1", "D2", "D3", "D4", "D5"]),
+        false
+        //None
+    ),
+    MapData::new(
+        0xB0,
+        "Torque converter slipping target",
+        "%",
+        "RPM",
+        "Load",
+        "Input speed",
+        "Target slip",
+        "RPM",
+        None,
+        None,
         false
         //None
     ),

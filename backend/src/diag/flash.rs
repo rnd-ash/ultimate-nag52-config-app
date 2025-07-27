@@ -57,6 +57,14 @@ impl Nag52Diag {
         })
     }
 
+    pub fn get_embed_file_info(&self) -> DiagServerResult<PartitionInfo> {
+        self.with_kwp(|server| {
+            server.kwp_read_custom_local_identifier(0x2C).map(|res| {
+                PartitionInfo::unpack_from_slice(&res).map_err(|_| DiagError::InvalidResponseLength)
+            })?
+        })
+    }
+
     pub fn get_running_fw_info(&self) -> DiagServerResult<FirmwareHeader> {
         self.with_kwp(|server| {
             server.kwp_read_custom_local_identifier(0x28).map(|res| {
@@ -151,6 +159,15 @@ impl Nag52Diag {
                 eprintln!("ECU Flash check failed :(");
                 Err(DiagError::NotSupported)
             }
+        })
+    }
+
+    pub fn read_mem_by_addr_ext(&self, addr: u32, size: u8) -> DiagServerResult<Vec<u8>> {
+        self.with_kwp(|server| {
+            let mut req = vec![0x24];
+            req.extend_from_slice(&addr.to_be_bytes());
+            req.push(size);
+            server.send_byte_array_with_response(&req).map(|res| res[1..].to_vec())
         })
     }
 }

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use ecu_diagnostics::{bcd_decode_slice, DiagServerResult};
+use ecu_diagnostics::DiagServerResult;
 
 use super::Nag52Diag;
 

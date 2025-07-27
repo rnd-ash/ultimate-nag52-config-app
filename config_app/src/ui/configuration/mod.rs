@@ -1,18 +1,13 @@
-use std::{
-    borrow::BorrowMut,
-    sync::{Arc, Mutex}, ops::RemAssign,
-};
+use std::borrow::BorrowMut;
 
 use crate::window::PageAction;
 use backend::{
     diag::Nag52Diag, ecu_diagnostics::kwp2000::{ResetType, KwpSessionType},
 };
-use chrono::{Datelike, Weekday};
+use chrono::Datelike;
 use config_app_macros::include_base64;
 use eframe::egui::Ui;
 use eframe::egui::{self, *};
-use egui_extras::RetainedImage;
-use image::{DynamicImage, ImageFormat};
 use packed_struct::PackedStructSlice;
 use strum::IntoEnumIterator;
 
@@ -164,7 +159,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 let mut x = scn.is_four_matic == 1;
                 ui.label("Four matic");
                 ui.checkbox(&mut x, "");
-                scn.is_four_matic = (x as u8);
+                scn.is_four_matic = x as u8;
                 ui.end_row();
 
                 if scn.is_four_matic == 1 {
@@ -310,12 +305,12 @@ impl crate::window::InterfacePage for ConfigPage {
                     })
                 } {
                     Ok(_) => {
-                        action = PageAction::SendNotification { text: "Configuration applied!".into(), kind: egui_toast::ToastKind::Success }
+                        action = PageAction::SendNotification { text: "Configuration applied!".into(), kind: egui_notify::ToastLevel::Success }
                     },
                     Err(e) => {
                         action = PageAction::SendNotification { 
                             text: format!("Configuration failed to apply: {e}"), 
-                            kind: egui_toast::ToastKind::Error 
+                            kind: egui_notify::ToastLevel::Error 
                         }
                     }
                 }
@@ -360,7 +355,7 @@ impl crate::window::InterfacePage for ConfigPage {
         let mut tmp = self.show_final_warning;
 
         let ss = ui.ctx().input(|x| x.screen_rect());
-        let mut reload = false;
+        let reload = false;
         egui::Window::new("ARE YOU SURE?")
             .open(&mut self.show_final_warning)
             .fixed_pos(Pos2::new(ss.size().x / 2.0, ss.size().y / 2.0))
@@ -390,12 +385,12 @@ impl crate::window::InterfacePage for ConfigPage {
                             Ok(())
                         }) {
                             Ok(_) => {
-                                action = PageAction::SendNotification { text: "EFUSE applied!".into(), kind: egui_toast::ToastKind::Success }
+                                action = PageAction::SendNotification { text: "EFUSE applied!".into(), kind: egui_notify::ToastLevel::Success }
                             },
                             Err(e) => {
                                 action = PageAction::SendNotification { 
                                     text: format!("EFUSE failed to apply: {e}"), 
-                                    kind: egui_toast::ToastKind::Error 
+                                    kind: egui_notify::ToastLevel::Error 
                                 }
                             }
                         }

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{Borrow, BorrowMut},
-    sync::{Arc, Mutex, RwLock, mpsc::{Receiver, self}, atomic::AtomicU16},
+    sync::{Arc, Mutex, mpsc::{self}},
 };
 
 use ecu_diagnostics::{hardware::{

@@ -1,14 +1,10 @@
-use std::{
-    ops::RangeInclusive,
-    sync::{mpsc, Arc, Mutex},
-};
+use std::sync::Arc;
 
 use backend::{
     diag::{AdapterHw, AdapterType, Nag52Diag},
     ecu_diagnostics::{
         hardware::{
-            passthru::PassthruScanner, Hardware, HardwareInfo,
-            HardwareResult, HardwareScanner,
+            passthru::PassthruScanner, Hardware, HardwareInfo, HardwareScanner,
         },
         DiagError, DiagServerResult,
     },
@@ -26,7 +22,6 @@ use crate::{
     window::{InterfacePage, PageAction},
 };
 
-use super::widgets::range_display::range_display;
 
 type ScanResult = std::result::Result<Vec<String>, String>;
 
@@ -129,7 +124,7 @@ impl InterfacePage for Launcher {
 
         if !self.selected_device.is_empty() && ui.button("Launch configuration app").clicked() {
             match self.open_device(&self.selected_device) {
-                Ok(mut dev) => {
+                Ok(dev) => {
                     return PageAction::Add(Box::new(MainPage::new(dev)));
                 }
                 Err(e) => self.launch_err = Some(format!("Cannot open device: {}", e)),

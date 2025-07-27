@@ -8,12 +8,11 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self, DragValue, Layout, RichText, ScrollArea, Ui, Vec2
-    }, emath::lerp, epaint::{vec2, Color32}, wgpu::rwh::HasDisplayHandle
+        self, DragValue, Layout, RichText, ScrollArea, Ui
+    }, emath::lerp, epaint::Color32,
 };
 use egui_plot::{Bar, BarChart, Line};
 use egui_extras::Column;
-use egui_toast::ToastKind;
 use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
 use serde::Serialize;
 mod help_view;
@@ -314,6 +313,9 @@ impl Map {
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
+        if let Some(h) = self.meta.help {
+            raw_ui.label(h);
+        }
         if !self.meta.x_desc.is_empty() {
             raw_ui.label(format!("X: {}", self.meta.x_desc));
         }
@@ -406,13 +408,13 @@ impl Map {
                             *self = copy;
                             action = Some(PageAction::SendNotification { 
                                 text: format!("Map loading OK!"), 
-                                kind: ToastKind::Success 
+                                kind: egui_notify::ToastLevel::Success 
                             });
                         },
                         Err(e) => {
                             action = Some(PageAction::SendNotification { 
                                 text: format!("Map loading failed: {e}"), 
-                                kind: ToastKind::Error 
+                                kind: egui_notify::ToastLevel::Error 
                             });
                         },
                     }
@@ -422,7 +424,7 @@ impl Map {
                 if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
                     action = Some(PageAction::SendNotification { 
                         text: "You have unsaved data in the map. Please write to EEPROM before saving".into(), 
-                        kind: ToastKind::Warning 
+                        kind: egui_notify::ToastLevel::Warning 
                     });
                 } else {
                     save_map(&self);
@@ -448,12 +450,12 @@ impl Map {
                             self.data_modify = self.data_eeprom.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} undo failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -463,12 +465,12 @@ impl Map {
                             self.data_memory = self.data_modify.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} RAM write OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -484,12 +486,12 @@ impl Map {
                             }
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -520,7 +522,7 @@ impl Map {
                     .width(raw_ui.available_width())
                     .include_x(0)
                     .include_y((self.y_values.len() + 1) as f64 * 1.5)
-                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new(bars)));
+                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new("", bars)));
             } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
                 // Line chart
                 let mut lines: Vec<Line> = Vec::new();
@@ -535,7 +537,7 @@ impl Map {
                         };
                         points.push([*key as f64, data as f64]);
                     }
-                    lines.push(Line::new(points).name(self.get_y_label(y_idx)));
+                    lines.push(Line::new(self.get_y_label(y_idx), points));
                 }
                 egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                     .allow_drag(false)
@@ -627,7 +629,7 @@ pub fn save_map(map: &Map) {
         state: map.data_eeprom.clone(),
     };
     if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
-        let bin = bincode::serialize(&save_data).unwrap();
+        let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
         let _ = f.write_all(&bin);  
     }
@@ -638,9 +640,9 @@ pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data = bincode::deserialize::<MapSaveData>(&contents).map_err(|e| e.to_string());
+    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
     match save_data {
-        Ok(data) => {
+        Ok((data, _)) => {
             if data.id != map.meta.id {
                 return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id, data.id)));
             }
@@ -675,7 +677,7 @@ pub struct MapData {
     value_unit: &'static str,
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
-    show_help: bool,
+    help: Option<&'static str>,
     reset_adaptation: bool
 }
 
@@ -704,9 +706,14 @@ impl MapData {
             value_unit,
             x_replace,
             y_replace,
-            show_help: false,
+            help: None,
             reset_adaptation
         }
+    }
+
+    pub const fn with_help(mut self, s: &'static str) -> Self {
+        self.help = Some(s);
+        self
     }
 }
 
@@ -718,7 +725,7 @@ pub struct MapEditor {
 }
 
 impl MapEditor {
-    pub fn new(mut nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
             nag,

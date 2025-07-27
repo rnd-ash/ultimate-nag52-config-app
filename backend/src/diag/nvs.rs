@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs::File, io::Write, mem::size_of};
+use std::{fs::File, io::Write, mem::size_of};
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum DataType {
     U8(u8),
