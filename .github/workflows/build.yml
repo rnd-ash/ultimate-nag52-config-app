@@ -77,14 +77,13 @@ jobs:
         run: cargo install cargo-bundle
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
-        working-directory: ./config_app
         run: |
           cargo bundle --release
-          ls ../target/release/bundle/
+          ls target/release/bundle/
       - uses: actions/upload-artifact@v4
         with:
           name: config-app-osx
-          path: ../target/release/bundle/osx/*.app
+          path: target/release/bundle/osx/*.app
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app] #, 
