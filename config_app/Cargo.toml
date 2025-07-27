@@ -11,6 +11,7 @@ name = "config_app"
 path = "src/main.rs"
 
 [dependencies]
+wgpu = "25"
 serde_json = { version = "1.0.89" }
 serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
@@ -18,7 +19,7 @@ config_app_macros={path="../config_app_macros/"}
 image = "0.25.1"
 rfd="0.15.0"
 pollster = "0.4.0"
-eframe = {version="0.32.0", features=["wgpu", "glow", "default_fonts"]}
+eframe = {version="0.32.0", features=["wgpu", "default_fonts"]}
 egui_extras = {default-features=false, version="0.32.0", features=["image"]}
 static_assertions = "1.1.0"
 env_logger="0.11.2"
