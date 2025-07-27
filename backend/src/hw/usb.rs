@@ -4,17 +4,16 @@ use ecu_diagnostics::{
 };
 use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::Write,
     panic::catch_unwind,
     sync::{
         atomic::{AtomicBool, Ordering, AtomicU32},
-        mpsc::{self, Receiver},
-        Arc, RwLock, Mutex,
+        mpsc::{self},
+        Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use super::usb_scanner::Nag52UsbScanner;
 
 #[derive(Debug, Clone, Copy)]
 pub enum EspLogLevel {

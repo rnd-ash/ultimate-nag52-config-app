@@ -1,5 +1,5 @@
 use bitflags::{bitflags};
-use ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::KwpSessionType, dynamic_diag::DiagSessionMode};
+use ecu_diagnostics::{DiagServerResult, DiagError, kwp2000::KwpSessionType};
 
 use super::Nag52Diag;
 

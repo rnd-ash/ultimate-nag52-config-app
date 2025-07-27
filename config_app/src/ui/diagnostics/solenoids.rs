@@ -1,10 +1,9 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
-use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints};
+use egui_plot::{Bar, BarChart, Legend, Plot};
 use std::{
-    ops::RangeInclusive,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread,
     time::{Duration, Instant},
@@ -12,7 +11,7 @@ use std::{
 
 use crate::{window::{PageAction, get_context}};
 
-use super::{rli::{DataSolenoids, LocalRecordData, RecordIdents, RLI_PLOT_INTERVAL}, RLI_CHART_DISPLAY_TIME};
+use super::rli::{DataSolenoids, LocalRecordData, RecordIdents, RLI_PLOT_INTERVAL};
 
 const UPDATE_DELAY_MS: u64 = 100;
 
@@ -32,7 +31,7 @@ pub enum ViewType {
 }
 
 impl SolenoidPage {
-    pub fn new(mut nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
         let run_tt = run.clone();
@@ -141,7 +140,7 @@ impl crate::window::InterfacePage for SolenoidPage {
         }
 
         let mut bars = Vec::new();
-        let mut legend = Legend::default();
+        let legend = Legend::default();
         //let x_fmt = |y, _nc, _range: &RangeInclusive<f64>| {
         //    match y as usize {
         //        1 => "MPC",

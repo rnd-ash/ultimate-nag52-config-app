@@ -1,7 +1,7 @@
 use std::{sync::{Arc, RwLock}, time::Instant};
 
-use backend::{diag::{Nag52Diag, flash::PartitionInfo, nvs::NvsPartition}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagServerResult}};
-use eframe::egui::{ProgressBar, widgets, ScrollArea};
+use backend::{diag::{Nag52Diag, flash::PartitionInfo, nvs::NvsPartition}, ecu_diagnostics::DiagServerResult};
+use eframe::egui::{ProgressBar, ScrollArea};
 
 use crate::window::{PageLoadState, InterfacePage, PageAction};
 

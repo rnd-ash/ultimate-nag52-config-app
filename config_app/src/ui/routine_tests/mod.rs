@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 
 use backend::diag::Nag52Diag;
 

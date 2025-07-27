@@ -8,12 +8,11 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self, DragValue, Layout, RichText, ScrollArea, Ui, Vec2
-    }, emath::lerp, epaint::{vec2, Color32},
+        self, DragValue, Layout, RichText, ScrollArea, Ui
+    }, emath::lerp, epaint::Color32,
 };
 use egui_plot::{Bar, BarChart, Line};
 use egui_extras::Column;
-use egui_toast::ToastKind;
 use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
 use serde::Serialize;
 mod help_view;
@@ -409,13 +408,13 @@ impl Map {
                             *self = copy;
                             action = Some(PageAction::SendNotification { 
                                 text: format!("Map loading OK!"), 
-                                kind: ToastKind::Success 
+                                kind: egui_notify::ToastLevel::Success 
                             });
                         },
                         Err(e) => {
                             action = Some(PageAction::SendNotification { 
                                 text: format!("Map loading failed: {e}"), 
-                                kind: ToastKind::Error 
+                                kind: egui_notify::ToastLevel::Error 
                             });
                         },
                     }
@@ -425,7 +424,7 @@ impl Map {
                 if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
                     action = Some(PageAction::SendNotification { 
                         text: "You have unsaved data in the map. Please write to EEPROM before saving".into(), 
-                        kind: ToastKind::Warning 
+                        kind: egui_notify::ToastLevel::Warning 
                     });
                 } else {
                     save_map(&self);
@@ -451,12 +450,12 @@ impl Map {
                             self.data_modify = self.data_eeprom.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} undo failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -466,12 +465,12 @@ impl Map {
                             self.data_memory = self.data_modify.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} RAM write OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -487,12 +486,12 @@ impl Map {
                             }
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                                kind: ToastKind::Success,
+                                kind: egui_notify::ToastLevel::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                            kind: ToastKind::Error,
+                            kind: egui_notify::ToastLevel::Error,
                         }),
                     };
                 }
@@ -726,7 +725,7 @@ pub struct MapEditor {
 }
 
 impl MapEditor {
-    pub fn new(mut nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
             nag,

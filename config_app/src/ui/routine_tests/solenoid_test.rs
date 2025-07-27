@@ -1,27 +1,21 @@
 use std::{
-    char::MAX,
-    collections::btree_map::Range,
     ops::RangeInclusive,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
-        Arc, Mutex, RwLock,
+        atomic::{AtomicU8, Ordering},
+        Arc, RwLock,
     },
-    thread,
-    time::{Duration, Instant},
 };
 
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        DiagError, DiagServerResult, kwp2000::KwpSessionType,
+        DiagError, kwp2000::KwpSessionType,
     },
 };
 use eframe::egui::{
-    self,
-    widgets, Color32, RichText,
+    self, Color32, RichText,
 };
 
-use egui_plot::{Legend, Line, Plot};
 
 use crate::{window::PageAction};
 
@@ -37,13 +31,13 @@ const TempCoefficient: f32 = 0.393; // Copper coils and wires
 const ResistanceMeasureTemp: f32 = 20.0; // Mercedes tests resistance at 20C
 
 // From Sonnax data
-const ResitanceMPC: std::ops::RangeInclusive<f32> = (4.0..=8.0); // 6
-const ResitanceSPC: std::ops::RangeInclusive<f32> = (4.0..=8.0); // 6
-const ResitanceTCC: std::ops::RangeInclusive<f32> = (2.0..=4.0); // 3
+const ResitanceMPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
+const ResitanceSPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
+const ResitanceTCC: std::ops::RangeInclusive<f32> = 2.0..=4.0; // 3
 
-const ResitanceY3: std::ops::RangeInclusive<f32> = (2.5..=6.5); // 4.5
-const ResitanceY4: std::ops::RangeInclusive<f32> = (2.5..=6.5); // 4.5
-const ResitanceY5: std::ops::RangeInclusive<f32> = (2.5..=6.5); // 4.5
+const ResitanceY3: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
+const ResitanceY4: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
+const ResitanceY5: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
 
 #[repr(packed)]
 #[derive(Debug, Clone, Copy)]
@@ -96,7 +90,7 @@ fn make_resistance_text(c_raw: u16, r: f32, range: RangeInclusive<f32>) -> egui:
     if c_raw == 0 {
         return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
     }
-    if (c_raw > 3200 && range != ResitanceTCC) {
+    if c_raw > 3200 && range != ResitanceTCC {
         return egui::Label::new(
             RichText::new("FAIL! Short circuit detected!").color(Color32::RED),
         );
@@ -160,7 +154,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                 let str_ref = self.test_status.clone();
                 let state_ref = self.test_state.clone();
                 let res_ref = self.test_result.clone();
-                let mut n = self.nag.clone();
+                let n = self.nag.clone();
                 std::thread::spawn(move || {
                     state_ref.store(1, Ordering::Relaxed);
                     n.with_kwp(|server| {

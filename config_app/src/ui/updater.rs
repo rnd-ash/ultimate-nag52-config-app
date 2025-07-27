@@ -1,9 +1,9 @@
-use std::{sync::{Arc, RwLock}, time::Instant, path::PathBuf, fs::File, io::{Write, BufReader, Cursor, Read}};
+use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::{Write, Read}};
 
-use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState, settings::ModuleSettingsData, module_settings_flash_store::ModuleSettingsFlashHeader}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
+use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
-use eframe::egui::{self, ScrollArea};
-use octocrab::{models::repos::Release, repos::releases::ListReleasesBuilder};
+use eframe::egui::{self};
+use octocrab::models::repos::Release;
 use tokio::runtime::Runtime;
 
 use crate::window::{InterfacePage, PageAction, get_context};
@@ -58,7 +58,7 @@ pub struct UpdatePage {
 }
 
 impl UpdatePage {
-    pub fn new(mut nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag) -> Self {
         let coredump_info = nag.get_coredump_flash_info().ok();
         let curr_fw_info = nag.get_running_fw_info().ok().zip(nag.get_running_partition_flash_info().ok());
 
@@ -212,10 +212,10 @@ impl InterfacePage for UpdatePage {
                             let state_c = self.status.clone();
                             let fw_c = self.fw.clone();
                             std::thread::spawn(move|| {
-                                let mut url = format!("https://api.github.com{}",fw.url.path());
+                                let url = format!("https://api.github.com{}",fw.url.path());
                                 *state_c.write().unwrap() = CurrentFlashState::Download(0, 0);
                                 let mut buffer_firmware: Vec<u8> = Vec::new();
-                                let mut buffer_yml: Vec<u8> = Vec::new();
+                                let buffer_yml: Vec<u8> = Vec::new();
                                 let mut easy = Easy::new();
                                 let mut list = List::new();
                                 list.append("Accept: application/octet-stream").unwrap();
@@ -258,7 +258,7 @@ impl InterfacePage for UpdatePage {
 
                     if let Some(elf) = elf_url {
                         if ui.button("Download debug elf file").clicked() {
-                            return PageAction::SendNotification { text: format!("Todo. Debugger UI!"), kind: egui_toast::ToastKind::Info }
+                            return PageAction::SendNotification { text: format!("Todo. Debugger UI!"), kind: egui_notify::ToastLevel::Info }
                         }
                     }
                 }
@@ -317,7 +317,7 @@ impl InterfacePage for UpdatePage {
                 flash = true;
             }
             if flash {
-                let mut ng = self.nag.clone();
+                let ng = self.nag.clone();
                 let fw_c = c_fw.clone().unwrap();
                 let state_c = self.status.clone();
                 std::thread::spawn(move || {
@@ -359,7 +359,7 @@ impl InterfacePage for UpdatePage {
         }
         // Check for read operation
         if let Some(read_op) = &read_partition {
-            let mut ng = self.nag.clone();
+            let ng = self.nag.clone();
             let state_c = self.status.clone();
             let mut save_path = None;
             if let Some(f) = rfd::FileDialog::new()

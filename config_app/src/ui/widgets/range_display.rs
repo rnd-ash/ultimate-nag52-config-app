@@ -1,9 +1,9 @@
-use std::{fmt::Display, ops::RangeInclusive};
+use std::fmt::Display;
 
 use eframe::{
     egui,
     emath::{Align2, Pos2, Rect},
-    epaint::{Color32, FontId, Rounding},
+    epaint::{Color32, FontId},
 };
 
 pub fn range_display<T: Into<f32> + Copy + Display>(
@@ -15,7 +15,7 @@ pub fn range_display<T: Into<f32> + Copy + Display>(
     max_display: T,
 ) -> egui::Response {
     let desired_size = egui::Vec2::new(ui.available_width(), 40.0);
-    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
     let bar_region = Rect::from_two_pos(
         Pos2::new(rect.left(), rect.bottom() - 10.0),

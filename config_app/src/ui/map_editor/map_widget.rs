@@ -1,6 +1,6 @@
 use eframe::{
-    egui::{self, Label, Response, Sense, Visuals},
-    epaint::{text::LayoutJob, FontId, Fonts, Pos2, Rect, Rounding, Shape, Stroke, TextShape, Color32},
+    egui::{self},
+    epaint::{FontId, Pos2, Rect, Stroke, TextShape, Color32},
 };
 
 pub struct MapWidget<'a>(&'a super::Map);
@@ -39,7 +39,7 @@ impl<'a> egui::Widget for MapWidget<'a> {
             table_width + galley_y_size.x,
             table_height + galley_x_size.y,
         );
-        let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
         let painter = ui.painter();
         let mut b = false;
 

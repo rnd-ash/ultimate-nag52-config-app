@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}};
 
-use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::KwpSessionType};
+use backend::diag::Nag52Diag;
 use eframe::egui::Context;
 
 use crate::window::PageAction;

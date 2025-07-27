@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 use backend::ecu_diagnostics::dynamic_diag::DynamicDiagSession;
 use backend::ecu_diagnostics::{DiagError, DiagServerResult};
-use eframe::egui::{self, Color32, InnerResponse, RichText, ScrollArea, Ui, WidgetText};
+use eframe::egui::{self, Color32, RichText, ScrollArea, Ui, WidgetText};
 use packed_struct::PackedStructSlice;
 use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
 

@@ -1,9 +1,9 @@
-use std::{sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration, collections::VecDeque, fs::File, io::Write};
+use std::time::Duration;
 
-use backend::{diag::{Nag52Diag, device_modes::TcuDeviceMode}, ecu_diagnostics::{kwp2000::{KwpSessionType, ResetType}, DiagServerResult, channel::{CanFrame, Packet}}};
-use eframe::{epaint::mutex::RwLock, egui::{Context, ScrollArea}};
+use backend::{diag::{Nag52Diag, device_modes::TcuDeviceMode}, ecu_diagnostics::{kwp2000::{KwpSessionType, ResetType}, DiagServerResult}};
+use eframe::egui::Context;
 
-use crate::window::{PageAction, PageLoadState};
+use crate::window::PageAction;
 
 
 

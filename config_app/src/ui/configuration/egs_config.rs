@@ -1,15 +1,13 @@
-use std::{borrow::{Borrow, BorrowMut}, cmp::min, fs::File, io::{Read, Write}, mem::size_of, thread::JoinHandle};
+use std::{borrow::{Borrow, BorrowMut}, cmp::min, fs::File, io::{Read, Write}, thread::JoinHandle};
 
 use config_app_macros::include_base64;
-use eframe::egui::{Color32, Grid, Label, RichText, ScrollArea, Window};
+use eframe::egui::{Color32, Label, RichText, Window};
 use egui_extras::Column;
-use egui_toast::ToastKind;
 use packed_struct::PackedStructSlice;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::window::{InterfacePage, PageAction};
 
-use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagError, DiagServerResult}, serde_yaml};
+use backend::{diag::{calibration::*, memory::MemoryRegion, Nag52Diag}, ecu_diagnostics::{kwp2000::KwpSessionType, DiagError}, serde_yaml};
 
 
 const EGS_DB_BYTES: &[u8] = include_bytes!("../../../../egs_db.bin"); 
@@ -469,7 +467,7 @@ impl InterfacePage for EgsConfigPage {
                                 };
                                 if let Err(e) = res {
                                     let msg = format!("Failed to load calibrations: {}", e.to_string());
-                                    action = PageAction::SendNotification { text: msg, kind: ToastKind::Error };
+                                    action = PageAction::SendNotification { text: msg, kind: egui_notify::ToastLevel::Error };
                                 } else {
                                     let n = f.file_name().unwrap();
                                     let sl= n.to_string_lossy();

@@ -1,13 +1,9 @@
-use std::{any::Any, borrow::Borrow, fmt::format, fs::File, io::{BufReader, Cursor, Read, Write}, num::Wrapping, ops::RangeInclusive, sync::{atomic::AtomicBool, Arc, RwLock}, time::{Duration, Instant}};
-use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}, module_settings_flash_store::{ModuleSettingsFlashHeader, MsFlashReadError}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Window, TextEdit, TextBuffer, Layout, Label, Button, RichText}, epaint::{Color32, ahash::HashMap, Vec2}, emath};
-use egui_extras::{TableBuilder, Column};
-use egui_toast::ToastKind;
-use egui_plot::{PlotPoints, Line, Plot};
-use serde::{Serialize, Deserialize, de::DeserializeOwned, __private::de};
-use zip::{read::ZipFile, ZipArchive};
+use std::{fs::File, io::{BufReader, Cursor, Read, Write}, sync::{Arc, RwLock}, time::Instant};
+use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
+use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Label, RichText}, epaint::{Color32, ahash::HashMap}, emath};
+use zip::ZipArchive;
 
-use crate::window::{InterfacePage, PageLoadState, PageAction};
+use crate::window::{InterfacePage, PageAction};
 
 pub const PAGE_LOAD_TIMEOUT: f32 = 10000.0;
 
@@ -261,7 +257,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} OK!", setting.name),
-                            kind: ToastKind::Success
+                            kind: egui_notify::ToastLevel::Success
                         }
                     )
                 },
@@ -269,7 +265,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} failed: {e:?}", setting.name),
-                            kind: ToastKind::Error
+                            kind: egui_notify::ToastLevel::Error
                         }
                     )
                 }
