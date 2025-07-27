@@ -67,7 +67,7 @@ jobs:
           path: target/i686-pc-windows-msvc/release/*.exe
 
   OSX-app:
-    runs-on: macos-13 # X86 since M1 can use rosetta to run this
+    runs-on: macos-latest # X86 since M1 can use rosetta to run this
     steps:
       - uses: actions/checkout@v3
       - run: |
@@ -77,9 +77,8 @@ jobs:
         run: cargo install cargo-bundle
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
+        working-directory: ./config_app
         run: |
-          cd config_app
-          ln -s ../target target
           cargo bundle --release
           ls target/release/bundle/
       - uses: actions/upload-artifact@v4
