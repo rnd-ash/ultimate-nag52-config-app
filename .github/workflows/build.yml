@@ -25,7 +25,7 @@ jobs:
       run : |
         echo "APP_VERSION=$(cat config_app/Cargo.toml | grep "^version = " | tr -d \" | cut -d " " -f3)" >> $GITHUB_ENV
     - name: Download appimagekit
-      run: sudo wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+      run: sudo wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
     - name: Make appimagetool exec
       run: sudo chmod +x /usr/local/bin/appimagetool
     - name: Install cargo-appimage
