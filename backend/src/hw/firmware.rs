@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use chrono::{DateTime, TimeZone, NaiveDateTime};
+use chrono::NaiveDateTime;
 use packed_struct::{prelude::PackedStruct, PackedStructSlice};
 use static_assertions::assert_eq_size;
 

@@ -1,6 +1,6 @@
-use std::{ops::RangeInclusive, fmt::Display};
+use std::fmt::Display;
 
-use eframe::egui::{TextBuffer, Widget, Response, Key};
+use eframe::egui::{Widget, Key};
 
 pub struct NumberInputWidget<T>
 where T: Copy + Display {
