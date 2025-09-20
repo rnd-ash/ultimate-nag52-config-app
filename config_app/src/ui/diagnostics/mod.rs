@@ -1,9 +1,9 @@
-use crate::window::{PageAction, get_context};
+use crate::window::{PageAction};
 use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use eframe::egui::{CentralPanel, Color32, RichText, SidePanel, Ui};
+use eframe::egui::{self, CentralPanel, Color32, RichText, SidePanel, Ui};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
 use strum::VariantArray;
@@ -42,7 +42,7 @@ pub struct DiagnosticsPage {
 }
 
 impl DiagnosticsPage {
-    pub fn new(nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag, ctx: egui::Context) -> Self {
         
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
@@ -110,7 +110,7 @@ impl DiagnosticsPage {
         let _ = thread::spawn(move || {
             while run_tt.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                get_context().request_repaint();
+                ctx.request_repaint();
                 let taken = start.elapsed().as_millis() as u64;
                 if taken < RLI_PLOT_INTERVAL {
                     std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL - taken));

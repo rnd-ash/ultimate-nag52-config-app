@@ -1,4 +1,5 @@
 use backend::{diag::Nag52Diag, ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType}};
+use eframe::egui;
 use egui_plot::{Bar, BarChart, Legend, Plot};
 use std::{
     sync::{
@@ -9,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{window::{PageAction, get_context}};
+use crate::{window::PageAction};
 
 use super::rli::{DataSolenoids, LocalRecordData, RecordIdents, RLI_PLOT_INTERVAL};
 
@@ -31,7 +32,7 @@ pub enum ViewType {
 }
 
 impl SolenoidPage {
-    pub fn new(nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag, ctx: egui::Context) -> Self {
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
         let run_tt = run.clone();
@@ -50,7 +51,7 @@ impl SolenoidPage {
 
         let _ = thread::spawn(move || {
             while run_tt.load(Ordering::Relaxed) {
-                get_context().request_repaint();
+                ctx.request_repaint();
                 std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL));
             };
         });

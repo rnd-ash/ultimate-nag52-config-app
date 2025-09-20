@@ -141,11 +141,13 @@ impl InterfacePage for MainPage {
             if v.button("Diagnostics").clicked() {
                 create_page = Some(PageAction::Add(Box::new(DiagnosticsPage::new(
                     self.diag_server.clone(),
+                    ctx.clone()
                 ))));
             }
             if v.button("Solenoid live view").clicked() {
                 create_page = Some(PageAction::Add(Box::new(SolenoidPage::new(
                     self.diag_server.clone(),
+                    ctx.clone()
                 ))));
             }
             if v.button("IO Manipulator").clicked() {

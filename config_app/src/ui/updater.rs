@@ -6,7 +6,7 @@ use eframe::egui::{self};
 use octocrab::models::repos::Release;
 use tokio::runtime::Runtime;
 
-use crate::window::{InterfacePage, PageAction, get_context};
+use crate::window::{InterfacePage, PageAction};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CurrentFlashState {
@@ -320,8 +320,9 @@ impl InterfacePage for UpdatePage {
                 let ng = self.nag.clone();
                 let fw_c = c_fw.clone().unwrap();
                 let state_c = self.status.clone();
+                let ctx_c = ui.ctx().clone();
                 std::thread::spawn(move || {
-                    get_context().request_repaint();
+                    ctx_c.request_repaint();
                     *state_c.write().unwrap() = CurrentFlashState::Prepare;
                     let (start_addr, bs) = match ng.begin_ota(fw_c.raw.len() as u32) {
                         Ok((a, b)) => (a, b),
@@ -330,7 +331,7 @@ impl InterfacePage for UpdatePage {
                             return;
                         },
                     };
-                    get_context().request_repaint();
+                    ctx_c.request_repaint();
                     let mut written = 0;
                     for (bid, block) in fw_c.raw.chunks(bs as usize).enumerate() {
                         match ng.transfer_data(((bid + 1) & 0xFF) as u8, block) {
@@ -343,7 +344,7 @@ impl InterfacePage for UpdatePage {
                                 return;
                             }
                         }
-                        get_context().request_repaint();
+                        ctx_c.request_repaint();
                     }
 
                     *state_c.write().unwrap() = CurrentFlashState::Verify;
@@ -353,7 +354,7 @@ impl InterfacePage for UpdatePage {
                             *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Error verification: {}", e));
                         }
                     }
-                    get_context().request_repaint();
+                    ctx_c.request_repaint();
                 });
             }
         }
@@ -371,6 +372,7 @@ impl InterfacePage for UpdatePage {
                 return PageAction::None;
             }
             let read_op_c = read_op.clone();
+            let ctx_c = ui.ctx().clone();
             std::thread::spawn(move || {
                 *state_c.write().unwrap() = CurrentFlashState::Prepare;
                 let bs = match ng.begin_download(&read_op_c) {
@@ -397,7 +399,7 @@ impl InterfacePage for UpdatePage {
                             return;
                         }
                     }
-                    get_context().request_repaint();
+                    ctx_c.request_repaint();
                 }
                 match ng.end_ota(false) {
                     Ok(_) => *state_c.write().unwrap() = {
@@ -444,7 +446,7 @@ impl InterfacePage for UpdatePage {
                     self.flash_start = Some(Instant::now())
                 }
                 let f_start = self.flash_start.unwrap();
-                let (start_address, current, total) = state.get_progress();
+                let (_start_address, current, total) = state.get_progress();
                 let spd = (1000.0 * current as f32
                     / f_start.elapsed().as_millis() as f32)
                     as u32;
