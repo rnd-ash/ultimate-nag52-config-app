@@ -2,7 +2,7 @@ use ecu_diagnostics::{
     channel::{ChannelError, IsoTPChannel, PayloadChannel, CanChannel, CanFrame},
     hardware::{HardwareError, HardwareInfo, HardwareResult},
 };
-use serial_rs::{FlowControl, PortInfo, SerialPort, SerialPortSettings};
+use serialport::{SerialPort, UsbPortInfo};
 use std::{
     io::Write,
     panic::catch_unwind,
@@ -61,18 +61,11 @@ fn between<'a>(source: &'a str, start: &'a str, end: &'a str) -> &'a str {
 }
 
 impl Nag52USB {
-    pub fn new(path: &str, _info: PortInfo) -> HardwareResult<Self> {
-        let mut port = serial_rs::new_from_path(
-            path,
-            Some(
-                SerialPortSettings::default()
-                    .baud(921600)
-                    .read_timeout(Some(1500))
-                    .write_timeout(Some(1500))
-                    .set_flow_control(FlowControl::None)
-                    .set_blocking(false),
-            ),
-        )
+    pub fn new(path: &str, _info: UsbPortInfo) -> HardwareResult<Self> {
+        let mut port = serialport::new(path, 921600)
+            .flow_control(serialport::FlowControl::None)
+            .timeout(Duration::from_millis(1500))
+            .open()
         .map_err(|e| HardwareError::APIError {
             code: 99,
             desc: e.to_string(),
@@ -85,8 +78,7 @@ impl Nag52USB {
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_r = is_running.clone();
         let is_running_rr = is_running.clone();
-        port.clear_input_buffer();
-        port.clear_output_buffer();
+        port.clear(serialport::ClearBuffer::All);
         let mut port_clone = port.try_clone().unwrap();
 
         let tx_bytes = Arc::new(AtomicU32::new(0));
@@ -169,7 +161,7 @@ impl Nag52USB {
             let mut read_buf = Vec::new();
             while is_running_r.load(Ordering::Relaxed) {
                 // read again in case value changed
-                let btr = port_clone.bytes_to_read().unwrap_or_default();
+                let btr = port_clone.bytes_to_read().unwrap_or_default() as usize;
                 let mut r = vec![0x00; btr];
                 let actual_read = port_clone.read(&mut r[..btr]).unwrap_or_default();
                 rx_bytes_t.fetch_add(actual_read as u32, Ordering::Relaxed);
