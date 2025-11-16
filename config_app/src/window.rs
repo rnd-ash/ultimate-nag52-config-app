@@ -5,30 +5,16 @@ use std::{
 
 use backend::{diag::Nag52Diag, ecu_diagnostics::{dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
 use eframe::{
-    egui::{self, Button, Context, CornerRadius, RichText, ScrollArea, Sense}, emath::Align2, epaint::{Color32, FontId, Vec2}
+    egui::{self, Button, CornerRadius, RichText, ScrollArea, Sense}, emath::Align2, epaint::{Color32, FontId, Vec2}
 };
 use egui_extras::{TableBuilder, Column};
 use egui_notify::{Toast, ToastLevel, Toasts};
-
-static mut GLOBAL_EGUI_CONTEXT: Option<Context> = None;
-
-pub fn get_context() -> &'static Context {
-    unsafe {
-        GLOBAL_EGUI_CONTEXT.as_ref().unwrap()
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum PageLoadState {
     Ok,
     Waiting(String),
     Err(String)
-}
-
-impl PageLoadState {
-    pub fn waiting<T: Into<String>>(s: T) -> Self {
-        Self::Waiting(s.into())
-    }
 }
 
 pub struct MainWindow {
@@ -93,9 +79,6 @@ pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
-        if unsafe { GLOBAL_EGUI_CONTEXT.is_none() } {
-            unsafe { GLOBAL_EGUI_CONTEXT = Some(ctx.clone()) };
-        }
 
         let stack_size = self.pages.len();
         let mut s_bar_height = 0.0;
@@ -352,7 +335,7 @@ impl eframe::App for MainWindow {
 
             if self.show_tracer {
                 egui::Window::new("packet trace").open(&mut self.show_tracer).show(ctx, |ui| {
-                    let r = ScrollArea::new([true, true]).stick_to_bottom(true).max_height(300.0).max_width(600.0).show(ui, |s| {
+                    ScrollArea::new([true, true]).stick_to_bottom(true).max_height(300.0).max_width(600.0).show(ui, |s| {
                         for x in &self.trace {
                             s.label(x);
                         }

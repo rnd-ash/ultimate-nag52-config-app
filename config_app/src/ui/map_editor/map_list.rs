@@ -1,8 +1,42 @@
+use crate::ui::map_editor::Map;
+
 use super::MapData;
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(u8)]
+pub enum MapType {
+    UpshiftA = 0x01,
+    UpshiftC = 0x02,
+    UpshiftS = 0x03,
+    DnshiftA = 0x04,
+    DnshiftC = 0x05,
+    DnshiftS = 0x06,
+
+    TccPwm   = 0x09,
+    FillTime =  0x0A,
+    FillPressure= 0x0B,
+    LowFillPressure = 0x0C,
+
+    UpshiftOverlapA  = 0x10,
+    DnshiftOverlapA  = 0x11,
+    UpshiftOverlapS  = 0x12,
+    DnshiftOverlapS  = 0x13,
+    UpshiftOverlapC  = 0x14,
+    DnshiftOverlapC  = 0x15,
+    UpshiftOverlapW  = 0x16,
+    DnshiftOverlapW  = 0x17,
+    UpshiftOverlapM  = 0x18,
+    DnshiftOverlapM  = 0x19,
+
+    TccAdaptSlipMap = 0xA0,
+    TccAdaptLockMap = 0xA1,
+
+    TccRpmSlipMap = 0xB0
+}
 
 pub(crate) const MAP_ARRAY: &[MapData] = &[
     MapData::new(
-        0x01,
+        MapType::UpshiftA,
         "Upshift (A)",
         "%",
         "",
@@ -16,7 +50,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x02,
+        MapType::UpshiftC,
         "Upshift (C)",
         "%",
         "",
@@ -30,7 +64,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x03,
+        MapType::UpshiftS,
         "Upshift (S)",
         "%",
         "",
@@ -44,7 +78,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x04,
+        MapType::DnshiftA,
         "Downshift (A)",
         "%",
         "",
@@ -58,7 +92,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x05,
+        MapType::DnshiftC,
         "Downshift (C)",
         "%",
         "",
@@ -72,7 +106,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x06,
+        MapType::DnshiftS,
         "Downshift (S)",
         "%",
         "",
@@ -86,7 +120,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x09,
+        MapType::TccPwm,
         "TCC solenoid Pwm",
         "mBar",
         "C",
@@ -100,7 +134,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x0A,
+        MapType::FillTime,
         "Clutch filling time",
         "C",
         "",
@@ -114,7 +148,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ).with_help("Duration of stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
-        0x0B,
+        MapType::FillPressure,
         "Clutch filling pressure",
         "",
         "",
@@ -128,7 +162,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ).with_help("Clutch filling pressure for stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
-        0x0C,
+        MapType::LowFillPressure,
         "Clutch low filling pressure",
         "",
         "",
@@ -142,7 +176,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ).with_help("Clutch filling pressure for stage 2 of the filling process (Tolorance clearning)."),
     MapData::new(
-        0x10,
+        MapType::UpshiftOverlapA,
         "Upshift overlap time (Agility)",
         "%",
         "RPM",
@@ -156,7 +190,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x11,
+        MapType::DnshiftOverlapA,
         "Downshift overlap time (Agility)",
         "%",
         "RPM",
@@ -170,7 +204,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x12,
+        MapType::UpshiftOverlapS,
         "Upshift overlap time (Standard)",
         "%",
         "RPM",
@@ -184,7 +218,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x13,
+        MapType::DnshiftOverlapS,
         "Downshift overlap time (Standard)",
         "%",
         "RPM",
@@ -198,7 +232,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x14,
+        MapType::UpshiftOverlapC,
         "Upshift overlap time (Comfort)",
         "%",
         "RPM",
@@ -212,7 +246,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x15,
+        MapType::DnshiftOverlapC,
         "Downshift overlap time (Comfort)",
         "%",
         "RPM",
@@ -226,7 +260,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x16,
+        MapType::UpshiftOverlapW,
         "Upshift overlap time (Winter)",
         "%",
         "RPM",
@@ -240,7 +274,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x17,
+        MapType::DnshiftOverlapW,
         "Downshift overlap time (Winter)",
         "%",
         "RPM",
@@ -254,7 +288,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x18,
+        MapType::UpshiftOverlapM,
         "Upshift overlap time (Manual)",
         "%",
         "RPM",
@@ -268,7 +302,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0x19,
+        MapType::DnshiftOverlapM,
         "Downshift overlap time (Manual)",
         "%",
         "RPM",
@@ -282,11 +316,11 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0xA0,
+        MapType::TccAdaptSlipMap,
         "Torque converter slip adapt map",
         "%",
         "",
-        "Gear",
+        "TCC Load %",
         "",
         "Slipping pressure(mBar)",
         "mBar",
@@ -296,11 +330,11 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0xA1,
+        MapType::TccAdaptLockMap,
         "Torque converter lock adapt map",
         "%",
         "",
-        "Gear",
+        "TCC Load %",
         "",
         "Locking pressure(mBar)",
         "mBar",
@@ -310,7 +344,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         //None
     ),
     MapData::new(
-        0xB0,
+        MapType::TccRpmSlipMap,
         "Torque converter slipping target",
         "%",
         "RPM",

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::{Read, Write}};
+use std::{fs::File, io::{Read, Write}};
 
 use backend::{
     diag::Nag52Diag,
@@ -8,8 +8,8 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self, DragValue, Layout, RichText, ScrollArea, Ui
-    }, emath::lerp, epaint::Color32,
+        self, containers::menu::MenuConfig, DragValue, Layout, MenuBar, RichText, ScrollArea, Ui
+    }, epaint::Color32,
 };
 use egui_plot::{Bar, BarChart, Line};
 use egui_extras::Column;
@@ -17,8 +17,7 @@ use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-mod map_widget;
-use crate::{window::PageAction, plot_backend::{EguiPlotBackend, into_rgba_color}};
+use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
 
@@ -86,20 +85,8 @@ fn read_u16(a: &[u8]) -> DiagServerResult<(&[u8], u16)> {
     Ok((&a[2..], r))
 }
 
-// https://github.com/emilk/egui/blob/master/crates/egui/src/widgets/plot/mod.rs
-fn color_from_contrast(ui: &Ui, contrast: f32) -> Color32 {
-    let bg = ui.visuals().extreme_bg_color;
-    let fg = ui.visuals().widgets.open.fg_stroke.color;
-    let mix = 0.5 * contrast.sqrt();
-    Color32::from_rgb(
-        lerp((bg.r() as f32)..=(fg.r() as f32), mix) as u8,
-        lerp((bg.g() as f32)..=(fg.g() as f32), mix) as u8,
-        lerp((bg.b() as f32)..=(fg.b() as f32), mix) as u8,
-    )
-}
-
 impl Map {
-    pub fn new(map_id: u8, nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
+    pub fn new(map_id: MapType, nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
         // Read metadata
 
         let ecu_response = nag.with_kwp(|server| {
@@ -107,7 +94,7 @@ impl Map {
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
-                    map_id,
+                    map_id as u8,
                     MapCmd::ReadMeta as u8,
                     0x00,
                     0x00,
@@ -151,7 +138,7 @@ impl Map {
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
-                    map_id,
+                    map_id as u8,
                     MapCmd::Read as u8,
                     0x00,
                     0x00,
@@ -176,7 +163,7 @@ impl Map {
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
-                    map_id,
+                    map_id as u8,
                     MapCmd::ReadDefault as u8,
                     0x00,
                     0x00,
@@ -200,7 +187,7 @@ impl Map {
                 .send_byte_array_with_response(&[
                     KwpCommand::ReadDataByLocalIdentifier.into(),
                     0x19,
-                    map_id,
+                    map_id as u8,
                     MapCmd::ReadEEPROM as u8,
                     0x00,
                     0x00,
@@ -249,7 +236,7 @@ impl Map {
         let mut payload: Vec<u8> = vec![
             KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
-            self.meta.id,
+            self.meta.id as u8,
             MapCmd::Write as u8,
         ];
         payload.extend_from_slice(&self.data_to_byte_array(&self.data_modify));
@@ -262,7 +249,7 @@ impl Map {
         let payload: Vec<u8> = vec![
             KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
-            self.meta.id,
+            self.meta.id as u8,
             MapCmd::Burn as u8,
             0x00,
             0x00,
@@ -276,7 +263,7 @@ impl Map {
         let payload: Vec<u8> = vec![
             KwpCommand::WriteDataByLocalIdentifier.into(),
             0x19,
-            self.meta.id,
+            self.meta.id as u8,
             MapCmd::Undo as u8,
             0x00,
             0x00,
@@ -325,7 +312,7 @@ impl Map {
         if !self.meta.v_desc.is_empty() {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
-        let resp = raw_ui.push_id(&hash, |ui| {
+        raw_ui.push_id(&hash, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
                 .cell_layout(
@@ -398,7 +385,6 @@ impl Map {
 
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
         let mut action = None;
-        raw_ui.label(format!("EEPROM key: {}", self.eeprom_key));
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
                 let mut copy = self.clone();
@@ -431,20 +417,20 @@ impl Map {
                 }
             }
         });
-        raw_ui.label("View mode:");
         raw_ui.horizontal(|row| {
+            row.strong("Viewing:");
             row.selectable_value(&mut self.view_type, MapViewType::Modify, "User changes");
             row.selectable_value(&mut self.view_type, MapViewType::EEPROM, "EEPROM");
             row.selectable_value(&mut self.view_type, MapViewType::Default, "TCU default");
         });
         raw_ui.horizontal(|raw_ui| {
-            if self.data_modify != self.data_program {
-                if raw_ui.button("Reset to flash defaults").clicked() {
+            raw_ui.add_enabled_ui(self.data_modify != self.data_program, |ui| {
+                if ui.button("Reset to flash defaults").clicked() {
                     self.data_modify = self.data_program.clone();
                 }
-            }
-            if self.data_modify != self.data_eeprom {
-                if raw_ui.button("Undo user changes").clicked() {
+            });
+            raw_ui.add_enabled_ui(self.data_modify != self.data_eeprom, |ui| {
+                if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
                             self.data_modify = self.data_eeprom.clone();
@@ -459,7 +445,7 @@ impl Map {
                         }),
                     };
                 }
-                if raw_ui.button("Write changes (To RAM)").clicked() {
+                if ui.button("Write changes (To RAM)").clicked() {
                     action = match self.write_to_ram() {
                         Ok(_) => {
                             self.data_memory = self.data_modify.clone();
@@ -474,9 +460,9 @@ impl Map {
                         }),
                     };
                 }
-            }
-            if self.data_memory != self.data_eeprom {
-                if raw_ui.button("Write changes (To EEPROM)").clicked() {
+            });
+            raw_ui.add_enabled_ui(self.data_memory != self.data_eeprom, |ui| {
+                if ui.button("Write changes (To EEPROM)").clicked() {
                     action = match self.save_to_eeprom() {
                         Ok(_) => {
                             if let Ok(new_data) =
@@ -495,7 +481,7 @@ impl Map {
                         }),
                     };
                 }
-            }
+            });
         });
         self.gen_edit_table(raw_ui);
         ScrollArea::new([true, true])
@@ -526,7 +512,7 @@ impl Map {
             } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
                 // Line chart
                 let mut lines: Vec<Line> = Vec::new();
-                for (y_idx, key) in self.y_values.iter().enumerate() {
+                for (y_idx, _key) in self.y_values.iter().enumerate() {
                     let mut points: Vec<[f64; 2]> = Vec::new();
                     for (x_idx, key) in self.x_values.iter().enumerate() {
                         let map_idx = (y_idx * self.x_values.len()) + x_idx;
@@ -619,11 +605,19 @@ impl Map {
         });
         action
     }
+
+    pub fn current_viewed_data(&self) -> &[i16] {
+        match self.view_type {
+            MapViewType::EEPROM => &self.data_eeprom,
+            MapViewType::Default => &self.data_memory,
+            MapViewType::Modify => &self.data_modify,
+        }
+    }
 }
 
 pub fn save_map(map: &Map) {
     let save_data = MapSaveData {
-        id: map.meta.id,
+        id: map.meta.id as u8,
         x_values: map.x_values.clone(),
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
@@ -643,8 +637,8 @@ pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
     let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
-            if data.id != map.meta.id {
-                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id, data.id)));
+            if data.id != map.meta.id as u8 {
+                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id as u8, data.id)));
             }
             if data.x_values != map.x_values {
                 return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
@@ -667,7 +661,7 @@ pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
 
 #[derive(Debug, Clone)]
 pub struct MapData {
-    id: u8,
+    id: MapType,
     name: &'static str,
     x_unit: &'static str,
     y_unit: &'static str,
@@ -683,7 +677,7 @@ pub struct MapData {
 
 impl MapData {
     pub const fn new(
-        id: u8,
+        id: MapType,
         name: &'static str,
         x_unit: &'static str,
         y_unit: &'static str,
@@ -719,60 +713,166 @@ impl MapData {
 
 pub struct MapEditor {
     nag: Nag52Diag,
-    loaded_maps: HashMap<u8, Map>,
+    loaded_map: Option<Map>,
     error: Option<String>,
-    current_map: Option<u8>
 }
 
 impl MapEditor {
     pub fn new(nag: Nag52Diag) -> Self {
-        nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
+        let _ = nag.with_kwp(|server| server.kwp_set_session(KwpSessionTypeByte::Extended(0x93)));
         Self {
             nag,
-            loaded_maps: HashMap::new(),
+            loaded_map: None,
             error: None,
-            current_map: None
         }
     }
 }
+
 
 impl super::InterfacePage for MapEditor {
     fn make_ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        frame: &eframe::Frame,
+        _frame: &eframe::Frame,
     ) -> crate::window::PageAction {
         let mut action = None;
-        ScrollArea::new([true, false]).id_source("scroll-buttons").max_height(40.0).auto_shrink([true, false]).show(ui, |ui| {
-            ui.horizontal(|row| {
-                for map in MAP_ARRAY {
-                    if row.selectable_label(Some(map.id) == self.current_map, map.name).clicked() {
-                        self.current_map = Some(map.id);
-                        self.error = None;
-                        match Map::new(map.id, self.nag.clone(), map.clone()) {
-                            Ok(m) => {
-                                // Only if map is not already loaded
-                                if !self.loaded_maps.contains_key(&map.id) {
-                                    self.loaded_maps.insert(map.id, m);
-                                }
-                            }
-                            Err(e) => self.error = Some(e.to_string()),
-                        }
+        let mut map_to_switch = None;
+        MenuBar::new()
+        .ui(ui, |ui| {
+            ui.menu_button("Select map", |ui| {
+                ui.menu_button("Shift points", |ui| {
+                    ui.label("(S)tandard mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::UpshiftS);
                     }
-                }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftS);
+                    }
+                    ui.separator();
+                    ui.label("(C)omfort mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftC);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftC);
+                    }
+                    ui.separator();
+                    ui.label("(A)gility mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::UpshiftA);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftA);
+                    }
+                    
+                });
+                ui.menu_button("Shift speed", |ui| {
+                    ui.label("(S)tandard mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::UpshiftOverlapS);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftOverlapS);
+                    }
+                    ui.separator();
+                    ui.label("(C)omfort mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::UpshiftOverlapC);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftOverlapC);
+                    }
+                    ui.separator();
+                    ui.label("(A)gility mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::UpshiftOverlapA);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftOverlapA);
+                    }
+                    ui.separator();
+                    ui.label("(M)anual mode");
+                    if ui.button("Upshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftOverlapM);
+                    }
+                    if ui.button("Downshift").clicked() {
+                        map_to_switch = Some(MapType::DnshiftOverlapM);
+                    }
+                });
+                ui.menu_button("Clutch filling", |ui| {
+                    if ui.button("Stage 1 (High) filling pressure").clicked() {
+                        map_to_switch = Some(MapType::FillPressure);
+                    }
+                    if ui.button("Stage 1 (High) filling time").clicked() {
+                        map_to_switch = Some(MapType::FillTime);
+                    }
+                    if ui.button("Stage 2 (Low) filling pressure").clicked() {
+                        map_to_switch = Some(MapType::LowFillPressure);
+                    }
+                });
+                ui.menu_button("Torque converter", |ui| {
+                    ui.label("Zone pressures (Adaptable)");
+                    if ui.button("Slipping pressure").clicked() {
+                        map_to_switch = Some(MapType::TccAdaptSlipMap);
+                    }
+                    if ui.button("Locking pressure").clicked() {
+                        map_to_switch = Some(MapType::TccAdaptLockMap);
+                    }
+                    ui.separator();
+                    ui.label("Target slip map");
+                    if ui.button("Locking pressure").clicked() {
+                        map_to_switch = Some(MapType::TccRpmSlipMap);
+                    }
+                    ui.separator();
+                    ui.label("Solenoid data");
+                    if ui.button("Solenoid PWM").clicked() {
+                        map_to_switch = Some(MapType::TccPwm);
+                    }
+                });
             });
         });
+        if let Some(selected) = map_to_switch {
+            // Stop user changing maps if they have unsaved changes
+            let mut allowed_to_swtich = true;
+            if let Some(current_map) = self.loaded_map.as_ref() {
+                if current_map.data_modify != current_map.data_eeprom {
+                    allowed_to_swtich = false;
+                }
+            }
+            if !allowed_to_swtich {
+                action = Some(PageAction::SendNotification { 
+                    text: "You have uncommited changes, please reset or write to EEPROM".into(), 
+                    kind: egui_notify::ToastLevel::Warning 
+                })
+            } else {
+                if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
+                    self.error = None;
+                    match Map::new(selected, self.nag.clone(), found_map_info.clone()) {
+                        Ok(m) => {
+                            self.loaded_map = Some(m)
+                        }
+                        Err(e) => self.error = Some(e.to_string()),
+                    }
+                } else {
+                    //Error toast
+                    action = Some(PageAction::SendNotification { 
+                        text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8), 
+                        kind: egui_notify::ToastLevel::Error 
+                    })
+                }
+            }
+        }
         ui.separator();
-        if self.current_map == None {
-            ui.centered_and_justified(|ui| ui.strong("Please select a map"));
-        } else {
-            let id = self.current_map.unwrap();
+        if let Some(loaded_map) = self.loaded_map.as_mut() {
             if let Some(err) = &self.error {
                 ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
             } else {
-                let map = self.loaded_maps.get_mut(&id).unwrap();
-                action = map.generate_window_ui(ui);
+                if action.is_none() {
+                    action = loaded_map.generate_window_ui(ui);
+                }
             }
+        } else {
+            ui.centered_and_justified(|ui| ui.strong("Please select a map"));
         }
         if let Some(act) = action {
             act

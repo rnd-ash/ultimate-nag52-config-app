@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use eframe::{egui::IconData, NativeOptions, Renderer};
+use eframe::{egui::IconData, egui_wgpu::{WgpuConfiguration, WgpuSetup}, NativeOptions, Renderer};
 use ui::launcher::Launcher;
 
 mod plot_backend;

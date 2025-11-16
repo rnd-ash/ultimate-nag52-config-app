@@ -1,41 +1,47 @@
 
 use ecu_diagnostics::hardware::{HardwareCapabilities, HardwareError, HardwareInfo};
-use serial_rs::PortInfo;
+use serialport::SerialPortType;
 
 use super::usb::Nag52USB;
 
 pub struct Nag52UsbScanner {
-    ports: Vec<(HardwareInfo, PortInfo)>,
+    ports: Vec<(HardwareInfo, serialport::UsbPortInfo)>,
 }
 
 impl Nag52UsbScanner {
     pub fn new() -> Self {
-        let tmp = match serial_rs::list_ports() {
-            Ok(ports) => ports
-                .iter()
-                .map(|i| {
-                    (
-                        HardwareInfo {
-                            name: i.get_port().to_string(),
-                            vendor: Some(i.get_manufacturer().to_string()),
-                            device_fw_version: None,
-                            api_version: None,
-                            library_version: None,
-                            library_location: None,
-                            capabilities: HardwareCapabilities {
-                                iso_tp: true,
-                                can: false,
-                                kline: false,
-                                kline_kwp: false,
-                                sae_j1850: false,
-                                sci: false,
-                                ip: false,
+        let tmp = match serialport::available_ports() {
+            Ok(ports) => {
+                let mut ret = Vec::new();
+                
+                for p in ports {
+                    if let SerialPortType::UsbPort(usb_info) = p.port_type {
+                        ret.push((
+                            HardwareInfo {
+                                name: p.port_name.clone(),
+                                vendor: Some(usb_info.manufacturer.clone().unwrap_or_default()),
+                                device_fw_version: None,
+                                api_version: None,
+                                library_version: None,
+                                library_location: None,
+                                capabilities: HardwareCapabilities {
+                                    iso_tp: true,
+                                    can: false,
+                                    kline: false,
+                                    kline_kwp: false,
+                                    sae_j1850: false,
+                                    sci: false,
+                                    ip: false,
+                                },
                             },
-                        },
-                        i.clone(),
-                    )
-                })
-                .collect::<Vec<(HardwareInfo, PortInfo)>>(),
+                            usb_info
+                        ));
+                    }
+                }
+                
+                ret
+
+            },
             Err(_) => Vec::new(),
         };
         Self { ports: tmp }
