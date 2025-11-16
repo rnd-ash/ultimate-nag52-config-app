@@ -1,3 +1,7 @@
+# 1.5.0 (16/11/25)
+* Update RLI information database
+* Add in new map-editor UI
+
 # 1.3.1 (07/01/25)
 * Update EGS DB to fix crashing with various EGS51 calibrations
 * Update EGUI to 0.30

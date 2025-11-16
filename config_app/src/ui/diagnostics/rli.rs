@@ -775,6 +775,13 @@ impl LocalRecordData {
                             ("Absorbed power", s.tcc_absorbed_joule as f32, Some("J"), Color32::from_rgb(255, 0, 255)),
                         ],
                         None,
+                    ),
+                    ChartData::new(
+                        "TCC Load".into(),
+                        vec![
+                            ("Load %", s.load_percentage as f32, Some("%"), Color32::from_rgb(255, 0, 255)),
+                        ],
+                        Some((-25.0, 100.0)),
                     )
                 ]
             },
@@ -810,7 +817,8 @@ pub struct TccProgramData {
     // 0b01 - Slip request
     can_request_bits: u8,
     engine_output_joule: u32,
-    tcc_absorbed_joule: u32
+    tcc_absorbed_joule: u32,
+    load_percentage: i16
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, PackedStruct)]
