@@ -1,6 +1,6 @@
 [package]
 name = "config_app"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 resolver = "2"
 description = "Ultimate-NAG52 config app"

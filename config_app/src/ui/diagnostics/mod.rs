@@ -187,7 +187,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     let legend = Legend::default().position(egui_plot::Corner::LeftTop);
                     let space_per_chart = ui_height / data.get_chart_data().len() as f32;
 
-                    let builder = egui_extras::StripBuilder::new(col)
+                    egui_extras::StripBuilder::new(col)
                         .sizes(Size::exact(space_per_chart), data.get_chart_data().len())
                         .vertical(|mut strip| {
                             for (idx, d) in data.get_chart_data().iter().enumerate() {
@@ -199,7 +199,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                         let points: PlotPoints = chart_data.iter().map(|(timestamp, value)| {
                                             [*timestamp as f64 - start_time as f64, value[idx].data[i].1 as f64]
                                         }).collect();
-                                        lines.push(Line::new(format!("{} ({}{})", key.clone(), points.points().last().map(|x| x.y).unwrap_or_default(), unit.unwrap_or_default()), points).stroke(Stroke::new(2.0, color.clone())).id(key.clone()));
+                                        lines.push(Line::new(format!("{} ({:.02} {})", key.clone(), points.points().last().map(|x| x.y).unwrap_or_default(), unit.unwrap_or_default()), points).stroke(Stroke::new(2.0, color.clone())).id(key.clone()));
                                     }
             
                                     let now = self.launch_time.elapsed().as_millis() - start_time as u128;

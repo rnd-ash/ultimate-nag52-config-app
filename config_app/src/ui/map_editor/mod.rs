@@ -759,7 +759,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(A)gility mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftA);
+                        map_to_switch = Some(MapType::UpshiftA);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftA);
@@ -785,7 +785,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(A)gility mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftOverlapA);
+                        map_to_switch = Some(MapType::UpshiftOverlapA);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftOverlapA);
