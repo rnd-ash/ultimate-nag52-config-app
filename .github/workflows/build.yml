@@ -5,6 +5,10 @@ on:
     branches: [ "dev" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -98,13 +102,13 @@ jobs:
           OPENSSL_STATIC: "1"
       - name: Create Universal Binary
         run: |
-          mkdir -p target/release
+          mkdir -p target/universal
           lipo -create \
             target/x86_64-apple-darwin/release/config_app \
             target/aarch64-apple-darwin/release/config_app \
-            -output target/release/config_app
+            -output target/universal/config_app
           echo "Universal binary created. Verifying architectures:"
-          lipo -info target/release/config_app
+          lipo -info target/universal/config_app
       # TODO: Code signing with Apple Developer Certificate
       # Requires: Apple Developer Account ($99/year) and certificates in GitHub Secrets
       # Uncomment and configure the following steps when certificate is available:
@@ -133,14 +137,73 @@ jobs:
       # xattr -cr Ultimate-NAG52-Config-App.app
       - name: Create .app bundle with cargo-bundle
         run: |
-          # cargo-bundle expects binary in target/release/
+          # cargo-bundle will rebuild for host arch (ARM64) and may clean target/release/
+          # Our universal binary is safely stored in target/universal/
           cargo bundle --release --package config_app
+          echo "Bundle created. Now replacing with universal binary..."
+
+          # Verify universal binary still exists
+          if [ ! -f "target/universal/config_app" ]; then
+            echo "ERROR: Universal binary not found at target/universal/config_app"
+            exit 1
+          fi
+
+          # Replace the bundled binary with our universal binary
+          cp -v target/universal/config_app \
+             "target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app"
+
           echo "Bundle contents:"
-          ls -R target/release/bundle/osx/
+          ls -lh target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/
+      - name: Verify Universal Binary in .app bundle
+        run: |
+          echo "Verifying that .app contains universal binary..."
+          LIPO_OUTPUT=$(lipo -info "target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app")
+          echo "$LIPO_OUTPUT"
+
+          # Check if output contains both architectures
+          if echo "$LIPO_OUTPUT" | grep -q "x86_64" && echo "$LIPO_OUTPUT" | grep -q "arm64"; then
+            echo "SUCCESS: Universal binary verified (x86_64 + arm64)"
+          else
+            echo "FAILURE: Binary is NOT universal!"
+            echo "Expected both 'x86_64' and 'arm64' in lipo output"
+            exit 1
+          fi
+      - name: Verify macOS deployment targets
+        run: |
+          echo "Checking minimum macOS version requirements..."
+          BINARY="target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app"
+
+          # Extract deployment target for each architecture
+          echo "=== x86_64 architecture ==="
+          X86_VERSION=$(otool -l "$BINARY" -arch x86_64 | grep -A 3 "LC_BUILD_VERSION\|LC_VERSION_MIN_MACOSX" | grep "minos\|version" | head -1 | awk '{print $2}')
+          echo "x86_64 minimum macOS: $X86_VERSION"
+
+          echo ""
+          echo "=== arm64 architecture ==="
+          ARM_VERSION=$(otool -l "$BINARY" -arch arm64 | grep -A 3 "LC_BUILD_VERSION\|LC_VERSION_MIN_MACOSX" | grep "minos\|version" | head -1 | awk '{print $2}')
+          echo "arm64 minimum macOS: $ARM_VERSION"
+
+          echo ""
+          echo "=== Summary ==="
+          if [ -n "$X86_VERSION" ] && [ -n "$ARM_VERSION" ]; then
+            REQUIRED_VERSION=$(echo -e "$X86_VERSION\n$ARM_VERSION" | sort -V | tail -1)
+            echo "Universal binary requires macOS $REQUIRED_VERSION or newer (highest of both architectures)"
+          else
+            echo "Could not determine deployment target versions"
+          fi
+      - name: Package .app as DMG
+        run: |
+          cd target/release/bundle/osx
+          hdiutil create -volname "Ultimate-NAG52-Config-App" \
+            -srcfolder Ultimate-NAG52-Config-App.app \
+            -ov -format UDZO \
+            config_app.dmg
+          ls -lh config_app.dmg
+          echo "DMG created successfully"
       - uses: actions/upload-artifact@v4
         with:
           name: config-app-osx
-          path: target/release/bundle/osx/*.app
+          path: target/release/bundle/osx/config_app.dmg
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app]
@@ -172,7 +235,7 @@ jobs:
         files: |
           *.exe
           *.AppImage
-          Ultimate-NAG52-Config-App.app
+          *.dmg
       
           
        
