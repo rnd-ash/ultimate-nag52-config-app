@@ -751,7 +751,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(C)omfort mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftC);
+                        map_to_switch = Some(MapType::UpshiftC);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftC);
@@ -793,7 +793,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(M)anual mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftOverlapM);
+                        map_to_switch = Some(MapType::UpshiftOverlapM);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftOverlapM);
