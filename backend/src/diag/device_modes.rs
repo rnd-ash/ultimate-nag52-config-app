@@ -29,7 +29,7 @@ impl Nag52Diag {
     pub fn read_device_mode(&self) -> DiagServerResult<TcuDeviceMode> {
         let res = self.with_kwp(|kwp| {
             kwp.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())?;
-            kwp.send_byte_array_with_response(&[0x30, 0x10, 0x01])
+            kwp.send_byte_array_with_response(&[0x30, 0x10, 0x01], None)
         })?;
         if res.len() != 5 {
             Err(DiagError::InvalidResponseLength)
@@ -51,14 +51,14 @@ impl Nag52Diag {
                 if store_in_eeprom {0x08} else {0x07},
                 ((x >> 8) & 0xFF) as u8,
                 ((x >> 0) & 0xFF) as u8
-            ])
+            ], None)
         })?;
         Ok(())
     }
 
     pub fn return_mode_control_to_ecu(&self) -> DiagServerResult<()> {
         let _ = self.with_kwp(|kwp| {
-            kwp.send_byte_array_with_response(&[0x30, 0x10, 0x00])
+            kwp.send_byte_array_with_response(&[0x30, 0x10, 0x00], None)
         })?;
         Ok(())
     }

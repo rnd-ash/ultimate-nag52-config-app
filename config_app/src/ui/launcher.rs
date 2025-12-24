@@ -57,7 +57,6 @@ impl Launcher {
 
 impl Launcher {
     pub fn open_device(&self, name: &str) -> DiagServerResult<Nag52Diag> {
-        println!("Opening '{}'", name);
         let hw_info = self
             .curr_dev_list
             .iter()
@@ -107,7 +106,15 @@ impl InterfacePage for Launcher {
         self.curr_dev_list = dev_list.clone();
 
         if dev_list.len() == 0 {
+            ui.strong("No devices found");
+            if self.curr_api_type == AdapterType::USB && cfg!(target_os="windows") {
+                ui.label("Ensure you have the CP2102N drivers installed");
+                ui.hyperlink_to("You can download the drivers from here", "https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads");
+            }
         } else {
+            if dev_list.len() == 1 {
+                self.selected_device = dev_list[0].name.clone();
+            }
             egui::ComboBox::from_label("Select device")
                 .width(400.0)
                 .selected_text(&self.selected_device)

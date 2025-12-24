@@ -49,7 +49,7 @@ impl Nag52Diag {
                 len
             ];
             self.with_kwp(|kwp| {
-                kwp.send_byte_array_with_response(&req)
+                kwp.send_byte_array_with_response(&req, None)
             })
         }
     }
@@ -72,7 +72,7 @@ impl Nag52Diag {
             ];
             req.extend_from_slice(data);
             self.with_kwp(|kwp| {
-                kwp.send_byte_array_with_response(&req)
+                kwp.send_byte_array_with_response(&req, None)
             })
         }
     }

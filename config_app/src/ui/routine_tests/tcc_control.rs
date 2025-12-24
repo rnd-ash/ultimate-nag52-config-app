@@ -40,7 +40,7 @@ impl TccControlPage {
 
             let res = nag_c.with_kwp(|kwp| {
                 kwp.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())?;
-                kwp.send_byte_array_with_response(&[0x31, 0x33, mode as u8])?;
+                kwp.send_byte_array_with_response(&[0x31, 0x33, mode as u8], None)?;
                 kwp.kwp_set_session(KwpSessionType::Normal.into())?;
                 Ok(())
             });

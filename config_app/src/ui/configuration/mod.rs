@@ -299,7 +299,7 @@ impl crate::window::InterfacePage for ConfigPage {
                     x.extend_from_slice(&scn.clone().pack_to_vec().unwrap());
                     self.nag.with_kwp(|server| {
                         server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
-                        server.send_byte_array_with_response(&x)?;
+                        server.send_byte_array_with_response(&x, None)?;
                         server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                         Ok(())
                     })
@@ -380,7 +380,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         x.extend_from_slice(&efuse.pack_to_vec().unwrap());
                         match self.nag.with_kwp(|server| {
                             server.kwp_set_session(KwpSessionType::Reprogramming.into())?;
-                            server.send_byte_array_with_response(&x)?;
+                            server.send_byte_array_with_response(&x, None)?;
                             server.kwp_reset_ecu(ResetType::PowerOnReset.into())?;
                             Ok(())
                         }) {

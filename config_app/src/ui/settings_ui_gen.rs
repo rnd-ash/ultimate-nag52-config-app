@@ -83,12 +83,12 @@ impl TcuAdvSettingsUi {
                         let scn_id = setting.scn_id.unwrap();
                         let _ = nag_c.with_kwp(|k| {
                             *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
-                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id], None)
                                 .map(|x| x[3..].to_vec());
                             ctx.request_repaint();
                             current_settings_c.write().unwrap().insert(scn_id, res);
                             *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
-                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
                                 .map(|x| x[3..].to_vec());
                             default_settings_c.write().unwrap().insert(scn_id, res);
                             ctx.request_repaint();
@@ -251,7 +251,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
             ret = match nag.with_kwp(|kwp| {
                 let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, setting.scn_id.unwrap()];
                 tx.extend_from_slice(coding);
-                kwp.send_byte_array_with_response(&tx)
+                kwp.send_byte_array_with_response(&tx, None)
             }) {
                 Ok(_) => {
                     Some(
@@ -367,12 +367,12 @@ impl InterfacePage for TcuAdvSettingsUi {
                                             let scn_id = setting.scn_id.unwrap();
                                             let _ = nag_c.with_kwp(|k| {
                                                 *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
-                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id])
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id], None)
                                                     .map(|x| x[3..].to_vec());
                                                 ctx.request_repaint();
                                                 current_settings_c.write().unwrap().insert(scn_id, res);
                                                 *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
-                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000])
+                                                let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
                                                     .map(|x| x[3..].to_vec());
                                                 default_settings_c.write().unwrap().insert(scn_id, res);
                                                 ctx.request_repaint();

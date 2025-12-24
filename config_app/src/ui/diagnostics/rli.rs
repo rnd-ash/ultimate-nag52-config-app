@@ -323,7 +323,9 @@ impl LocalRecordData {
                         ui.end_row();
 
                         ui.label("Fuel flow");
-                        ui.label(format!("{} ul/s", s.fuel_flow));
+                        // Bosch says its 0.217/250ms
+                        // so 0.217*4 = flow per second
+                        ui.label(format!("{} ul/s", ((s.fuel_flow as f32)*0.816) as u32));
                         ui.end_row();
 
                         ui.label("Torque request");
@@ -611,7 +613,7 @@ impl LocalRecordData {
                 ChartData::new(
                     "Fuel usage".into(),
                     vec![
-                        ("Fuel flow", s.fuel_flow as f32, Some("ul/sec"), Color32::from_rgb(255, 0, 0)),
+                        ("Fuel flow", s.fuel_flow as f32 * 0.868, Some("ul/sec"), Color32::from_rgb(255, 0, 0)),
                     ],
                     None,
                 ),

@@ -16,26 +16,28 @@ impl Nag52UsbScanner {
                 
                 for p in ports {
                     if let SerialPortType::UsbPort(usb_info) = p.port_type {
-                        ret.push((
-                            HardwareInfo {
-                                name: p.port_name.clone(),
-                                vendor: Some(usb_info.manufacturer.clone().unwrap_or_default()),
-                                device_fw_version: None,
-                                api_version: None,
-                                library_version: None,
-                                library_location: None,
-                                capabilities: HardwareCapabilities {
-                                    iso_tp: true,
-                                    can: false,
-                                    kline: false,
-                                    kline_kwp: false,
-                                    sae_j1850: false,
-                                    sci: false,
-                                    ip: false,
+                        if usb_info.vid == 0x10c4 && usb_info.pid == 0xea60 {
+                            ret.push((
+                                HardwareInfo {
+                                    name: p.port_name.clone(),
+                                    vendor: Some(usb_info.manufacturer.clone().unwrap_or_default()),
+                                    device_fw_version: None,
+                                    api_version: None,
+                                    library_version: None,
+                                    library_location: None,
+                                    capabilities: HardwareCapabilities {
+                                        iso_tp: true,
+                                        can: false,
+                                        kline: false,
+                                        kline_kwp: false,
+                                        sae_j1850: false,
+                                        sci: false,
+                                        ip: false,
+                                    },
                                 },
-                            },
-                            usb_info
-                        ));
+                                usb_info
+                            ));
+                        }
                     }
                 }
                 
