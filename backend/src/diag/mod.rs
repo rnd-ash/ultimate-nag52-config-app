@@ -306,10 +306,14 @@ impl Nag52Diag {
 
         let (logger, inner_logger) = NagAppLogger::new();
 
-        let kwp = DynamicDiagSession::new_over_iso_tp(
+        let mut isotp_channel = hw.create_isotp_channel().map_err(|e| DiagError::from(Arc::new(e)))?;
+        isotp_channel.set_iso_tp_cfg(channel_cfg)?;
+        isotp_channel.set_ids(0x07E1, 0x07E9)?;
+        isotp_channel.open()?;
+
+        let kwp = DynamicDiagSession::new(
             protocol,
-            hw.create_isotp_channel().map_err(|e| DiagError::from(Arc::new(e)))?,
-            channel_cfg,
+            isotp_channel,
             basic_opts,
             Some(adv_opts),
             inner_logger

@@ -98,7 +98,7 @@ impl Map {
                     MapCmd::ReadMeta as u8,
                     0x00,
                     0x00,
-                ])
+                ], None)
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -142,7 +142,7 @@ impl Map {
                     MapCmd::Read as u8,
                     0x00,
                     0x00,
-                ])
+                ], None)
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -167,7 +167,7 @@ impl Map {
                     MapCmd::ReadDefault as u8,
                     0x00,
                     0x00,
-                ])
+                ], None)
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -191,7 +191,7 @@ impl Map {
                     MapCmd::ReadEEPROM as u8,
                     0x00,
                     0x00,
-                ])
+                ], None)
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -241,7 +241,7 @@ impl Map {
         ];
         payload.extend_from_slice(&self.data_to_byte_array(&self.data_modify));
         self.ecu_ref
-            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload, None))?;
         Ok(())
     }
 
@@ -255,7 +255,7 @@ impl Map {
             0x00,
         ];
         self.ecu_ref
-            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload, None))?;
         Ok(())
     }
 
@@ -269,7 +269,7 @@ impl Map {
             0x00,
         ];
         self.ecu_ref
-            .with_kwp(|server| server.send_byte_array_with_response(&payload))?;
+            .with_kwp(|server| server.send_byte_array_with_response(&payload, None))?;
         Ok(())
     }
 
@@ -751,7 +751,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(C)omfort mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftC);
+                        map_to_switch = Some(MapType::UpshiftC);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftC);
@@ -793,7 +793,7 @@ impl super::InterfacePage for MapEditor {
                     ui.separator();
                     ui.label("(M)anual mode");
                     if ui.button("Upshift").clicked() {
-                        map_to_switch = Some(MapType::DnshiftOverlapM);
+                        map_to_switch = Some(MapType::UpshiftOverlapM);
                     }
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftOverlapM);
@@ -820,7 +820,7 @@ impl super::InterfacePage for MapEditor {
                     }
                     ui.separator();
                     ui.label("Target slip map");
-                    if ui.button("Locking pressure").clicked() {
+                    if ui.button("Slip target vs load").clicked() {
                         map_to_switch = Some(MapType::TccRpmSlipMap);
                     }
                     ui.separator();

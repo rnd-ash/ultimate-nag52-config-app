@@ -86,7 +86,7 @@ impl Nag52Diag {
             req.push((image_len >> 16) as u8);
             req.push((image_len >> 8) as u8);
             req.push((image_len) as u8);
-            let resp = server.send_byte_array_with_response(&req)?;
+            let resp = server.send_byte_array_with_response(&req, None)?;
             let bs = (resp[1] as u16) << 8 | resp[2] as u16;
             Ok((part_info_next.address, bs))
         });
@@ -105,7 +105,7 @@ impl Nag52Diag {
             req.push((len >> 16) as u8);
             req.push((len >> 8) as u8);
             req.push((len) as u8);
-            let resp = server.send_byte_array_with_response(&req)?;
+            let resp = server.send_byte_array_with_response(&req, None)?;
             let bs = (resp[1] as u16) << 8 | resp[2] as u16;
             Ok((part_info_next.address, bs))
         });
@@ -122,7 +122,7 @@ impl Nag52Diag {
             req.push((partition_info.size >> 16) as u8);
             req.push((partition_info.size >> 8) as u8);
             req.push((partition_info.size) as u8);
-            let resp = server.send_byte_array_with_response(&req)?;
+            let resp = server.send_byte_array_with_response(&req, None)?;
             let bs = (resp[1] as u16) << 8 | resp[2] as u16;
             Ok(bs)
         });
@@ -133,22 +133,22 @@ impl Nag52Diag {
         self.with_kwp(|server| {
             let mut req = vec![0x36, blk_id];
             req.extend_from_slice(data);
-            server.send_byte_array_with_response(&req).map(|_| ())
+            server.send_byte_array_with_response(&req, None).map(|_| ())
         })
     }
 
     pub fn read_data(&self, blk_id: u8) -> DiagServerResult<Vec<u8>> {
         self.with_kwp(|server| {
             server
-                .send_byte_array_with_response(&[0x36, blk_id])
+                .send_byte_array_with_response(&[0x36, blk_id], None)
                 .map(|x| x[2..].to_vec())
         })
     }
 
     pub fn end_ota(&self, reboot: bool) -> DiagServerResult<()> {
         self.with_kwp(|server| {
-            server.send_byte_array_with_response(&[0x37])?;
-            let status = server.send_byte_array_with_response(&[0x31, 0xE1])?;
+            server.send_byte_array_with_response(&[0x37], None)?;
+            let status = server.send_byte_array_with_response(&[0x31, 0xE1], None)?;
             if status[2] == 0x00 {
                 eprintln!("ECU Flash check OK! Rebooting");
                 if reboot {
@@ -167,7 +167,7 @@ impl Nag52Diag {
             let mut req = vec![0x24];
             req.extend_from_slice(&addr.to_be_bytes());
             req.push(size);
-            server.send_byte_array_with_response(&req).map(|res| res[1..].to_vec())
+            server.send_byte_array_with_response(&req, None).map(|res| res[1..].to_vec())
         })
     }
 }

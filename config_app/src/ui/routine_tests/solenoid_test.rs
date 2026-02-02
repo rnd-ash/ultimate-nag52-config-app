@@ -167,7 +167,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             ctx.request_repaint();
                             return Ok(());
                         }
-                        if let Err(e) = server.send_byte_array_with_response(&[0x31, 0xDE]) {
+                        if let Err(e) = server.send_byte_array_with_response(&[0x31, 0xDE], None) {
                             let _ = server.kwp_set_session(KwpSessionType::Normal.into());
                             *str_ref.write().unwrap() = format!("ECU rejected the test: {}", e);
                             state_ref.store(2, Ordering::Relaxed);
@@ -175,7 +175,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             return Ok(());
                         }
                         loop {
-                            match server.send_byte_array_with_response(&[0x33, 0xDE]) {
+                            match server.send_byte_array_with_response(&[0x33, 0xDE], None) {
                                 // Request test results in a loop
                                 Ok(res) => {
                                     let routine_res_ptr: *const TestResultsSolenoid =
