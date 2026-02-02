@@ -1,3 +1,7 @@
+# 1.6.0 (15/01/26)
+* Add W639 calibrations to database
+* Fix wrong shift point maps showing in the app
+
 # 1.5.0 (16/11/25)
 * Update RLI information database
 * Add in new map-editor UI

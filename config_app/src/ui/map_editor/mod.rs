@@ -820,7 +820,7 @@ impl super::InterfacePage for MapEditor {
                     }
                     ui.separator();
                     ui.label("Target slip map");
-                    if ui.button("Locking pressure").clicked() {
+                    if ui.button("Slip target vs load").clicked() {
                         map_to_switch = Some(MapType::TccRpmSlipMap);
                     }
                     ui.separator();
