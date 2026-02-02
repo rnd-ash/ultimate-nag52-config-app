@@ -1,7 +1,7 @@
 [package]
 name = "config_app"
 version = "1.6.0"
-edition = "2021"
+edition = "2024"
 resolver = "2"
 description = "Ultimate-NAG52 config app"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,7 +16,7 @@ serde = { version = "1.0.148", features = ["derive"] }
 backend={path="../backend/"}
 config_app_macros={path="../config_app_macros/"}
 image = "0.25.1"
-rfd="0.16.0"
+rfd="0.17.2"
 pollster = "0.4.0"
 eframe = {version="0.33.3", features=["wgpu", "default_fonts"]}
 egui_extras = {default-features=false, version="0.33.3", features=["image"]}
@@ -26,7 +26,7 @@ egui-notify="0.21.0"
 chrono = "0.4.23"
 nom="8.0.0"
 plotters-backend="0.3.4"
-plotters={version="0.3.4", default_features = false, features=["surface_series"]}
+plotters={version="0.3.4", features=["surface_series"]}
 packed_struct="0.10.0"
 ehttp="0.6.0"
 octocrab = "0.49.3"
