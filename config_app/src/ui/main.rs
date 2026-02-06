@@ -5,7 +5,9 @@ use backend::diag::Nag52Diag;
 use config_app_macros::include_base64;
 use eframe::egui;
 use eframe::Frame;
+use eframe::egui::CentralPanel;
 use eframe::egui::RichText;
+use eframe::egui::SidePanel;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
 use std::sync::Arc;
@@ -16,7 +18,6 @@ use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
 use super::{
     configuration::ConfigPage,
-    diagnostics::solenoids::SolenoidPage,
     io_maipulator::IoManipulatorPage, map_editor::MapEditor, routine_tests::RoutinePage,
 };
 use crate::ui::diagnostics::DiagnosticsPage;
@@ -79,155 +80,205 @@ impl InterfacePage for MainPage {
             x.hyperlink_to("View config app updates", link);
         });
         ui.separator();
-        ui.label(r#"
-            This application lets you do many things with the TCU!
-            If you are lost or need help, you can always consult the wiki below,
-            or join the Ultimate-NAG52 discussions Telegram group!
-        "#);
-        ui.collapsing("Useful links", |ui| {
+        
+        let mut create_page = None;
+        let info_state = self.info.read().clone();
+        let mode_state = self.tcu_mode.read().clone();
+
+        let mut efuse_ok = true;
+        let mut compatibility_ok = true;
+        let mut special_mode = false;
+
+        SidePanel::left("l-s").resizable(false).show_inside(ui, |ui| {
+            // Left panel (Status)
+            ui.vertical_centered(|ui| {
+                ui.heading("Status");
+            });
+            ui.add_space(20.0);
+            egui::Grid::new("inf-tab")
+            .striped(true)
+            .show(ui, |ui| {
+
+                fn datastate_to_ui<T, F: FnOnce(&mut egui::Ui, &T)>(ui: &mut egui::Ui, state: &DataState<T>, fn_ok: F) {
+                    match state {
+                        DataState::LoadOk(t) => fn_ok(ui, t),
+                        DataState::Unint => {
+                            ui.spinner();
+                        },
+                        DataState::LoadErr(e) => {
+                            ui.colored_label(Color32::RED, format!("Error querying status: {e}"));
+                        },
+                    }
+                }
+
+                ui.strong("TCU Status");
+                datastate_to_ui(ui, &mode_state, |ui, mode| {
+                    if mode.contains(TcuDeviceMode::NO_CALIBRATION) {
+                        ui.colored_label(Color32::RED, 
+                            "No EGS Calibration data selected"  
+                        );
+                        compatibility_ok = false;
+                    } else if mode.contains(TcuDeviceMode::NO_EFUSE) {
+                        ui.colored_label(Color32::RED, 
+                            "No vehicle information or missing EFUSE data"  
+                        );
+                        efuse_ok = false;
+                    } else if mode.contains(TcuDeviceMode::CANLOGGER) {
+                        ui.colored_label(Color32::RED, 
+                            "Special mode in use - CAN Logger"  
+                        );
+                        special_mode = true;
+                    } else if mode.contains(TcuDeviceMode::SLAVE) {
+                        ui.colored_label(Color32::RED, 
+                            "Special mode in use - Slave CAN Manipulator"  
+                        );
+                        special_mode = true;
+                    } else if mode.contains(TcuDeviceMode::ERROR) {
+                        ui.colored_label(Color32::RED, 
+                            "Your TCU has encountered an error. Please consult the LOG window to
+                            see what is wrong."  
+                        );
+                    } else {
+                        ui.colored_label(Color32::GREEN, "TCU is running normally");
+                    }
+                });
+                ui.end_row();
+
+                ui.strong("Serial number");
+                datastate_to_ui(ui, &self.sn.read(), |ui, sn| {
+                    ui.label(sn);
+                });
+                ui.end_row();
+
+                ui.strong("PCB Version");
+                datastate_to_ui(ui, &info_state, |ui, inf| {
+                    ui.label(format!(
+                        "{} (HW date: {} week 20{})",
+                        inf.board_ver, inf.hw_week, inf.hw_year
+                    ));
+                });
+                ui.end_row();
+
+                ui.strong("Production date");
+                datastate_to_ui(ui, &info_state, |ui, inf| {
+                    ui.label(format!(
+                        "{}/{}/20{}",
+                        inf.manf_day, inf.manf_month, inf.manf_year
+                    ));
+                });
+                ui.end_row();
+
+                ui.strong("Software date");
+                datastate_to_ui(ui, &info_state, |ui, inf| {
+                    ui.label(format!(
+                        "Week {} of 20{}",
+                        inf.sw_week, inf.sw_year
+                    ));
+                });
+                ui.end_row();
+
+                ui.strong("CAN Layer selected");
+                datastate_to_ui(ui, &info_state, |ui, inf| {
+                    ui.label(format!("{}", inf.egs_mode));
+                });
+                ui.end_row();
+            });
+        });
+        SidePanel::right("r-s").resizable(false).show_inside(ui, |ui| {
+            // Right panel (links)
+            ui.vertical_centered(|ui| {
+                ui.heading("Resources");
+            });
+            ui.add_space(20.0);
             ui.hyperlink_to("📢 Announcements 📢", include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldC9lbi9hbm5vdW5jZW1lbnRz"));
             // Weblinks are base64 encoded to avoid potential scraping
-            ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("ZG9jcy51bHRpbWF0ZS1uYWc1Mi5uZXQ"));
+            ui.hyperlink_to(format!("📓 Ultimate-NAG52 wiki"), include_base64!("aHR0cHM6Ly9kb2NzLnVsdGltYXRlLW5hZzUyLm5ldA"));
             ui.hyperlink_to(format!("💁 Ultimate-NAG52 dicsussion group"), include_base64!("aHR0cHM6Ly90Lm1lLyt3dU5wZkhua0tTQmpNV0pr"));
             ui.hyperlink_to(format!(" Project progress playlist"), include_base64!("aHR0cHM6Ly93d3cueW91dHViZS5jb20vcGxheWxpc3Q_bGlzdD1QTHhydy00VnQ3eHR1OWQ4bENrTUNHMF9LN29IY3NTTXRG"));
             ui.label("Code repositories");
             ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
             ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
         });
-        ui.add(egui::Separator::default());
-        let mut create_page = None;
-        let ctx = ui.ctx().clone();
-        if let DataState::LoadOk(mode) = self.tcu_mode.read().clone() {
+        CentralPanel::default().show_inside(ui, |ui| {
+            // Action panel
             ui.vertical_centered(|ui| {
-                ui.heading("TCU Status");
-                if mode.contains(TcuDeviceMode::NO_CALIBRATION) {
-                    ui.colored_label(Color32::RED, 
-                        "Your TCU requires calibrations, and will NOT function. Please go to the EGS compatibility page
-                        to correct this!"  
-                    );
-                } else if mode.contains(TcuDeviceMode::NO_EFUSE) {
-                    ui.colored_label(Color32::RED, 
-                        "Your TCU is freshly built and requires EFUSE configuration. Go to the configuration page
-                        to correct this!"  
-                    );
-                } else if mode.contains(TcuDeviceMode::CANLOGGER) {
-                    ui.colored_label(Color32::RED, 
-                        "Your TCU is in CAN logging mode, and will NOT function. To disable this,
-                        please go to the Diagnostic routine executor page, and then CAN Logger."  
-                    );
-                } else if mode.contains(TcuDeviceMode::SLAVE) {
-                    ui.colored_label(Color32::RED, 
-                        "Your TCU is in slave mode! It will NOT function."  
-                    );
-                } else if mode.contains(TcuDeviceMode::ERROR) {
-                    ui.colored_label(Color32::RED, 
-                        "Your TCU has encountered an error. Please consult the LOG window to
-                        see what is wrong."  
-                    );
-                } else {
-                    ui.label("TCU is running normally.");
-                }
-                ui.separator();
+                ui.heading("Tools");
             });
-        }
-        
-        ui.vertical_centered(|v| {
-            v.heading("Tools");
-            if v.button("Updater").clicked() {
-                create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
-                    self.diag_server.clone(),
-                ))));
-            }
-            if v.button("Diagnostics").clicked() {
-                create_page = Some(PageAction::Add(Box::new(DiagnosticsPage::new(
-                    self.diag_server.clone(),
-                    ctx.clone()
-                ))));
-            }
-            if v.button("Solenoid live view").clicked() {
-                create_page = Some(PageAction::Add(Box::new(SolenoidPage::new(
-                    self.diag_server.clone(),
-                    ctx.clone()
-                ))));
-            }
-            if v.button("IO Manipulator").clicked() {
-                create_page = Some(PageAction::Add(Box::new(IoManipulatorPage::new(
-                    self.diag_server.clone(),
-                ))));
-            }
-            if v.button("Diagnostic routine executor").clicked() {
-                create_page = Some(PageAction::Add(Box::new(RoutinePage::new(
-                    self.diag_server.clone(),
-                ))));
-            }
-            if v.button("Map Tuner").clicked() {
-                create_page = Some(PageAction::Add(Box::new(MapEditor::new(
-                    self.diag_server.clone(),
-                ))));
-            }
-            if v.button("TCU Program settings").on_hover_text("CAUTION. DANGEROUS!").clicked() {
-                create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
-                    self.diag_server.clone(),
-                    ctx,
-                ))));
-            }
-            if v.button("Configure EGS compatibility data").clicked() {
-                create_page = Some(
-                    PageAction::Add(Box::new(
-                        egs_config::EgsConfigPage::new(self.diag_server.clone())
-                    ))
-                );
-            }
-            if v.button("Configure drive profiles").clicked() {
-                create_page = Some(
-                    PageAction::SendNotification {
-                        text: "You have found a unimplemented feature!".into(),
-                        kind: egui_notify::ToastLevel::Info
+            ui.add_space(20.0);
+            ui.vertical_centered(|ui|{
+                if !efuse_ok {
+                    // Efuse must be done
+                    ui.label("You must configure vehicle settings or EFUSE before you can use your TCU");
+                } else if !compatibility_ok {
+                    // EGS compatibility must be done
+                    ui.label("You must apply EGS calibrations before you can use your TCU");
+                } else if special_mode {
+                    // Only special mode can be adjusted
+                    ui.label("You must deactivate your TCUs special mode before continuing");
+                }
+                ui.strong("⚙ Core configuration");
+                ui.add_enabled_ui(!special_mode && efuse_ok, |v| {
+                    if v.button("Configure EGS calibration data").clicked() {
+                        create_page = Some(
+                            PageAction::Add(Box::new(
+                                egs_config::EgsConfigPage::new(self.diag_server.clone())
+                            ))
+                        );
                     }
-                );
-            }
-            if v.button("Configure vehicle / gearbox").clicked() {
-                create_page = Some(PageAction::Add(Box::new(ConfigPage::new(
-                    self.diag_server.clone(),
-                ))));
-            }
+                });
+                ui.add_enabled_ui(!special_mode, |v| {
+                    if v.button("Configure vehicle parameters").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(ConfigPage::new(
+                            self.diag_server.clone(),
+                        ))));
+                    }
+                });
+                ui.add_space(10.0);
+                ui.strong("🔥 Tuning");
+                ui.add_enabled_ui(!special_mode && efuse_ok && compatibility_ok, |v| {
+                    if v.button("Map Tuner").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(MapEditor::new(
+                            self.diag_server.clone(),
+                        ))));
+                    }
+                });
+                ui.add_enabled_ui(!special_mode && efuse_ok && compatibility_ok, |v| {
+                    if v.button("TCU settings").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(TcuAdvSettingsUi::new(
+                            self.diag_server.clone(),
+                            v.ctx().clone(),
+                        ))));
+                    }
+                });
+                ui.add_space(10.0);
+                ui.strong("🛠 Utilities");
+                ui.add_enabled_ui(efuse_ok, |v| {
+                    if v.button("Updater").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
+                            self.diag_server.clone(),
+                        ))));
+                    }
+                });
+                ui.add_enabled_ui(!special_mode && efuse_ok && compatibility_ok, |v| {
+                    if v.button("Data logger").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(DiagnosticsPage::new(
+                            self.diag_server.clone(),
+                            v.ctx().clone()
+                        ))));
+                    }
+                });
+                ui.add_enabled_ui(efuse_ok, |v| {
+                    if v.button("Routine executor").clicked() {
+                        create_page = Some(PageAction::Add(Box::new(RoutinePage::new(
+                            self.diag_server.clone(),
+                        ))));
+                    }
+                });
+            });
         });
-
 
         if let Some(page) = create_page {
             return page;
-        }
-
-        let info_state = self.info.read().clone();
-        match info_state {
-            DataState::Unint => { ui.spinner(); },
-            DataState::LoadErr(e) => { ui.label(format!("Could not query ECU Ident data: {e}")); },
-            DataState::LoadOk(info) => {
-                ui.collapsing("Show TCU Info", |ui| {
-                    ui.label(format!(
-                        "ECU Serial number: {}",
-                        match self.sn.read().clone() {
-                            DataState::LoadOk(s) => s,
-                            DataState::Unint => "...".to_string(),
-                            DataState::LoadErr(_) => "Unknown".to_string(),
-                        }
-                    ));
-                    ui.label(format!(
-                        "PCB Version: {} (HW date: {} week 20{})",
-                        info.board_ver, info.hw_week, info.hw_year
-                    ));
-                    ui.label(format!(
-                        "PCB Production date: {}/{}/20{}",
-                        info.manf_day, info.manf_month, info.manf_year
-                    ));
-                    ui.label(format!(
-                        "PCB Software date: week {} of 20{}",
-                        info.sw_week, info.sw_year
-                    ));
-                    ui
-                        .label(format!("EGS CAN Matrix selected: {}", info.egs_mode));
-                });
-            }
         }
         PageAction::None
     }

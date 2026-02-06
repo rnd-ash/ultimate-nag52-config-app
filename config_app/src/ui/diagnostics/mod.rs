@@ -16,7 +16,6 @@ use std::time::{Instant, Duration};
 
 pub mod data;
 pub mod rli;
-pub mod solenoids;
 use crate::ui::diagnostics::rli::{LocalRecordData, RecordIdents};
 
 use self::rli::{ChartData, RLI_QUERY_INTERVAL, RLI_PLOT_INTERVAL};

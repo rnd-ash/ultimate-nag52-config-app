@@ -305,6 +305,7 @@ impl InterfacePage for TcuAdvSettingsUi {
                 MenuBar::new()
                     .ui(ui, |ui| {
                     ui.menu_button("Select coding string", |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         for (k, _) in &curr_settings {
                             let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
                             let text = setting_def.description.as_ref().unwrap_or(&setting_def.name);

@@ -88,7 +88,11 @@ fn calc_resistance(current: u16, batt: u16, temp: i16) -> f32 {
 
 fn make_resistance_text(c_raw: u16, r: f32, range: RangeInclusive<f32>) -> egui::Label {
     if c_raw == 0 {
-        return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
+        if range == ResitanceTCC {
+            return egui::Label::new(RichText::new("Open circuit detected (This is OK if you have the TCC Zener board installed)!").color(Color32::RED));
+        } else {
+            return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
+        }
     }
     if c_raw > 3200 && range != ResitanceTCC {
         return egui::Label::new(
