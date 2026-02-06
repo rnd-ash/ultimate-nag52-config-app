@@ -1,6 +1,6 @@
 use std::{fs::File, io::{BufReader, Cursor, Read, Write}, sync::{Arc, RwLock}, time::Instant};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Label, RichText}, epaint::{Color32, ahash::HashMap}, emath};
+use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea, Spacing, Vec2}, emath, epaint::{Color32, ahash::HashMap}};
 use zip::ZipArchive;
 
 use crate::window::{InterfacePage, PageAction};
@@ -219,30 +219,33 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
 fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], setting: &SettingsData, enums: &[EnumMap], internal_structs: &[SettingsData], ui: &mut egui::Ui) -> Option<PageAction> {
     let mut ret = None;
     let width = ui.available_width();
-    ScrollArea::new([true, false]).max_width(width).id_source("CODING_VIEW").show(ui, |r| {
-        egui::Grid::new("COD").num_columns(coding.len()+1).striped(true).show(r, |ui| {
-            ui.strong("Byte");
-            for (idx, _) in coding.iter().enumerate() {
-                ui.strong(format!("{}", idx));
-            }
-            ui.end_row();
-            ui.strong("Current coding");
-            for (idx, b) in coding.iter().enumerate() {
-                if *b != default[idx] {
-                    ui.label(RichText::new(format!("{:02X?}", b)).color(Color32::RED));
-                } else {
+    ui.collapsing("Show coding bytes", |ui| {
+        ScrollArea::new([true, false]).max_width(width).show(ui, |r| {
+            egui::Grid::new("COD")
+                .num_columns(coding.len()+1)
+                .striped(true).show(r, |ui| {
+                ui.strong("Byte");
+                for (idx, _) in coding.iter().enumerate() {
+                    ui.strong(format!("{}", idx));
+                }
+                ui.end_row();
+                ui.strong("Current coding");
+                for (idx, b) in coding.iter().enumerate() {
+                    if *b != default[idx] {
+                        ui.label(RichText::new(format!("{:02X?}", b)).color(Color32::RED));
+                    } else {
+                        ui.label(format!("{:02X?}", b));
+                    }
+                }
+                ui.end_row();
+                ui.strong("Default coding");
+                for b in default {
                     ui.label(format!("{:02X?}", b));
                 }
-            }
-            ui.end_row();
-            ui.strong("Default coding");
-            for b in default {
-                ui.label(format!("{:02X?}", b));
-            }
-            ui.end_row();
+                ui.end_row();
+            });
         });
     });
-    ui.add_space(10.0);
     ui.horizontal(|r| {
         if r.button("Reset coding to default").clicked() {
             coding.copy_from_slice(default);
@@ -299,13 +302,17 @@ impl InterfacePage for TcuAdvSettingsUi {
         match state {
             LoadState::Ready => {
                 let yml = yml.as_ref().unwrap().clone();
-                ui.heading("Select coding string");
-                ui.horizontal(|row| {
-                    for (k, v) in &curr_settings {
-                        let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
-                        row.selectable_value(&mut self.current_setting, Some(*k), setting_def.name.clone());
-                    }
+                MenuBar::new()
+                    .ui(ui, |ui| {
+                    ui.menu_button("Select coding string", |ui| {
+                        for (k, _) in &curr_settings {
+                            let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
+                            let text = setting_def.description.as_ref().unwrap_or(&setting_def.name);
+                            ui.selectable_value(&mut self.current_setting, Some(*k), text);
+                        }
+                    });     
                 });
+                ui.separator();
                 if let Some(current_id) = self.current_setting {
                     let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
                     let default = def_settings.get(&current_id).unwrap().clone();
@@ -314,7 +321,6 @@ impl InterfacePage for TcuAdvSettingsUi {
                     if modifying.is_ok() && default.is_ok() {
                         let def = default.unwrap().clone();
                         let mut modify = modifying.unwrap().clone();
-                        ui.separator();
                         if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
                             action = a;
                         }
