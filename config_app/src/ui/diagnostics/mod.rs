@@ -3,14 +3,13 @@ use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use eframe::egui::{self, CentralPanel, Color32, RichText, SidePanel, Ui};
+use eframe::egui::{self, CentralPanel, Color32, RichText, ScrollArea, SidePanel, Slider, Ui};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
 use strum::VariantArray;
 use std::collections::VecDeque;
-use std::hash::Hasher;
 use std::sync::{Arc};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Instant, Duration};
 
@@ -18,14 +17,7 @@ pub mod data;
 pub mod rli;
 use crate::ui::diagnostics::rli::{LocalRecordData, RecordIdents};
 
-use self::rli::{ChartData, RLI_QUERY_INTERVAL, RLI_PLOT_INTERVAL};
-
-const RLI_CHART_DISPLAY_TIME: u128 = 10000;
-
-pub enum CommandStatus {
-    Ok(String),
-    Err(String),
-}
+use self::rli::ChartData;
 
 pub struct DiagnosticsPage {
     query_ecu: Arc<AtomicBool>,
@@ -38,6 +30,8 @@ pub struct DiagnosticsPage {
     rli_start_time: Arc<AtomicU64>,
     launch_time: Instant,
     sidebar_shown: bool,
+    max_graph_time: Arc<AtomicU32>,
+    graph_interval_ms: Arc<AtomicU32>,
 }
 
 impl DiagnosticsPage {
@@ -45,7 +39,6 @@ impl DiagnosticsPage {
         
         let run = Arc::new(AtomicBool::new(true));
         let run_t = run.clone();
-        let run_tt = run.clone();
 
         let store = Arc::new(RwLock::new(None));
         let store_t = store.clone();
@@ -69,8 +62,14 @@ impl DiagnosticsPage {
         let err_text = Arc::new(RwLock::new(None));
         let err_text_t = err_text.clone();
 
+        let max_graph_time: Arc<AtomicU32> = Arc::new(AtomicU32::new(20000));
+        let max_graph_time_t = max_graph_time.clone();
+
+        let graph_interval_time: Arc<AtomicU32> = Arc::new(AtomicU32::new(100));
+        let graph_interval_time_t = graph_interval_time.clone();
+
         let _ = thread::spawn(move || {
-            nag.with_kwp(|server| {
+            let _ = nag.with_kwp(|server| {
                 server.kwp_set_session(KwpSessionTypeByte::Standard(KwpSessionType::Normal))
             });
             while run_t.load(Ordering::Relaxed) {
@@ -78,12 +77,13 @@ impl DiagnosticsPage {
                 if let Some(to_query) = to_query_t.read().clone() {
                     match nag.with_kwp(|server| to_query.query_ecu(server)) {
                         Ok(r) => {
+                            *err_text_t.write() = None;
                             let cd = r.get_chart_data();
                             *store_old_t.write() = store_t.read().clone();
                             *store_t.write() = Some(r);
                             let mut m = charting_data_t.write();
                             m.push_back((launch_time_t.elapsed().as_millis(), cd));
-                            if launch_time_t.elapsed().as_millis() - m[0].0 > 20000 {
+                            if launch_time_t.elapsed().as_millis() - m[0].0 > max_graph_time_t.load(Ordering::Relaxed) as u128 {
                                 m.pop_front();
                             }
                             drop(m);
@@ -99,20 +99,11 @@ impl DiagnosticsPage {
                         }
                     }
                 }
-                let taken = start.elapsed().as_millis() as u64;
-                if taken < RLI_QUERY_INTERVAL {
-                    std::thread::sleep(Duration::from_millis(RLI_QUERY_INTERVAL - taken));
-                }
-            }
-        });
-
-        let _ = thread::spawn(move || {
-            while run_tt.load(Ordering::Relaxed) {
-                let start = Instant::now();
                 ctx.request_repaint();
                 let taken = start.elapsed().as_millis() as u64;
-                if taken < RLI_PLOT_INTERVAL {
-                    std::thread::sleep(Duration::from_millis(RLI_PLOT_INTERVAL - taken));
+                let interval = graph_interval_time_t.load(Ordering::Relaxed) as u64;
+                if taken < interval {
+                    std::thread::sleep(Duration::from_millis(interval - taken));
                 }
             }
         });
@@ -127,7 +118,9 @@ impl DiagnosticsPage {
             read_error: err_text,
             rli_start_time,
             launch_time,
-            sidebar_shown: true
+            sidebar_shown: true,
+            max_graph_time,
+            graph_interval_ms: graph_interval_time
         }
     }
 }
@@ -141,15 +134,49 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         SidePanel::left("Side bar")
             .show_animated_inside(ui, self.sidebar_shown, |ui| {
 
-                ui.heading("Select data to graph");
+                ui.heading("Data logger");
                 if ui.button("Hide sidepanel").clicked() {
                     self.sidebar_shown = false;
                 }
+                ui.separator();
+                ui.strong("Graph controls");
+                ui.horizontal(|ui| {
+                    ui.label("Interval");
+                    let mut graph_interval = self.graph_interval_ms.load(Ordering::Relaxed);
+                    let slider = Slider::new(&mut graph_interval, 20..=1000).custom_formatter(|x, _| {
+                        format!("{:.0}ms", x)
+                    });
+                    if ui.add(slider).changed() {
+                        self.graph_interval_ms.store(graph_interval, Ordering::Relaxed);
+                    }
+                    if ui.button("🔄").clicked() {
+                        self.graph_interval_ms.store(100, Ordering::Relaxed);
+                    }
+                    //if let Some(data) = &current_val {
+                    //    if ui.button("Export view to CSV").clicked() {
+                    //        
+                    //    }
+                    //}
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Max time");
+                    let mut graph_range = self.max_graph_time.load(Ordering::Relaxed);
+                    let slider2 = Slider::new(&mut graph_range, 1000..=60000).custom_formatter(|x, _| {
+                        format!("{:.0}s", x/1000.0)
+                    });
+                    if ui.add(slider2).changed() {
+                        self.max_graph_time.store(graph_range, Ordering::Relaxed);
+                    }
+                    if ui.button("🔄").clicked() {
+                        self.max_graph_time.store(20000, Ordering::Relaxed);
+                    }
+                });
                 ui.separator();
 
 
                 let mut now = *self.record_to_query.read();
                 let mut rli_reset = false;
+                ui.strong("Available services");
                 for entry in RecordIdents::VARIANTS {
                     if ui.selectable_value(&mut now, Some(*entry), entry.to_string()).clicked() {
                         *self.record_to_query.write() = Some(*entry);
@@ -168,9 +195,11 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     ui.label(RichText::new(format!("Error querying ECU: {e}")).color(Color32::RED));
                 }
                 ui.separator();
-                if let Some(data) = current_val.clone() {
-                    data.to_table(ui);
-                }
+                ScrollArea::vertical().show(ui, |ui| {
+                    if let Some(data) = &current_val {
+                        data.to_table(ui);
+                    }
+                });
         });
         CentralPanel::default().show_inside(ui, |ui| {
             if !self.sidebar_shown {
@@ -178,7 +207,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     self.sidebar_shown = true;
                 }
             }
-            if let Some(data) = current_val {
+            if let Some(data) = &current_val {
                 let ui_height = ui.available_height();
                 ui.vertical(|col| {
                     
@@ -189,6 +218,9 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     egui_extras::StripBuilder::new(col)
                         .sizes(Size::exact(space_per_chart), data.get_chart_data().len())
                         .vertical(|mut strip| {
+                            let plot_interval = self.graph_interval_ms.load(Ordering::Relaxed);
+                            let plot_range = self.max_graph_time.load(Ordering::Relaxed);
+
                             for (idx, d) in data.get_chart_data().iter().enumerate() {
                                 strip.cell(|ui| {
                                     let mut lines: Vec<Line> = Vec::new();
@@ -202,7 +234,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                     }
             
                                     let now = self.launch_time.elapsed().as_millis() - start_time as u128;
-                                    let mut last_bound = now as f64 - 20000.0;
+
+                                    let mut last_bound = now as f64 - plot_range as f64;
                                     if last_bound < 0.0 {
                                         last_bound = 0.0;
                                     }
@@ -210,15 +243,16 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                     let mut plot = Plot::new(d.group_name.clone())
                                         //.height(space_per_chart)
                                         .allow_drag(false)
-                                        .include_x(std::cmp::max(20000, now) as f64)
-                                        .auto_bounds([true, true])
+                                        .auto_bounds([false, true])
+                                        .include_x(last_bound)
+                                        .include_x(now as f64 - plot_interval as f64)
                                         .legend(legend.clone())
-                                        .x_axis_formatter(|f, r| {
+                                        .x_axis_formatter(|f, _| {
                                             let seconds = f.value / 1000.0;
                                             let mins = (f.value / 60000.0) as u32;
                                             format!("{:02}:{:02.1}", mins, seconds)
                                         })
-                                        .y_axis_formatter(move |f, r| {
+                                        .y_axis_formatter(move |f, _| {
                                             if let Some(u) = x.clone() {
                                                 format!("{}{}", f.value, u)
                                             } else {
@@ -241,6 +275,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                             }
                         });
                 });
+                ui.ctx().request_repaint();
             }
         });
         PageAction::None
