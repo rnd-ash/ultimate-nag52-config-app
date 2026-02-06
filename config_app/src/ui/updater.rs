@@ -54,7 +54,7 @@ pub struct UpdatePage {
     old_fw: Option<(FirmwareHeader, PartitionInfo)>,
     releases:  Arc<RwLock<DataState<Vec<Release>>>>,
     checked_unstable: bool,
-    selected_release: Option<Release>
+    selected_release: Option<Release>,
 }
 
 impl UpdatePage {
@@ -97,7 +97,7 @@ impl UpdatePage {
             old_fw: curr_fw_info,
             releases: fw_list,
             checked_unstable: false,
-            selected_release: None
+            selected_release: None,
         }
     }
 }
@@ -203,11 +203,9 @@ impl InterfacePage for UpdatePage {
                 if let Some(rel) = &self.selected_release {
                     ui.hyperlink_to("Show on GitHub", format!("https://github.com{}", rel.html_url.path()));
                     let fw_url = rel.assets.iter().find(|x| x.name.ends_with(".bin")).cloned();
-                    let yml_url = rel.assets.iter().find(|x| x.name.ends_with(".yml")).cloned();
                     let elf_url = rel.assets.iter().find(|x| x.name.ends_with(".elf")).cloned();
-                    
 
-                    if let (Some(fw), Some(yml)) = (fw_url, yml_url) {
+                    if let Some(fw) = fw_url {
                         if ui.button("Download firmware").clicked() {
                             let state_c = self.status.clone();
                             let fw_c = self.fw.clone();
