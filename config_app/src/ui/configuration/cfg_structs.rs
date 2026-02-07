@@ -43,19 +43,42 @@ pub struct TcmCoreConfig {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum EgsCanType {
-    UNKNOWN = 0,
-    EGS51 = 1,
-    EGS52 = 2,
-    EGS53 = 3,
-    HFM = 4,
-    CUSTOM_ECU = 5
+    Unknown = 0,
+    Egs51 = 1,
+    Egs52 = 2,
+    Egs53 = 3,
+    Hfm = 4,
+    CustomEcu = 5
+}
+
+impl Display for EgsCanType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EgsCanType::Unknown => f.write_str("Unknown"),
+            EgsCanType::Egs51 => f.write_str("EGS51"),
+            EgsCanType::Egs52 => f.write_str("EGS52"),
+            EgsCanType::Egs53 => f.write_str("EGS53"),
+            EgsCanType::Hfm => f.write_str("HFM"),
+            EgsCanType::CustomEcu => f.write_str("Custom ECU"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum ShifterStyle {
-    EWM_CAN = 0,
+    EwmCan = 0,
     TRRS = 1,
-    SLR_MCLAREN = 2,
+    Slr = 2,
+}
+
+impl Display for ShifterStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShifterStyle::EwmCan => f.write_str("Tiptronic (+/-)"),
+            ShifterStyle::TRRS => f.write_str("TRRS (4321)"),
+            ShifterStyle::Slr => f.write_str("SLR Mclaren"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
@@ -84,6 +107,16 @@ pub enum MosfetPurpose {
     B3BrakeSolenoid = 2,
 }
 
+impl Display for MosfetPurpose {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MosfetPurpose::NotConnected => f.write_str("Not connected"),
+            MosfetPurpose::TorqueCutTrigger => f.write_str("Torque cut"),
+            MosfetPurpose::B3BrakeSolenoid => f.write_str("Trans brake"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, PackedStruct)]
 pub struct TcmEfuseConfig {
     #[packed_field(size_bytes="1", ty="enum")]
@@ -100,13 +133,32 @@ pub enum DefaultProfile {
     Comfort = 1,
     Winter = 2,
     Agility = 3,
-    Manual = 4,
+}
+
+impl Display for DefaultProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DefaultProfile::Standard => f.write_str("Standard"),
+            DefaultProfile::Comfort => f.write_str("Comfort"),
+            DefaultProfile::Winter => f.write_str("Winter"),
+            DefaultProfile::Agility => f.write_str("Agility"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum EngineType {
     Diesel,
     Petrol,
+}
+
+impl Display for EngineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineType::Diesel => f.write_str("Diesel"),
+            EngineType::Petrol => f.write_str("petrol"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
@@ -136,11 +188,5 @@ impl Display for BoardType {
             BoardType::V12 => write!(f, "V1.2 (07/07/22)"),
             BoardType::V13 => write!(f, "V1.3 (12/12/22)"),
         }
-    }
-}
-
-impl Into<String> for BoardType {
-    fn into(self) -> String {
-        format!("{}", self)
     }
 }

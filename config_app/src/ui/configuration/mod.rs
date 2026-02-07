@@ -1,6 +1,6 @@
 use std::{borrow::BorrowMut, sync::Arc};
 
-use crate::{ui::diagnostics::data, window::PageAction};
+use crate::{window::PageAction};
 use backend::{
     diag::{DataState, Nag52Diag}, ecu_diagnostics::kwp2000::{KwpSessionType, ResetType},
 };
@@ -15,8 +15,6 @@ use self::cfg_structs::{
     BoardType, DefaultProfile, EgsCanType, EngineType, IOPinConfig, MosfetPurpose, ShifterStyle,
     TcmCoreConfig, TcmEfuseConfig,
 };
-
-use super::{StatusText};
 
 pub mod cfg_structs;
 pub mod egs_config;
@@ -150,7 +148,6 @@ impl ConfigPage {
 
 impl crate::window::InterfacePage for ConfigPage {
     fn make_ui(&mut self, ui: &mut Ui) -> PageAction {
-        let mut action = PageAction::None;
         let mut efuse_now = self.efuse.read().clone();
         let mut config_now = self.scn.read().clone();
 
@@ -169,14 +166,14 @@ impl crate::window::InterfacePage for ConfigPage {
                     let mut curr_profile = data.default_profile;
                     ui.strong("Default drive profile");
                     egui::ComboBox::new("profile", "")
-                        .selected_text(format!("{:?}", curr_profile))
+                        .selected_text(curr_profile.to_string())
                         .width(100.0)
                         .show_ui(ui, |cb_ui| {
                             for dev in DefaultProfile::iter() {
                                 cb_ui.selectable_value(
                                     &mut curr_profile,
                                     dev.clone(),
-                                    format!("{:?}", dev),
+                                    dev.to_string(),
                                 );
                             }
                             data.default_profile = curr_profile
@@ -204,11 +201,11 @@ impl crate::window::InterfacePage for ConfigPage {
                     ui.strong("Engine type");
                     egui::ComboBox::new("engine_type", "")
                         .width(100.0)
-                        .selected_text(format!("{:?}", engine))
+                        .selected_text(engine.to_string())
                         .show_ui(ui, |cb_ui| {
                             let profiles = vec![EngineType::Diesel, EngineType::Petrol];
                             for dev in profiles {
-                                cb_ui.selectable_value(&mut engine, dev.clone(), format!("{:?}", dev));
+                                cb_ui.selectable_value(&mut engine, dev.clone(), dev.to_string());
                             }
                             data.engine_type = engine
                         });
@@ -269,16 +266,16 @@ impl crate::window::InterfacePage for ConfigPage {
                     let mut can = data.egs_can_type;
                     egui::ComboBox::new("can_layer","")
                         .width(100.0)
-                        .selected_text(format!("{:?}", can))
+                        .selected_text(can.to_string())
                         .show_ui(ui, |cb_ui| {
                             let layers = match board_ver {
                                 BoardType::Unknown | BoardType::V11 => {
-                                    vec![EgsCanType::UNKNOWN, EgsCanType::EGS52, EgsCanType::EGS53]
+                                    vec![EgsCanType::Unknown, EgsCanType::Egs52, EgsCanType::Egs53]
                                 }
                                 _ => EgsCanType::iter().collect()
                             };
                             for layer in layers {
-                                cb_ui.selectable_value(&mut can, layer.clone(), format!("{:?}", layer));
+                                cb_ui.selectable_value(&mut can, layer.clone(), layer.to_string());
                             }
                             data.egs_can_type = can
                         });
@@ -288,7 +285,7 @@ impl crate::window::InterfacePage for ConfigPage {
                     ui.checkbox(&mut x, "");
                     data.jeep_chrysler = x;
                     ui.end_row();
-                    if can == EgsCanType::CUSTOM_ECU {
+                    if can == EgsCanType::CustomEcu {
                         ui.strong("Custom ECU CAN is experimental! - It requires implementation on the ECU Side");
                         ui.hyperlink_to("Read more", "https://docs.ultimate-nag52.net/en/advanced/custom-can");
                         ui.end_row();
@@ -300,10 +297,10 @@ impl crate::window::InterfacePage for ConfigPage {
                         let mut ss = data.shifter_style;
                         egui::ComboBox::new("shifter_style", "")
                             .width(200.0)
-                            .selected_text(format!("{:?}", ss))
+                            .selected_text(ss.to_string())
                             .show_ui(ui, |cb_ui| {
                                 for o in ShifterStyle::iter() {
-                                    cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
+                                    cb_ui.selectable_value(&mut ss, o.clone(), o.to_string());
                                 }
                                 data.shifter_style = ss
                             });
@@ -353,10 +350,10 @@ impl crate::window::InterfacePage for ConfigPage {
                         let mut ss = data.mosfet_purpose;
                         egui::ComboBox::new("mosfet_purpose", "")
                             .width(200.0)
-                            .selected_text(format!("{:?}", ss))
+                            .selected_text(ss.to_string())
                             .show_ui(ui, |cb_ui| {
                                 for o in MosfetPurpose::iter() {
-                                    cb_ui.selectable_value(&mut ss, o.clone(), format!("{:?}", o));
+                                    cb_ui.selectable_value(&mut ss, o.clone(), o.to_string());
                                 }
                                 data.mosfet_purpose = ss
                             });
@@ -390,7 +387,7 @@ impl crate::window::InterfacePage for ConfigPage {
                 ui.strong("Caution: You can only do this once");
                 egui::ComboBox::new("board-ver-sel", "Choose board variant")
                     .width(100.0)
-                    .selected_text(format!("{:?}", fuse.board_ver))
+                    .selected_text(fuse.board_ver.to_string())
                     .show_ui(ui, |cb_ui| {
                         let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
                         for dev in profiles.iter() {
@@ -472,7 +469,7 @@ impl crate::window::InterfacePage for ConfigPage {
             *self = Self::new(self.nag.clone());
         }
         self.show_final_warning = tmp;
-        action
+        PageAction::None
     }
 
     fn get_title(&self) -> &'static str {

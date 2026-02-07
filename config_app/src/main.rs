@@ -49,6 +49,6 @@ fn main() {
     let _ = eframe::run_native(
         "Ultimate NAG52 config suite",
         native_options,
-        Box::new(|cc| Ok(Box::new(app))),
+        Box::new(|_| Ok(Box::new(app))),
     );
 }

@@ -116,7 +116,7 @@ impl EgsConfigPage {
                         Ok(size)
                     }
                 },
-                Err(DiagError::ECUError { code, def }) => {
+                Err(DiagError::ECUError { .. }) => {
                     Err("TCU does not support calibration. Please update firmware".to_string())
                 },
                 Err(e) => {
@@ -261,7 +261,7 @@ impl InterfacePage for EgsConfigPage {
                     ui.horizontal(|row| {
                         if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
                             // MB calibration
-                            row.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                            row.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
                         } else {
                             row.colored_label(Color32::GREEN,  format!("Custom TCC properties calibration in use: '{name}'"));
                         }
@@ -282,7 +282,7 @@ impl InterfacePage for EgsConfigPage {
                     ui.horizontal(|row| {
                         if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
                             // MB calibration
-                            row.colored_label(Color32::GREEN,  format!("Shift algo pack calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                            row.colored_label(Color32::GREEN,  format!("Shift algo pack calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
                         } else {
                             row.colored_label(Color32::GREEN,  format!("Custom shift algo pack calibration in use: '{name}'"));
                         }
