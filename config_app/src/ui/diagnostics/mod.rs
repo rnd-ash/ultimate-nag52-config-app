@@ -281,10 +281,6 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         PageAction::None
     }
 
-    fn get_title(&self) -> &'static str {
-        "Ultimate-NAG52 diagnostics"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }

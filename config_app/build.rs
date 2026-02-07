@@ -1,16 +1,16 @@
 use std::process::Command;
 fn main() {
-    let mut build = "UNKNOWN";
-    let mut branch = "UNKNOWN";
+    let mut build = "UNKNOWN".to_string();
+    let mut branch = "UNKNOWN".to_string();
     if Command::new("git").output().is_ok() {
         let mut output = Command::new("git").args(&["describe", "--always", "--long", "--dirty"]).output().unwrap();
-        let mut build = String::from_utf8(output.stdout).unwrap_or("UNKNOWN-BUILD".into());
+        build = String::from_utf8(output.stdout).unwrap_or("UNKNOWN-BUILD".into());
         if build.is_empty() {
             build = "UNKNOWN".into()
         }
 
         output = Command::new("git").args(&["rev-parse", "--abbrev-ref",  "HEAD"]).output().unwrap();
-        let mut branch = String::from_utf8(output.stdout).unwrap_or("UNKNOWN-BUILD".into());
+        branch = String::from_utf8(output.stdout).unwrap_or("UNKNOWN-BUILD".into());
         if branch.is_empty() {
             branch = "UNKNOWN".into()
         }

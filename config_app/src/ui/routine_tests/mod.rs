@@ -90,10 +90,6 @@ impl crate::window::InterfacePage for RoutinePage {
         page_action
     }
 
-    fn get_title(&self) -> &'static str {
-        "Routine executor"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }

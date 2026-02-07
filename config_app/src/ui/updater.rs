@@ -1,4 +1,4 @@
-use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::{Write, Read}};
+use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::Write};
 
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
@@ -30,7 +30,7 @@ impl CurrentFlashState {
 
     pub fn is_tx_rx(&self) -> bool {
         match self {
-            CurrentFlashState::Read { start_addr, current, total } | CurrentFlashState::Write { ty:_, start_addr, current, total } => true,
+            CurrentFlashState::Read { .. } | CurrentFlashState::Write { ty:_, .. } => true,
             _ => false
         }
     }
@@ -203,8 +203,6 @@ impl InterfacePage for UpdatePage {
                 if let Some(rel) = &self.selected_release {
                     ui.hyperlink_to("Show on GitHub", format!("https://github.com{}", rel.html_url.path()));
                     let fw_url = rel.assets.iter().find(|x| x.name.ends_with(".bin")).cloned();
-                    let elf_url = rel.assets.iter().find(|x| x.name.ends_with(".elf")).cloned();
-
                     if let Some(fw) = fw_url {
                         if ui.button("Download firmware").clicked() {
                             let state_c = self.status.clone();
@@ -213,7 +211,6 @@ impl InterfacePage for UpdatePage {
                                 let url = format!("https://api.github.com{}",fw.url.path());
                                 *state_c.write().unwrap() = CurrentFlashState::Download(0, 0);
                                 let mut buffer_firmware: Vec<u8> = Vec::new();
-                                let buffer_yml: Vec<u8> = Vec::new();
                                 let mut easy = Easy::new();
                                 let mut list = List::new();
                                 list.append("Accept: application/octet-stream").unwrap();
@@ -251,12 +248,6 @@ impl InterfacePage for UpdatePage {
                                     *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download firmware response code was {code}"));
                                 }
                             });
-                        }
-                    }
-
-                    if let Some(elf) = elf_url {
-                        if ui.button("Download debug elf file").clicked() {
-                            return PageAction::SendNotification { text: format!("Todo. Debugger UI!"), kind: egui_notify::ToastLevel::Info }
                         }
                     }
                 }
@@ -360,20 +351,19 @@ impl InterfacePage for UpdatePage {
         if let Some(read_op) = &read_partition {
             let ng = self.nag.clone();
             let state_c = self.status.clone();
-            let mut save_path = None;
-            if let Some(f) = rfd::FileDialog::new()
+            let save_path = if let Some(f) = rfd::FileDialog::new()
                 .add_filter(".bin", &["bin"])
                 .save_file() {
-                    save_path = Some(f);
+                    Some(f)
             } else {
                 *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
                 return PageAction::None;
-            }
+            };
             let read_op_c = read_op.clone();
             let ctx_c = ui.ctx().clone();
             std::thread::spawn(move || {
                 *state_c.write().unwrap() = CurrentFlashState::Prepare;
-                let bs = match ng.begin_download(&read_op_c) {
+                let _bs = match ng.begin_download(&read_op_c) {
                     Ok(bs) => bs,
                     Err(e) => {
                         *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to prepare for reading. {}", e));
@@ -460,10 +450,6 @@ impl InterfacePage for UpdatePage {
             ui.label(text);
         }
         crate::window::PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "Flash updater"
     }
 
     fn should_show_statusbar(&self) -> bool {

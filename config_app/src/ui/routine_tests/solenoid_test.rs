@@ -160,7 +160,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                 let n = self.nag.clone();
                 std::thread::spawn(move || {
                     state_ref.store(1, Ordering::Relaxed);
-                    n.with_kwp(|server| {
+                    let _ = n.with_kwp(|server| {
                         if let Err(e) =
                             server.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())
                         {
@@ -299,10 +299,6 @@ impl crate::window::InterfacePage for SolenoidTestPage {
             }
         }
         PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "IO Manipulator view"
     }
 
     fn should_show_statusbar(&self) -> bool {

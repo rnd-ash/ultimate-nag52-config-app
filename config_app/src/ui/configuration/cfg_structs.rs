@@ -170,7 +170,7 @@ pub enum BoardType {
 }
 
 impl BoardType {
-    pub fn image_source(&self) -> Option<ImageSource> {
+    pub fn image_source(&'_ self) -> Option<ImageSource<'_>> {
         match self {
             BoardType::Unknown => None,
             BoardType::V11 => Some(include_image!("../../../res/pcb_11.jpg")),

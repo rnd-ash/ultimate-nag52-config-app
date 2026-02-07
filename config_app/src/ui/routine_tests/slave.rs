@@ -66,10 +66,6 @@ impl crate::window::InterfacePage for SlaveModePage {
         PageAction::None
     }
 
-    fn get_title(&self) -> &'static str {
-        "CAN Logger"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }

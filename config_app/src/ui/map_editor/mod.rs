@@ -880,10 +880,6 @@ impl super::InterfacePage for MapEditor {
         }
     }
 
-    fn get_title(&self) -> &'static str {
-        "Map editor"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }

@@ -174,7 +174,7 @@ impl EgsConfigPage {
             }
             if written == out_bytes.len() {
                 println!("Write complete");
-                nag.with_kwp(|kwp| kwp.kwp_reset_ecu(backend::ecu_diagnostics::kwp2000::ResetType::PowerOnReset));
+                let _ = nag.with_kwp(|kwp| kwp.kwp_reset_ecu(backend::ecu_diagnostics::kwp2000::ResetType::PowerOnReset));
             }
         });
     }
@@ -492,10 +492,6 @@ impl InterfacePage for EgsConfigPage {
             }
         }
         action
-    }
-
-    fn get_title(&self) -> &'static str {
-        "EGS Compatibility Config"
     }
 
     fn should_show_statusbar(&self) -> bool {

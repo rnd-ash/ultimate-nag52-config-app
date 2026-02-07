@@ -1,11 +1,9 @@
-use std::{fs::File, io::{BufReader, Cursor, Read, Write}, sync::{Arc, RwLock}, time::Instant};
+use std::{fs::File, io::{BufReader, Cursor, Read}, sync::{Arc, RwLock}};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea, Spacing, Vec2}, emath, epaint::{Color32, ahash::HashMap}};
+use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea}, emath, epaint::{Color32, ahash::HashMap}};
 use zip::ZipArchive;
 
 use crate::window::{InterfacePage, PageAction};
-
-pub const PAGE_LOAD_TIMEOUT: f32 = 10000.0;
 
 #[derive(Debug, Clone)]
 pub enum LoadState {
@@ -21,9 +19,7 @@ pub enum LoadState {
 
 pub struct TcuAdvSettingsUi {
     status: Arc<RwLock<LoadState>>,
-    error: Option<String>,
     nag: Nag52Diag,
-    start_time: Instant,
     yml: Arc<RwLock<Option<ModuleSettingsData>>>,
     current_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
     default_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
@@ -69,8 +65,8 @@ impl TcuAdvSettingsUi {
                     read_contents.extend_from_slice(&data);
                 }
                 let reader = BufReader::new(Cursor::new( read_contents));
-                let mut zip = ZipArchive::new(reader).map_err(|e| format!("Data on EGS is corrupt!"))?;
-                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|e| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
+                let mut zip = ZipArchive::new(reader).map_err(|_| format!("Data on EGS is corrupt!"))?;
+                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|_| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
                 let mut s = String::new();
                 let _ = mod_settings.read_to_string(&mut s).unwrap();
                 serde_yaml::from_str::<ModuleSettingsData>(&s).map_err(|e| e.to_string())
@@ -107,9 +103,7 @@ impl TcuAdvSettingsUi {
 
         Self {
             status,
-            error: None,
             nag,
-            start_time: Instant::now(),
             yml,
             current_settings,
             default_settings,
@@ -131,7 +125,7 @@ fn gen_drag_value<'a, Num: emath::Numeric>(value: &'a mut Num, var: &'a Settings
     if let Some(mut unit) = var.unit.clone() {
         if unit == "%" {
             // Obvious
-            dv = dv.clamp_range(0..=100);
+            dv = dv.range(0..=100);
         }
         if unit == "milliseconds" {
             unit = "ms".into();
@@ -176,7 +170,7 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
                 name: "INVALID CODING".to_string(),
                 desc: format!("Value of 0x{:02X?} not known", value),
             });
-            egui::ComboBox::from_id_source(format!("Enum-{}-select", var.name))
+            egui::ComboBox::new(format!("Enum-{}-select", var.name), "")
                 .width(100.0)
                 .selected_text(&s.name)
                 .show_ui(ui, |x| {
@@ -195,7 +189,7 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
         SettingsType::Struct { mut raw, s } => {
             
             CollapsingHeader::new("Show internal")
-                .id_source(format!("It-var-editor-{}",var.name))
+                .id_salt(format!("It-var-editor-{}",var.name))
                 .show(ui, |ui| {
                     egui::Grid::new(format!("setting-var-editor-{}",var.name)).num_columns(3).striped(true).show(ui, |ui| {
                         ui.strong("Setting");
@@ -404,10 +398,6 @@ impl InterfacePage for TcuAdvSettingsUi {
         action
     }
 
-    fn get_title(&self) -> &'static str {
-        "Advanced settings"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }
@@ -416,7 +406,7 @@ impl InterfacePage for TcuAdvSettingsUi {
         false
     }
 
-    fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>){}
+    fn on_load(&mut self, _nag: Option<Arc<Nag52Diag>>){}
 
     fn nag_destroy_before_load(&self) -> bool {
         false
@@ -425,6 +415,6 @@ impl InterfacePage for TcuAdvSettingsUi {
 
 impl Drop for TcuAdvSettingsUi {
     fn drop(&mut self) {
-        self.nag.with_kwp(|x| x.kwp_set_session(KwpSessionType::Normal.into()));
+        let _ = self.nag.with_kwp(|x| x.kwp_set_session(KwpSessionType::Normal.into()));
     }
 }

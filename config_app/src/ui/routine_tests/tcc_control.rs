@@ -84,10 +84,6 @@ impl crate::window::InterfacePage for TccControlPage {
         PageAction::None
     }
 
-    fn get_title(&self) -> &'static str {
-        "TCC control"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }

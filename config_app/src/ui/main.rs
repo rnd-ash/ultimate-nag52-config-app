@@ -4,7 +4,6 @@ use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
 use config_app_macros::include_base64;
 use eframe::egui;
-use eframe::Frame;
 use eframe::egui::CentralPanel;
 use eframe::egui::RichText;
 use eframe::egui::SidePanel;
@@ -282,10 +281,6 @@ impl InterfacePage for MainPage {
         PageAction::None
     }
 
-    fn get_title(&self) -> &'static str {
-        "Ultimate-Nag52 configuration utility (Home)"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }
@@ -294,7 +289,7 @@ impl InterfacePage for MainPage {
         true
     }
 
-    fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>) {
+    fn on_load(&mut self, _nag: Option<Arc<Nag52Diag>>) {
         let tcu = self.diag_server.clone();
         let setting_lock = self.info.clone();
         let sn_lock = self.sn.clone();

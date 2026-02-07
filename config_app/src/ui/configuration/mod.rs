@@ -472,10 +472,6 @@ impl crate::window::InterfacePage for ConfigPage {
         PageAction::None
     }
 
-    fn get_title(&self) -> &'static str {
-        "Configuration"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }
