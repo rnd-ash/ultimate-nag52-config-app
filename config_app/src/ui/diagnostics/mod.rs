@@ -126,7 +126,7 @@ impl DiagnosticsPage {
 }
 
 impl crate::window::InterfacePage for DiagnosticsPage {
-    fn make_ui(&mut self, ui: &mut Ui, _frame: &eframe::Frame) -> PageAction {
+    fn make_ui(&mut self, ui: &mut Ui) -> PageAction {
         ui.add_space(5.0);
         let current_val = self.curr_values.read().clone();
         let chart_data = self.charting_data.read().clone();

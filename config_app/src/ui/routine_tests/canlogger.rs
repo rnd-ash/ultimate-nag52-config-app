@@ -103,7 +103,7 @@ fn set_mode_and_reboot(nag: Nag52Diag, mode: TcuDeviceMode) -> DiagServerResult<
 
 
 impl crate::window::InterfacePage for CanLoggerPage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("CAN Logger viewer");
         let state = self.state.read().clone();
 

@@ -132,7 +132,7 @@ fn make_fw_info(ui: &mut egui::Ui, id: &str, fw: &FirmwareHeader, part_info: Opt
 }
 
 impl InterfacePage for UpdatePage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("Updater and dumper (New)");
         let state = self.status.read().unwrap().clone();
         let mut read_partition: Option<PartitionInfo> = None;

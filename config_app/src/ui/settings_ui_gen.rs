@@ -293,7 +293,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
 }
 
 impl InterfacePage for TcuAdvSettingsUi {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let state = self.status.read().unwrap().clone();
         let yml = self.yml.read().unwrap().clone();
         let def_settings = self.default_settings.read().unwrap().clone();

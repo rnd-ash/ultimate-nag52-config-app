@@ -18,7 +18,7 @@ use super::settings_ui_gen::TcuAdvSettingsUi;
 use super::updater::UpdatePage;
 use super::{
     configuration::ConfigPage,
-    io_maipulator::IoManipulatorPage, map_editor::MapEditor, routine_tests::RoutinePage,
+    map_editor::MapEditor, routine_tests::RoutinePage,
 };
 use crate::ui::diagnostics::DiagnosticsPage;
 
@@ -52,7 +52,7 @@ impl MainPage {
 }
 
 impl InterfacePage for MainPage {
-    fn make_ui(&mut self, ui: &mut egui::Ui, frame: &Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut egui::Ui) -> crate::window::PageAction {
         if !self.first_run {
             self.first_run = true;
             return PageAction::RegisterNag(Arc::new(self.diag_server.clone()));
@@ -88,8 +88,7 @@ impl InterfacePage for MainPage {
         let mut efuse_ok = true;
         let mut compatibility_ok = true;
         let mut special_mode = false;
-
-        SidePanel::left("l-s").resizable(false).show_inside(ui, |ui| {
+        let w = SidePanel::left("l-s").resizable(false).show_inside(ui, |ui| {
             // Left panel (Status)
             ui.vertical_centered(|ui| {
                 ui.heading("Status");
@@ -183,8 +182,8 @@ impl InterfacePage for MainPage {
                 });
                 ui.end_row();
             });
-        });
-        SidePanel::right("r-s").resizable(false).show_inside(ui, |ui| {
+        }).response.rect.width();
+        SidePanel::right("r-s").exact_width(w).resizable(false).show_inside(ui, |ui| {
             // Right panel (links)
             ui.vertical_centered(|ui| {
                 ui.heading("Resources");

@@ -115,8 +115,6 @@ pub enum BoardType {
     V11 = 1,
     V12 = 2,
     V13 = 3,
-    V14 = 4,
-    V14HGS = 0xF4
 }
 
 impl BoardType {
@@ -126,8 +124,6 @@ impl BoardType {
             BoardType::V11 => Some(include_image!("../../../res/pcb_11.jpg")),
             BoardType::V12 => Some(include_image!("../../../res/pcb_12.jpg")),
             BoardType::V13 => Some(include_image!("../../../res/pcb_13.jpg")),
-            BoardType::V14 => Some(include_image!("../../../res/pcb_13.jpg")),
-            BoardType::V14HGS => Some(include_image!("../../../res/pcb_13.jpg")),
         }   
     }
 }
@@ -139,8 +135,6 @@ impl Display for BoardType {
             BoardType::V11 => write!(f, "V1.1 (12/12/21)"),
             BoardType::V12 => write!(f, "V1.2 (07/07/22)"),
             BoardType::V13 => write!(f, "V1.3 (12/12/22)"),
-            BoardType::V14 => write!(f, "V1.4 (13/05/24)"),
-            BoardType::V14HGS => write!(f, "V1.4 (HGS) (13/05/24)"),
         }
     }
 }

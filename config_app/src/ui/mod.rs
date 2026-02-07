@@ -5,7 +5,6 @@ use crate::window::InterfacePage;
 
 pub mod configuration;
 pub mod diagnostics;
-pub mod io_maipulator;
 pub mod kwp_event;
 pub mod launcher;
 pub mod main;

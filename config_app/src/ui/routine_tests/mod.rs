@@ -23,7 +23,6 @@ impl crate::window::InterfacePage for RoutinePage {
     fn make_ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        frame: &eframe::Frame,
     ) -> crate::window::PageAction {
         ui.heading("Diagnostic routines");
 

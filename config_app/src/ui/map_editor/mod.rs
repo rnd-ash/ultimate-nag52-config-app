@@ -8,7 +8,7 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self, containers::menu::MenuConfig, DragValue, Layout, MenuBar, RichText, ScrollArea, Ui
+        self, DragValue, Layout, MenuBar, RichText, ScrollArea, Ui
     }, epaint::Color32,
 };
 use egui_plot::{Bar, BarChart, Line};
@@ -733,7 +733,6 @@ impl super::InterfacePage for MapEditor {
     fn make_ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        _frame: &eframe::Frame,
     ) -> crate::window::PageAction {
         let mut action = None;
         let mut map_to_switch = None;

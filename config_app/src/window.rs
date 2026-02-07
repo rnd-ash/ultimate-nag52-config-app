@@ -218,7 +218,7 @@ impl eframe::App for MainWindow {
 
             self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
-                match self.pages[0].make_ui(main_win_ui, frame) {
+                match self.pages[0].make_ui(main_win_ui) {
                     PageAction::None => {}
                     PageAction::Destroy => {
                         if self.pages[0].destroy_nag() {
@@ -357,7 +357,7 @@ pub enum PageAction {
 }
 
 pub trait InterfacePage {
-    fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> PageAction;
+    fn make_ui(&mut self, ui: &mut egui::Ui) -> PageAction;
     fn get_title(&self) -> &'static str;
     fn should_show_statusbar(&self) -> bool;
     fn destroy_nag(&self) -> bool {

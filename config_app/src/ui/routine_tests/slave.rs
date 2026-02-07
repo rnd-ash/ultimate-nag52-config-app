@@ -36,7 +36,7 @@ fn set_mode_and_reboot(nag: Nag52Diag, mode: TcuDeviceMode) -> DiagServerResult<
 
 
 impl crate::window::InterfacePage for SlaveModePage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("Slave mode toggle");
         ui.label("
             CAUTION!!!!

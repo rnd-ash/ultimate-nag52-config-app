@@ -75,7 +75,7 @@ impl Launcher {
 }
 
 impl InterfacePage for Launcher {
-    fn make_ui(&mut self, ui: &mut Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut Ui) -> crate::window::PageAction {
         ui.label("Ultimate-Nag52 configuration utility!");
         ui.label(
             "Please plug in your TCM via USB and select the correct port, or select another API",

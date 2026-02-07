@@ -54,7 +54,6 @@ fn sign_and_crc(egs: &mut EgsStoredCalibration) {
     }
     egs.crc = crc;
     egs.len = EgsStoredCalibration::packed_bytes_size(None).unwrap() as u16;
-    println!("Size W {}", egs.len);
     egs.magic = 0xDEADBEEF;
 }
 
@@ -182,7 +181,7 @@ impl EgsConfigPage {
 }
 
 impl InterfacePage for EgsConfigPage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let mut action = PageAction::None;
         let mut take = false;
         if let Some(h) = self.res.borrow_mut() {

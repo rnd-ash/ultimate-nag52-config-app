@@ -57,7 +57,7 @@ impl TccControlPage {
 }
 
 impl crate::window::InterfacePage for TccControlPage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("Torque converter solenoid control");
         ui.label("
             Here you can either enable or disable control of the Torque converter (TCC)

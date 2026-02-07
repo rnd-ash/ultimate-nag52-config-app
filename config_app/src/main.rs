@@ -46,7 +46,7 @@ fn main() {
     {
         native_options.renderer = Renderer::Glow;
     }
-    eframe::run_native(
+    let _ = eframe::run_native(
         "Ultimate NAG52 config suite",
         native_options,
         Box::new(|cc| Ok(Box::new(app))),

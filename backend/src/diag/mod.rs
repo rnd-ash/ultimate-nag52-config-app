@@ -55,6 +55,14 @@ impl<T> DataState<T> {
         matches!(self, Self::LoadOk(_))
     }
 
+    pub fn data(&self) -> Option<&T> {
+        if let Self::LoadOk(data) = self {
+            Some(data)
+        } else {
+            None
+        }
+    }
+
     pub fn get_err(&self) -> String {
         match self {
             DataState::LoadOk(_) => "".into(),
