@@ -152,7 +152,7 @@ impl crate::window::InterfacePage for ConfigPage {
         let mut config_now = self.scn.read().clone();
 
         let board_ver = efuse_now.data()
-            .map(|(_, x)| x.board_ver)
+            .map(|(unset, x)| if *unset { BoardType::Unknown } else {x.board_ver})
             .unwrap_or(BoardType::Unknown);
 
         ui.heading("Core Vehicle config");
