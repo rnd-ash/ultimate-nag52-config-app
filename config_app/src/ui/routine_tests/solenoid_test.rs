@@ -88,7 +88,11 @@ fn calc_resistance(current: u16, batt: u16, temp: i16) -> f32 {
 
 fn make_resistance_text(c_raw: u16, r: f32, range: RangeInclusive<f32>) -> egui::Label {
     if c_raw == 0 {
-        return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
+        if range == ResitanceTCC {
+            return egui::Label::new(RichText::new("Open circuit detected (This is OK if you have the TCC Zener board installed)!").color(Color32::RED));
+        } else {
+            return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
+        }
     }
     if c_raw > 3200 && range != ResitanceTCC {
         return egui::Label::new(
@@ -121,7 +125,6 @@ impl crate::window::InterfacePage for SolenoidTestPage {
     fn make_ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        frame: &eframe::Frame,
     ) -> crate::window::PageAction {
         ui.heading("Solenoid test");
 
@@ -157,7 +160,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                 let n = self.nag.clone();
                 std::thread::spawn(move || {
                     state_ref.store(1, Ordering::Relaxed);
-                    n.with_kwp(|server| {
+                    let _ = n.with_kwp(|server| {
                         if let Err(e) =
                             server.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())
                         {
@@ -296,10 +299,6 @@ impl crate::window::InterfacePage for SolenoidTestPage {
             }
         }
         PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "IO Manipulator view"
     }
 
     fn should_show_statusbar(&self) -> bool {

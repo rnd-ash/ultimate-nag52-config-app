@@ -77,7 +77,7 @@ impl MainWindow {
 pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
 
         let stack_size = self.pages.len();
@@ -218,7 +218,7 @@ impl eframe::App for MainWindow {
 
             self.show_back = true;
             egui::CentralPanel::default().show(ctx, |main_win_ui| {
-                match self.pages[0].make_ui(main_win_ui, frame) {
+                match self.pages[0].make_ui(main_win_ui) {
                     PageAction::None => {}
                     PageAction::Destroy => {
                         if self.pages[0].destroy_nag() {
@@ -357,8 +357,7 @@ pub enum PageAction {
 }
 
 pub trait InterfacePage {
-    fn make_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) -> PageAction;
-    fn get_title(&self) -> &'static str;
+    fn make_ui(&mut self, ui: &mut egui::Ui) -> PageAction;
     fn should_show_statusbar(&self) -> bool;
     fn destroy_nag(&self) -> bool {
         false

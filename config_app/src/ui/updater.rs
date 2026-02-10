@@ -1,4 +1,4 @@
-use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::{Write, Read}};
+use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::Write};
 
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
@@ -30,7 +30,7 @@ impl CurrentFlashState {
 
     pub fn is_tx_rx(&self) -> bool {
         match self {
-            CurrentFlashState::Read { start_addr, current, total } | CurrentFlashState::Write { ty:_, start_addr, current, total } => true,
+            CurrentFlashState::Read { .. } | CurrentFlashState::Write { ty:_, .. } => true,
             _ => false
         }
     }
@@ -54,7 +54,7 @@ pub struct UpdatePage {
     old_fw: Option<(FirmwareHeader, PartitionInfo)>,
     releases:  Arc<RwLock<DataState<Vec<Release>>>>,
     checked_unstable: bool,
-    selected_release: Option<Release>
+    selected_release: Option<Release>,
 }
 
 impl UpdatePage {
@@ -97,7 +97,7 @@ impl UpdatePage {
             old_fw: curr_fw_info,
             releases: fw_list,
             checked_unstable: false,
-            selected_release: None
+            selected_release: None,
         }
     }
 }
@@ -132,7 +132,7 @@ fn make_fw_info(ui: &mut egui::Ui, id: &str, fw: &FirmwareHeader, part_info: Opt
 }
 
 impl InterfacePage for UpdatePage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("Updater and dumper (New)");
         let state = self.status.read().unwrap().clone();
         let mut read_partition: Option<PartitionInfo> = None;
@@ -181,7 +181,9 @@ impl InterfacePage for UpdatePage {
                     format!("{} at {}", rel, date)
                 }
 
-                ui.checkbox(&mut self.checked_unstable, "Show unstable releases");
+                ui.checkbox(&mut self.checked_unstable, "Show unstable (dev) releases").on_disabled_hover_text(
+"These firmware updates are a lot faster and more bleeding-edge, but may have occasional issues"
+                );
                 egui::ComboBox::from_label("Select release")
                     .width(500.0)
                     .selected_text(&self.selected_release.clone().map(|x| release_to_string(&x)).unwrap_or("None".into()))
@@ -203,11 +205,7 @@ impl InterfacePage for UpdatePage {
                 if let Some(rel) = &self.selected_release {
                     ui.hyperlink_to("Show on GitHub", format!("https://github.com{}", rel.html_url.path()));
                     let fw_url = rel.assets.iter().find(|x| x.name.ends_with(".bin")).cloned();
-                    let yml_url = rel.assets.iter().find(|x| x.name.ends_with(".yml")).cloned();
-                    let elf_url = rel.assets.iter().find(|x| x.name.ends_with(".elf")).cloned();
-                    
-
-                    if let (Some(fw), Some(yml)) = (fw_url, yml_url) {
+                    if let Some(fw) = fw_url {
                         if ui.button("Download firmware").clicked() {
                             let state_c = self.status.clone();
                             let fw_c = self.fw.clone();
@@ -215,7 +213,6 @@ impl InterfacePage for UpdatePage {
                                 let url = format!("https://api.github.com{}",fw.url.path());
                                 *state_c.write().unwrap() = CurrentFlashState::Download(0, 0);
                                 let mut buffer_firmware: Vec<u8> = Vec::new();
-                                let buffer_yml: Vec<u8> = Vec::new();
                                 let mut easy = Easy::new();
                                 let mut list = List::new();
                                 list.append("Accept: application/octet-stream").unwrap();
@@ -253,12 +250,6 @@ impl InterfacePage for UpdatePage {
                                     *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download firmware response code was {code}"));
                                 }
                             });
-                        }
-                    }
-
-                    if let Some(elf) = elf_url {
-                        if ui.button("Download debug elf file").clicked() {
-                            return PageAction::SendNotification { text: format!("Todo. Debugger UI!"), kind: egui_notify::ToastLevel::Info }
                         }
                     }
                 }
@@ -362,20 +353,19 @@ impl InterfacePage for UpdatePage {
         if let Some(read_op) = &read_partition {
             let ng = self.nag.clone();
             let state_c = self.status.clone();
-            let mut save_path = None;
-            if let Some(f) = rfd::FileDialog::new()
+            let save_path = if let Some(f) = rfd::FileDialog::new()
                 .add_filter(".bin", &["bin"])
                 .save_file() {
-                    save_path = Some(f);
+                    Some(f)
             } else {
                 *state_c.write().unwrap() = CurrentFlashState::Failed(format!("user did not specify save path"));
                 return PageAction::None;
-            }
+            };
             let read_op_c = read_op.clone();
             let ctx_c = ui.ctx().clone();
             std::thread::spawn(move || {
                 *state_c.write().unwrap() = CurrentFlashState::Prepare;
-                let bs = match ng.begin_download(&read_op_c) {
+                let _bs = match ng.begin_download(&read_op_c) {
                     Ok(bs) => bs,
                     Err(e) => {
                         *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Failed to prepare for reading. {}", e));
@@ -462,10 +452,6 @@ impl InterfacePage for UpdatePage {
             ui.label(text);
         }
         crate::window::PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "Flash updater"
     }
 
     fn should_show_statusbar(&self) -> bool {

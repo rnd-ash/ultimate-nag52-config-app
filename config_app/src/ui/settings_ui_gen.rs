@@ -1,11 +1,9 @@
-use std::{fs::File, io::{BufReader, Cursor, Read, Write}, sync::{Arc, RwLock}, time::Instant};
+use std::{fs::File, io::{BufReader, Cursor, Read}, sync::{Arc, RwLock}};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{ProgressBar, DragValue, self, CollapsingHeader, ScrollArea, Label, RichText}, epaint::{Color32, ahash::HashMap}, emath};
+use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea}, emath, epaint::{Color32, ahash::HashMap}};
 use zip::ZipArchive;
 
 use crate::window::{InterfacePage, PageAction};
-
-pub const PAGE_LOAD_TIMEOUT: f32 = 10000.0;
 
 #[derive(Debug, Clone)]
 pub enum LoadState {
@@ -21,9 +19,7 @@ pub enum LoadState {
 
 pub struct TcuAdvSettingsUi {
     status: Arc<RwLock<LoadState>>,
-    error: Option<String>,
     nag: Nag52Diag,
-    start_time: Instant,
     yml: Arc<RwLock<Option<ModuleSettingsData>>>,
     current_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
     default_settings: Arc<RwLock<HashMap<u8, DiagServerResult<Vec<u8>>>>>,
@@ -69,8 +65,8 @@ impl TcuAdvSettingsUi {
                     read_contents.extend_from_slice(&data);
                 }
                 let reader = BufReader::new(Cursor::new( read_contents));
-                let mut zip = ZipArchive::new(reader).map_err(|e| format!("Data on EGS is corrupt!"))?;
-                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|e| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
+                let mut zip = ZipArchive::new(reader).map_err(|_| format!("Data on EGS is corrupt!"))?;
+                let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|_| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
                 let mut s = String::new();
                 let _ = mod_settings.read_to_string(&mut s).unwrap();
                 serde_yaml::from_str::<ModuleSettingsData>(&s).map_err(|e| e.to_string())
@@ -107,9 +103,7 @@ impl TcuAdvSettingsUi {
 
         Self {
             status,
-            error: None,
             nag,
-            start_time: Instant::now(),
             yml,
             current_settings,
             default_settings,
@@ -131,7 +125,7 @@ fn gen_drag_value<'a, Num: emath::Numeric>(value: &'a mut Num, var: &'a Settings
     if let Some(mut unit) = var.unit.clone() {
         if unit == "%" {
             // Obvious
-            dv = dv.clamp_range(0..=100);
+            dv = dv.range(0..=100);
         }
         if unit == "milliseconds" {
             unit = "ms".into();
@@ -176,7 +170,7 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
                 name: "INVALID CODING".to_string(),
                 desc: format!("Value of 0x{:02X?} not known", value),
             });
-            egui::ComboBox::from_id_source(format!("Enum-{}-select", var.name))
+            egui::ComboBox::new(format!("Enum-{}-select", var.name), "")
                 .width(100.0)
                 .selected_text(&s.name)
                 .show_ui(ui, |x| {
@@ -195,7 +189,7 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
         SettingsType::Struct { mut raw, s } => {
             
             CollapsingHeader::new("Show internal")
-                .id_source(format!("It-var-editor-{}",var.name))
+                .id_salt(format!("It-var-editor-{}",var.name))
                 .show(ui, |ui| {
                     egui::Grid::new(format!("setting-var-editor-{}",var.name)).num_columns(3).striped(true).show(ui, |ui| {
                         ui.strong("Setting");
@@ -219,30 +213,33 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
 fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], setting: &SettingsData, enums: &[EnumMap], internal_structs: &[SettingsData], ui: &mut egui::Ui) -> Option<PageAction> {
     let mut ret = None;
     let width = ui.available_width();
-    ScrollArea::new([true, false]).max_width(width).id_source("CODING_VIEW").show(ui, |r| {
-        egui::Grid::new("COD").num_columns(coding.len()+1).striped(true).show(r, |ui| {
-            ui.strong("Byte");
-            for (idx, _) in coding.iter().enumerate() {
-                ui.strong(format!("{}", idx));
-            }
-            ui.end_row();
-            ui.strong("Current coding");
-            for (idx, b) in coding.iter().enumerate() {
-                if *b != default[idx] {
-                    ui.label(RichText::new(format!("{:02X?}", b)).color(Color32::RED));
-                } else {
+    ui.collapsing("Show coding bytes", |ui| {
+        ScrollArea::new([true, false]).max_width(width).show(ui, |r| {
+            egui::Grid::new("COD")
+                .num_columns(coding.len()+1)
+                .striped(true).show(r, |ui| {
+                ui.strong("Byte");
+                for (idx, _) in coding.iter().enumerate() {
+                    ui.strong(format!("{}", idx));
+                }
+                ui.end_row();
+                ui.strong("Current coding");
+                for (idx, b) in coding.iter().enumerate() {
+                    if *b != default[idx] {
+                        ui.label(RichText::new(format!("{:02X?}", b)).color(Color32::RED));
+                    } else {
+                        ui.label(format!("{:02X?}", b));
+                    }
+                }
+                ui.end_row();
+                ui.strong("Default coding");
+                for b in default {
                     ui.label(format!("{:02X?}", b));
                 }
-            }
-            ui.end_row();
-            ui.strong("Default coding");
-            for b in default {
-                ui.label(format!("{:02X?}", b));
-            }
-            ui.end_row();
+                ui.end_row();
+            });
         });
     });
-    ui.add_space(10.0);
     ui.horizontal(|r| {
         if r.button("Reset coding to default").clicked() {
             coding.copy_from_slice(default);
@@ -290,7 +287,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
 }
 
 impl InterfacePage for TcuAdvSettingsUi {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let state = self.status.read().unwrap().clone();
         let yml = self.yml.read().unwrap().clone();
         let def_settings = self.default_settings.read().unwrap().clone();
@@ -299,13 +296,18 @@ impl InterfacePage for TcuAdvSettingsUi {
         match state {
             LoadState::Ready => {
                 let yml = yml.as_ref().unwrap().clone();
-                ui.heading("Select coding string");
-                ui.horizontal(|row| {
-                    for (k, v) in &curr_settings {
-                        let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
-                        row.selectable_value(&mut self.current_setting, Some(*k), setting_def.name.clone());
-                    }
+                MenuBar::new()
+                    .ui(ui, |ui| {
+                    ui.menu_button("Select coding string", |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        for (k, _) in &curr_settings {
+                            let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
+                            let text = setting_def.description.as_ref().unwrap_or(&setting_def.name);
+                            ui.selectable_value(&mut self.current_setting, Some(*k), text);
+                        }
+                    });     
                 });
+                ui.separator();
                 if let Some(current_id) = self.current_setting {
                     let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
                     let default = def_settings.get(&current_id).unwrap().clone();
@@ -314,7 +316,6 @@ impl InterfacePage for TcuAdvSettingsUi {
                     if modifying.is_ok() && default.is_ok() {
                         let def = default.unwrap().clone();
                         let mut modify = modifying.unwrap().clone();
-                        ui.separator();
                         if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
                             action = a;
                         }
@@ -397,10 +398,6 @@ impl InterfacePage for TcuAdvSettingsUi {
         action
     }
 
-    fn get_title(&self) -> &'static str {
-        "Advanced settings"
-    }
-
     fn should_show_statusbar(&self) -> bool {
         true
     }
@@ -409,7 +406,7 @@ impl InterfacePage for TcuAdvSettingsUi {
         false
     }
 
-    fn on_load(&mut self, nag: Option<Arc<Nag52Diag>>){}
+    fn on_load(&mut self, _nag: Option<Arc<Nag52Diag>>){}
 
     fn nag_destroy_before_load(&self) -> bool {
         false
@@ -418,6 +415,6 @@ impl InterfacePage for TcuAdvSettingsUi {
 
 impl Drop for TcuAdvSettingsUi {
     fn drop(&mut self) {
-        self.nag.with_kwp(|x| x.kwp_set_session(KwpSessionType::Normal.into()));
+        let _ = self.nag.with_kwp(|x| x.kwp_set_session(KwpSessionType::Normal.into()));
     }
 }

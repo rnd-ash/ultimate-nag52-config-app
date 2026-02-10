@@ -9,9 +9,6 @@ use eframe::egui::{self, Color32, RichText, ScrollArea, Ui, WidgetText};
 use packed_struct::PackedStructSlice;
 use packed_struct::prelude::{PackedStruct, PrimitiveEnum_u8};
 
-pub const RLI_QUERY_INTERVAL: u64 = 100;
-pub const RLI_PLOT_INTERVAL: u64 = 1000/60;
-
 #[repr(u8)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug, strum_macros::VariantArray)]
 pub enum RecordIdents {
@@ -82,8 +79,8 @@ pub enum LocalRecordData {
     ShiftAlgoFeedback(DataShiftAlgoFeedback),
 }
 
-fn make_row<T: Into<WidgetText>, X: Into<WidgetText>>(ui: &mut Ui, key: T, value: X) {
-    ui.label(key);
+fn make_row<T: Into<RichText>, X: Into<WidgetText>>(ui: &mut Ui, key: T, value: X) {
+    ui.strong(key);
     ui.label(value);
     ui.end_row();
 }
@@ -122,27 +119,27 @@ impl LocalRecordData {
             egui::Grid::new("DGS").striped(true).show(ui, |ui| {
                 match &self {
                     LocalRecordData::Sensors(s) => {
-                        ui.label("N2 Pulse counter")
+                        ui.strong("N2 Pulse counter")
                             .on_hover_text("Raw counter value for PCNT for N2 hall effect RPM sensor");
                         ui.label(make_display_value(s.n2_rpm, u16::MAX, DisplayErrorType::Error, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("N3 Pulse counter")
+                        ui.strong("N3 Pulse counter")
                             .on_hover_text("Raw counter value for PCNT for N3 hall effect RPM sensor");
                         ui.label(make_display_value(s.n3_rpm, u16::MAX, DisplayErrorType::Error, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Calculated input RPM")
+                        ui.strong("Calculated input RPM")
                             .on_hover_text("Calculated input shaft RPM based on N2 and N3 raw values");
                         ui.label(make_display_value(s.calculated_rpm, u16::MAX, DisplayErrorType::Error, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Physical output RPM\n(If fitted)")
+                        ui.strong("Physical output RPM\n(If fitted)")
                             .on_hover_text("Output RPM sensor if fitted to GPIO 23");
                         ui.label(make_display_value(s.output_rpm, u16::MAX, DisplayErrorType::Error, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Observed ratio")
+                        ui.strong("Observed ratio")
                             .on_hover_text("Calculated gear ratio");
                         ui.label(if s.calc_ratio == u16::MAX {
                             RichText::new("ERROR").color(Color32::RED)
@@ -151,7 +148,7 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Target ratio")
+                        ui.strong("Target ratio")
                             .on_hover_text("Target gear ratio");
                         ui.label(if s.targ_ratio == u16::MAX {
                             RichText::new("ERROR").color(Color32::RED)
@@ -160,7 +157,7 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Battery voltage");
+                        ui.strong("Battery voltage");
                         ui.label(if s.v_batt == u16::MAX {
                             RichText::new("ERROR").color(Color32::RED)
                         } else {
@@ -168,20 +165,20 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("ATF Oil temperature\n(Only when parking lock off)");
+                        ui.strong("ATF Oil temperature");
                         ui.label(if s.parking_lock != 0x00 {
-                            RichText::new("Cannot read\nParking lock engaged").color(Color32::RED)
+                            RichText::new("N/A (In P or N)").color(Color32::RED)
                         } else {
-                            RichText::new(format!("{} *C", s.atf_temp_c as i32))
+                            RichText::new(format!("{}°C", s.atf_temp_c as i32))
                         });
                         ui.end_row();
 
-                        ui.label("Parking lock");
+                        ui.strong("Parking lock");
                         ui.label(if s.parking_lock == 0x00 {"No"} else {"Yes"});
                         ui.end_row();
                     },
                     LocalRecordData::Solenoids(s) => {
-                        ui.label("MPC Solenoid Driver");
+                        ui.strong("MPC Solenoid Driver");
                         ui.label(format!(
                             "PWM {:>4}/4096, Trim: {:.2}%",
                             s.mpc_pwm,
@@ -189,7 +186,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("MPC Solenoid Target / actual current");
+                        ui.strong("MPC Solenoid Target / actual current");
                         ui.label(format!(
                             "{} mA/{} mA",
                             s.targ_mpc_current,
@@ -197,7 +194,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("SPC Solenoid Driver");
+                        ui.strong("SPC Solenoid Driver");
                         ui.label(format!(
                             "PWM {:>4}/4096, Trim: {:.2}%",
                             s.spc_pwm,
@@ -205,7 +202,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("MPC Solenoid Target / actual current");
+                        ui.strong("MPC Solenoid Target / actual current");
                         ui.label(format!(
                             "{} mA/{} mA",
                             s.targ_spc_current,
@@ -213,7 +210,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("TCC Solenoid");
+                        ui.strong("TCC Solenoid");
                         ui.label(format!(
                             "PWM {:>4}/4096, Read current {} mA",
                             s.tcc_pwm,
@@ -221,7 +218,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("Y3 shift Solenoid");
+                        ui.strong("Y3 shift Solenoid");
                         ui.label(format!(
                             "PWM {:>4}/4096, Read {} mA",
                             s.y3_pwm,
@@ -229,7 +226,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("Y4 shift Solenoid");
+                        ui.strong("Y4 shift Solenoid");
                         ui.label(format!(
                             "PWM {:>4}/4096, Read {} mA",
                             s.y4_pwm,
@@ -237,7 +234,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("Y5 shift Solenoid");
+                        ui.strong("Y5 shift Solenoid");
                         ui.label(format!(
                             "PWM {:>4}/4096, Read {} mA",
                             s.y5_pwm,
@@ -245,7 +242,7 @@ impl LocalRecordData {
                         ));
                         ui.end_row();
 
-                        ui.label("Total current consumption");
+                        ui.strong("Total current consumption");
                         ui.label(format!(
                             "{} mA",
                             s.y5_current as u32
@@ -258,7 +255,7 @@ impl LocalRecordData {
                         ui.end_row();
                     },
                     LocalRecordData::Canbus(s) => {
-                        ui.label("Accelerator pedal position");
+                        ui.strong("Accelerator pedal position");
                         ui.label(if s.pedal_position == u8::MAX {
                             RichText::new("Signal not available").color(Color32::RED)
                         } else {
@@ -266,11 +263,11 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Engine RPM");
+                        ui.strong("Engine RPM");
                         ui.label(make_display_value(s.engine_rpm, u16::MAX, DisplayErrorType::SignalNotAvailable, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Engine minimum torque");
+                        ui.strong("Engine minimum torque");
                         ui.label(if s.min_torque_ms == u16::MAX {
                             RichText::new("Signal not available").color(Color32::RED)
                         } else {
@@ -278,7 +275,7 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Engine maximum torque");
+                        ui.strong("Engine maximum torque");
                         ui.label(if s.max_torque_ms == u16::MAX {
                             RichText::new("Signal not available").color(Color32::RED)
                         } else {
@@ -286,7 +283,7 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Engine static torque");
+                        ui.strong("Engine static torque");
                         ui.label(if s.static_torque == u16::MAX {
                             RichText::new("Signal not available").color(Color32::RED)
                         } else {
@@ -294,7 +291,7 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Driver req torque");
+                        ui.strong("Driver req torque");
                         ui.label(if s.driver_torque == u16::MAX {
                             RichText::new("Signal not available").color(Color32::RED)
                         } else {
@@ -302,33 +299,33 @@ impl LocalRecordData {
                         });
                         ui.end_row();
 
-                        ui.label("Rear right wheel speed");
+                        ui.strong("Rear right wheel speed");
                         ui.label(make_display_value(s.right_rear_rpm, u16::MAX, DisplayErrorType::SignalNotAvailable, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Rear left wheel speed");
+                        ui.strong("Rear left wheel speed");
                         ui.label(make_display_value(s.left_rear_rpm, u16::MAX, DisplayErrorType::SignalNotAvailable, Some("RPM")));
                         ui.end_row();
 
-                        ui.label("Gear selector position");
+                        ui.strong("Gear selector position");
                         ui.label(make_display_value(s.selector_position, ShifterPosition::SNV, DisplayErrorType::SignalNotAvailable, None));
                         ui.end_row();
 
-                        ui.label("Shift profile input");
+                        ui.strong("Shift profile input");
                         ui.label(make_display_value(s.profile_input_raw, DiagProfileInputState::SNV, DisplayErrorType::SignalNotAvailable, None));
                         ui.end_row();
 
-                        ui.label("Shift paddle position");
+                        ui.strong("Shift paddle position");
                         ui.label(make_display_value(s.paddle_position, PaddlePosition::SNV, DisplayErrorType::Error, None));
                         ui.end_row();
 
-                        ui.label("Fuel flow");
+                        ui.strong("Fuel flow");
                         // Bosch says its 0.217/250ms
                         // so 0.217*4 = flow per second
                         ui.label(format!("{} ul/s", ((s.fuel_flow as f32)*0.816) as u32));
                         ui.end_row();
 
-                        ui.label("Torque request");
+                        ui.strong("Torque request");
                         if s.egs_torque_req_ctrl_type == TorqueReqCtrlType::None {
                             ui.label("None");
                         } else {
@@ -338,15 +335,15 @@ impl LocalRecordData {
                         }
                         ui.end_row();
                         
-                        ui.label("Engine intake air temp");
+                        ui.strong("Engine intake air temp");
                         ui.label(make_display_value(s.engine_iat_temp, i16::MAX, DisplayErrorType::SignalNotAvailable, Some("C")));
                         ui.end_row();
 
-                        ui.label("Engine coolant temp");
+                        ui.strong("Engine coolant temp");
                         ui.label(make_display_value(s.engine_coolant_temp, i16::MAX, DisplayErrorType::SignalNotAvailable, Some("C")));
                         ui.end_row();
 
-                        ui.label("Engine oil temp");
+                        ui.strong("Engine oil temp");
                         ui.label(make_display_value(s.engine_oil_temp, i16::MAX, DisplayErrorType::SignalNotAvailable, Some("C")));
                         ui.end_row();
                     },
@@ -368,35 +365,35 @@ impl LocalRecordData {
                         make_row(ui, "OS Task count", format!("{}", s.num_tasks));
                     },
                     LocalRecordData::Pressures(s) => {
-                        ui.label("Req. Shift pressure");
+                        ui.strong("Req. Shift pressure");
                         ui.label(make_display_value(s.shift_req_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Req. Modulating pressure");
+                        ui.strong("Req. Modulating pressure");
                         ui.label(make_display_value(s.modulating_req_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Req. Torque converter pressure");
+                        ui.strong("Req. Torque converter pressure");
                         ui.label(make_display_value(s.tcc_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Corrected shift pressure");
+                        ui.strong("Corrected shift pressure");
                         ui.label(make_display_value(s.corrected_spc_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Corrected modulating pressure");
+                        ui.strong("Corrected modulating pressure");
                         ui.label(make_display_value(s.corrected_mpc_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Calc. Solenoid inlet pressure");
+                        ui.strong("Calc. Solenoid inlet pressure");
                         ui.label(make_display_value(s.inlet_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Calc. Working pressure");
+                        ui.strong("Calc. Working pressure");
                         ui.label(make_display_value(s.working_pressure, u16::MAX, DisplayErrorType::Error, Some("mBar")));
                         ui.end_row();
 
-                        ui.label("Active shift circuits");
+                        ui.strong("Active shift circuits");
                         ui.label(if s.ss_flag == 0 {
                             "None".to_string()
                         } else {
@@ -485,6 +482,9 @@ impl LocalRecordData {
 
                             make_row(ui, "On clutch speed", format!("{}", s.s_on));
                             make_row(ui, "Off clutch speed", format!("{}", s.s_off));
+                            make_row(ui, "Turbine speed", format!("{}", s.s_turbine));
+                            make_row(ui, "PID target speed", format!("{}", s.s_targ));
+                            make_row(ui, "Syncronize target", format!("{}", s.sync_rpm));
 
                             make_row(ui, "On clutch pressure", format!("{}", s.p_on));
                             make_row(ui, "Off clutch pressure", format!("{}", s.p_off));
@@ -600,6 +600,18 @@ impl LocalRecordData {
                 } else {
                     s.egs_req_torque as f32 / 4.0 - 500.0
                 };
+
+                let l = if s.left_rear_rpm == u16::MAX {
+                    0.0
+                } else {
+                    s.left_rear_rpm as f32
+                };
+                let r = if s.right_rear_rpm == u16::MAX {
+                    0.0
+                } else {
+                    s.right_rear_rpm as f32
+                };
+
                 vec![ChartData::new(
                     "Torque data".into(),
                     vec![
@@ -620,8 +632,8 @@ impl LocalRecordData {
                 ChartData::new(
                     "Wheel speeds".into(),
                     vec![
-                        ("Rear left wheel speed", s.left_rear_rpm as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
-                        ("Rear right wheel speed", s.right_rear_rpm as f32, Some("RPM"), Color32::from_rgb(0, 0, 255)),
+                        ("Rear left wheel speed", l as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
+                        ("Rear right wheel speed", r as f32, Some("RPM"), Color32::from_rgb(0, 0, 255)),
                     ],
                     None,
                 )]
@@ -727,6 +739,8 @@ impl LocalRecordData {
                         ("On clutch speed", s.s_on as f32, Some("RPM"), Color32::from_rgb(255, 0, 255)),
                         ("Off clutch speed", s.s_off as f32, Some("RPM"), Color32::from_rgb(0, 255, 255)),
                         ("Syncronize speed", s.sync_rpm as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
+                        ("Turbine speed", s.s_turbine as f32, Some("RPM"), Color32::from_rgb(255, 255, 0)),
+                        ("PID target", s.s_targ as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
                     ],
                     None),
                     ChartData::new(
@@ -739,15 +753,15 @@ impl LocalRecordData {
                     ChartData::new(
                         "Phase IDs".into(),
                         vec![
-                            ("Sub-Shift phase", s.subphase_shift as f32 + (10.0 * s.shift_phase as f32), None, Color32::from_rgb(255, 0, 255)),
-                            ("Sub-Mod phase", s.subphase_mod as f32 + (10.0 * s.subphase_mod as f32), None, Color32::from_rgb(0, 255, 255)),
+                            ("Sub-Shift phase", (s.shift_phase+1) as f32 + (10.0 * s.shift_phase as f32), None, Color32::from_rgb(255, 0, 255)),
+                            ("Sub-Mod phase", (s.shift_phase+1) as f32 + (10.0 * s.subphase_mod as f32), None, Color32::from_rgb(0, 255, 255)),
                         ],
                     None),
                     ChartData::new(
                         "Torques".into(),
                         vec![
-                            ("PID torque", s.pid_trq as f32, Some("Nm"), Color32::from_rgb(255, 0, 255)),
-                            ("Adder torque", s.adder_trq as f32, Some("Nm"), Color32::from_rgb(255, 0, 255)),
+                            ("PID torque", s.pid_trq as f32, Some("Nm"), Color32::from_rgb(255, 0, 0)),
+                            ("Adder torque", s.adder_trq as f32, Some("Nm"), Color32::from_rgb(0, 0, 255)),
                         ],
                     None),
                 ]
@@ -1056,4 +1070,6 @@ pub struct DataShiftAlgoFeedback {
     p_off: u16,
     s_off: i16,
     s_on: i16,
+    s_turbine: i16,
+    s_targ: i16
 }

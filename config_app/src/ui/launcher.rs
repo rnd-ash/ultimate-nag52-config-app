@@ -22,12 +22,7 @@ use crate::{
     window::{InterfacePage, PageAction},
 };
 
-
-type ScanResult = std::result::Result<Vec<String>, String>;
-
 pub struct Launcher {
-    selected: String,
-    old_selected: String,
     launch_err: Option<String>,
     usb_scanner: Nag52UsbScanner,
     pt_scanner: PassthruScanner,
@@ -41,8 +36,6 @@ pub struct Launcher {
 impl Launcher {
     pub fn new() -> Self {
         Self {
-            selected: "".into(),
-            old_selected: "".into(),
             launch_err: None,
             usb_scanner: Nag52UsbScanner::new(),
             pt_scanner: PassthruScanner::new(),
@@ -75,7 +68,7 @@ impl Launcher {
 }
 
 impl InterfacePage for Launcher {
-    fn make_ui(&mut self, ui: &mut Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut Ui) -> crate::window::PageAction {
         ui.label("Ultimate-Nag52 configuration utility!");
         ui.label(
             "Please plug in your TCM via USB and select the correct port, or select another API",
@@ -153,10 +146,6 @@ impl InterfacePage for Launcher {
         }
 
         crate::window::PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "Ultimate-NAG52 configuration utility (Launcher)"
     }
 
     fn should_show_statusbar(&self) -> bool {

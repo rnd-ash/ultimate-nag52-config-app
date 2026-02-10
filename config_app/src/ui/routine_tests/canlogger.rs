@@ -27,9 +27,6 @@ impl CanLoggerPage {
 
         let nag_c = nag.clone();
 
-        let running = Arc::new(AtomicBool::new(true));
-        let running_c = running.clone();
-
         let dialog_open = Arc::new(AtomicBool::new(false));
         let dialog_open_c = dialog_open.clone();
 
@@ -103,7 +100,7 @@ fn set_mode_and_reboot(nag: Nag52Diag, mode: TcuDeviceMode) -> DiagServerResult<
 
 
 impl crate::window::InterfacePage for CanLoggerPage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("CAN Logger viewer");
         let state = self.state.read().clone();
 
@@ -150,7 +147,7 @@ impl crate::window::InterfacePage for CanLoggerPage {
                                 for byte in frame.get_data() {
                                     f_str.push_str(&format!(" {:02X?}", byte));
                                 }
-                                f.write_all(format!("0x{:04X}{f_str}\n", frame.get_address()).as_bytes());
+                                let _ = f.write_all(format!("0x{:04X}{f_str}\n", frame.get_address()).as_bytes());
                             }
                         }
                         self.dialog_open.store(false, Ordering::Relaxed);
@@ -191,10 +188,6 @@ impl crate::window::InterfacePage for CanLoggerPage {
             }
         }
         PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "CAN Logger"
     }
 
     fn should_show_statusbar(&self) -> bool {

@@ -54,7 +54,6 @@ fn sign_and_crc(egs: &mut EgsStoredCalibration) {
     }
     egs.crc = crc;
     egs.len = EgsStoredCalibration::packed_bytes_size(None).unwrap() as u16;
-    println!("Size W {}", egs.len);
     egs.magic = 0xDEADBEEF;
 }
 
@@ -117,7 +116,7 @@ impl EgsConfigPage {
                         Ok(size)
                     }
                 },
-                Err(DiagError::ECUError { code, def }) => {
+                Err(DiagError::ECUError { .. }) => {
                     Err("TCU does not support calibration. Please update firmware".to_string())
                 },
                 Err(e) => {
@@ -175,14 +174,14 @@ impl EgsConfigPage {
             }
             if written == out_bytes.len() {
                 println!("Write complete");
-                nag.with_kwp(|kwp| kwp.kwp_reset_ecu(backend::ecu_diagnostics::kwp2000::ResetType::PowerOnReset));
+                let _ = nag.with_kwp(|kwp| kwp.kwp_reset_ecu(backend::ecu_diagnostics::kwp2000::ResetType::PowerOnReset));
             }
         });
     }
 }
 
 impl InterfacePage for EgsConfigPage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let mut action = PageAction::None;
         let mut take = false;
         if let Some(h) = self.res.borrow_mut() {
@@ -262,7 +261,7 @@ impl InterfacePage for EgsConfigPage {
                     ui.horizontal(|row| {
                         if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
                             // MB calibration
-                            row.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                            row.colored_label(Color32::GREEN,  format!("TCC properties calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
                         } else {
                             row.colored_label(Color32::GREEN,  format!("Custom TCC properties calibration in use: '{name}'"));
                         }
@@ -283,7 +282,7 @@ impl InterfacePage for EgsConfigPage {
                     ui.horizontal(|row| {
                         if parts_maybe.len() == 2 && parts_maybe[0].starts_with("A") {
                             // MB calibration
-                            row.colored_label(Color32::GREEN,  format!("Shift algo pack calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));;
+                            row.colored_label(Color32::GREEN,  format!("Shift algo pack calibration: '{}' from {}", parts_maybe[1], parts_maybe[0]));
                         } else {
                             row.colored_label(Color32::GREEN,  format!("Custom shift algo pack calibration in use: '{name}'"));
                         }
@@ -493,10 +492,6 @@ impl InterfacePage for EgsConfigPage {
             }
         }
         action
-    }
-
-    fn get_title(&self) -> &'static str {
-        "EGS Compatibility Config"
     }
 
     fn should_show_statusbar(&self) -> bool {

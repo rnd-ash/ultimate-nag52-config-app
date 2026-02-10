@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use eframe::{egui::IconData, egui_wgpu::{WgpuConfiguration, WgpuSetup}, NativeOptions, Renderer};
+use eframe::{egui::IconData, NativeOptions, Renderer};
 use ui::launcher::Launcher;
 
 mod plot_backend;
 mod ui;
 mod window;
-mod ghapi;
 
 // IMPORTANT. On windows, only the i686-pc-windows-msvc target is supported (Due to limitations with J2534 and D-PDU!
 #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
@@ -46,9 +45,9 @@ fn main() {
     {
         native_options.renderer = Renderer::Glow;
     }
-    eframe::run_native(
+    let _ = eframe::run_native(
         "Ultimate NAG52 config suite",
         native_options,
-        Box::new(|cc| Ok(Box::new(app))),
+        Box::new(|_| Ok(Box::new(app))),
     );
 }

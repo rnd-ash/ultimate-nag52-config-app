@@ -36,8 +36,15 @@ fn set_mode_and_reboot(nag: Nag52Diag, mode: TcuDeviceMode) -> DiagServerResult<
 
 
 impl crate::window::InterfacePage for SlaveModePage {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui, frame: &eframe::Frame) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("Slave mode toggle");
+        ui.label("
+            CAUTION!!!!
+
+            This is only meant for debugging over CAN. The TCU Cannot be used
+            when it is in this mode. It allows you to directly manipulate
+            the TCU over CAN.
+        ");
         let mut t_mode = self.device_mode;
         if self.device_mode.contains(TcuDeviceMode::SLAVE) {
             // Already in CAN Logger mode
@@ -57,10 +64,6 @@ impl crate::window::InterfacePage for SlaveModePage {
             }
         }
         PageAction::None
-    }
-
-    fn get_title(&self) -> &'static str {
-        "CAN Logger"
     }
 
     fn should_show_statusbar(&self) -> bool {
