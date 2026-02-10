@@ -1,3 +1,10 @@
+# 1.7.0 (26/02/26)
+* Overhaul interface
+* Added support for new Shift algorithm data logger data
+* Make the basic vehicle configuration page async for more responsive UI
+* Massive code de-bloating
+* Fix firmware download being unavailable in the updater
+
 # 1.6.0 (15/01/26)
 * Add W639 calibrations to database
 * Fix wrong shift point maps showing in the app

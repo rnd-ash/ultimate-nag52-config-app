@@ -181,7 +181,9 @@ impl InterfacePage for UpdatePage {
                     format!("{} at {}", rel, date)
                 }
 
-                ui.checkbox(&mut self.checked_unstable, "Show unstable releases");
+                ui.checkbox(&mut self.checked_unstable, "Show unstable (dev) releases").on_disabled_hover_text(
+"These firmware updates are a lot faster and more bleeding-edge, but may have occasional issues"
+                );
                 egui::ComboBox::from_label("Select release")
                     .width(500.0)
                     .selected_text(&self.selected_release.clone().map(|x| release_to_string(&x)).unwrap_or("None".into()))
