@@ -1,4 +1,4 @@
-# 1.7.0 (26/02/26)
+# 1.7.0 (10/02/26)
 * Overhaul interface
 * Added support for new Shift algorithm data logger data
 * Make the basic vehicle configuration page async for more responsive UI
