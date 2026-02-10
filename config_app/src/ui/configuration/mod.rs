@@ -180,7 +180,13 @@ impl crate::window::InterfacePage for ConfigPage {
                         });
                     ui.end_row();
 
-                    ui.strong("Differential ratio");
+                    ui.strong("Differential ratio")
+                        .on_hover_text("
+Used to calculate rear output shaft speed. Consult the wiki.
+
+CAUTION: Some cars have multiple ratios available. Higher ratio is
+typically for USA only
+                    ");
                     ui.add(DragValue::new(&mut data.diff_ratio).speed(0)
                         .custom_formatter(|v, _| format!("{:.2}", v / 1000.0))
                         .custom_parser(|s| {
@@ -189,7 +195,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         .speed(0)
                     );
                     ui.end_row();
-                    ui.strong("Wheel circumferance");
+                    ui.strong("Wheel circumferance").on_hover_text("Used to calculate vehicle speed");
                     ui.add(DragValue::new(&mut data.wheel_circumference)
                         .speed(0)
                         .suffix("mm")
@@ -215,7 +221,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         EngineType::Diesel => &mut data.red_line_dieselrpm,
                         EngineType::Petrol => &mut data.red_line_petrolrpm
                     };
-                    ui.strong("Engine redline RPM");
+                    ui.strong("Engine redline RPM").on_hover_text("The maximum engine speed allowed");
                     ui.add(DragValue::new(rpm_mut)
                         .range(3000..=10000)
                         .speed(0)
@@ -251,7 +257,7 @@ impl crate::window::InterfacePage for ConfigPage {
                         ui.end_row();
                     }
 
-                    ui.strong("Engine Inertia");
+                    ui.strong("Engine Inertia").on_hover_text("Consult the wiki");
                     ui.add(DragValue::new(&mut data.engine_drag_torque).speed(0)
                         .custom_formatter(|v, _| format!("{:.1}", v / 10.0))
                         .suffix("Nm")
@@ -262,7 +268,11 @@ impl crate::window::InterfacePage for ConfigPage {
                     );
                     ui.end_row();
 
-                    ui.strong("EGS CAN Layer");
+                    ui.strong("EGS CAN Layer").on_hover_text(
+"This is the CAN Layer (NOT EGS VERSION) the car uses. In 90% of cases, you
+can use the one that matches your original EGS version, but some cars have
+newer EGS TCU's running older CAN layers. Consult the wiki for more information"
+                    );
                     let mut can = data.egs_can_type;
                     egui::ComboBox::new("can_layer","")
                         .width(100.0)
@@ -281,15 +291,12 @@ impl crate::window::InterfacePage for ConfigPage {
                         });
                     ui.end_row();
                     let mut x = data.jeep_chrysler;
-                    ui.strong("Vehicle is a Jeep/Chrysler car");
+                    ui.strong("Vehicle is a Jeep/Chrysler car").on_hover_text(
+"Jeep / Chrysler cars require special IO handling"
+                    );
                     ui.checkbox(&mut x, "");
                     data.jeep_chrysler = x;
                     ui.end_row();
-                    if can == EgsCanType::CustomEcu {
-                        ui.strong("Custom ECU CAN is experimental! - It requires implementation on the ECU Side");
-                        ui.hyperlink_to("Read more", "https://docs.ultimate-nag52.net/en/advanced/custom-can");
-                        ui.end_row();
-                    }
 
                     if board_ver == BoardType::V12 || board_ver == BoardType::V13 {
                         // 1.2 or 1.3 config

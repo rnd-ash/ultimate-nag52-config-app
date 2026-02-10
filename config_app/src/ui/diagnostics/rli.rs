@@ -482,6 +482,9 @@ impl LocalRecordData {
 
                             make_row(ui, "On clutch speed", format!("{}", s.s_on));
                             make_row(ui, "Off clutch speed", format!("{}", s.s_off));
+                            make_row(ui, "Turbine speed", format!("{}", s.s_turbine));
+                            make_row(ui, "PID target speed", format!("{}", s.s_targ));
+                            make_row(ui, "Syncronize target", format!("{}", s.sync_rpm));
 
                             make_row(ui, "On clutch pressure", format!("{}", s.p_on));
                             make_row(ui, "Off clutch pressure", format!("{}", s.p_off));
@@ -736,6 +739,8 @@ impl LocalRecordData {
                         ("On clutch speed", s.s_on as f32, Some("RPM"), Color32::from_rgb(255, 0, 255)),
                         ("Off clutch speed", s.s_off as f32, Some("RPM"), Color32::from_rgb(0, 255, 255)),
                         ("Syncronize speed", s.sync_rpm as f32, Some("RPM"), Color32::from_rgb(255, 0, 0)),
+                        ("Turbine speed", s.s_turbine as f32, Some("RPM"), Color32::from_rgb(255, 255, 0)),
+                        ("PID target", s.s_targ as f32, Some("RPM"), Color32::from_rgb(0, 255, 0)),
                     ],
                     None),
                     ChartData::new(
@@ -748,8 +753,8 @@ impl LocalRecordData {
                     ChartData::new(
                         "Phase IDs".into(),
                         vec![
-                            ("Sub-Shift phase", s.subphase_shift as f32 + (10.0 * s.shift_phase as f32), None, Color32::from_rgb(255, 0, 255)),
-                            ("Sub-Mod phase", s.subphase_mod as f32 + (10.0 * s.subphase_mod as f32), None, Color32::from_rgb(0, 255, 255)),
+                            ("Sub-Shift phase", (s.shift_phase+1) as f32 + (10.0 * s.shift_phase as f32), None, Color32::from_rgb(255, 0, 255)),
+                            ("Sub-Mod phase", (s.shift_phase+1) as f32 + (10.0 * s.subphase_mod as f32), None, Color32::from_rgb(0, 255, 255)),
                         ],
                     None),
                     ChartData::new(
@@ -1065,4 +1070,6 @@ pub struct DataShiftAlgoFeedback {
     p_off: u16,
     s_off: i16,
     s_on: i16,
+    s_turbine: i16,
+    s_targ: i16
 }
