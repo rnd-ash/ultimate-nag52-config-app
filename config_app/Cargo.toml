@@ -40,6 +40,10 @@ bincode = {version="2.0.1", features=["serde"]}
 strum = "0.27.1"
 strum_macros = "0.27.1"
 
+[build-dependencies]
+# All features enabled
+vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
+
 #[patch.crates-io]
 #winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }
 

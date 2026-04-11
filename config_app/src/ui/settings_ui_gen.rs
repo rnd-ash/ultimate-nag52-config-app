@@ -84,9 +84,9 @@ impl TcuAdvSettingsUi {
                             ctx.request_repaint();
                             current_settings_c.write().unwrap().insert(scn_id, res);
                             *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
-                            let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
+                            let res_defaut = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
                                 .map(|x| x[3..].to_vec());
-                            default_settings_c.write().unwrap().insert(scn_id, res);
+                            default_settings_c.write().unwrap().insert(scn_id, res_defaut);
                             ctx.request_repaint();
                             Ok(())
                         });
