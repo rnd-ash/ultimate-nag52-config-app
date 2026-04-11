@@ -32,6 +32,7 @@ pub struct DiagnosticsPage {
     sidebar_shown: bool,
     max_graph_time: Arc<AtomicU32>,
     graph_interval_ms: Arc<AtomicU32>,
+    auto_scale: bool
 }
 
 impl DiagnosticsPage {
@@ -120,7 +121,8 @@ impl DiagnosticsPage {
             launch_time,
             sidebar_shown: true,
             max_graph_time,
-            graph_interval_ms: graph_interval_time
+            graph_interval_ms: graph_interval_time,
+            auto_scale: true
         }
     }
 }
@@ -171,6 +173,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                         self.max_graph_time.store(20000, Ordering::Relaxed);
                     }
                 });
+                ui.checkbox(&mut self.auto_scale, "Automatically scale charts");
                 ui.separator();
 
 
@@ -259,7 +262,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                                 f.value.to_string()
                                             }
                                         });
-                                    if let Some((min, max)) = &d.bounds {
+                                    if let Some((min, max)) = &d.bounds && self.auto_scale {
                                         plot = plot.include_y(*min);
                                         if *max > 0.1 {
                                             // 0.0 check
