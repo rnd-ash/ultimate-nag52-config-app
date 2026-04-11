@@ -1,7 +1,7 @@
 
 use backend::diag::Nag52Diag;
 
-use crate::{ui::routine_tests::slave::SlaveModePage, window::PageAction};
+use crate::{ui::routine_tests::{adapt_rst::AdaptResetPage, slave::SlaveModePage}, window::PageAction};
 
 use self::{solenoid_test::SolenoidTestPage, tcc_control::TccControlPage, canlogger::CanLoggerPage};
 
@@ -9,6 +9,8 @@ pub mod solenoid_test;
 pub mod tcc_control;
 pub mod canlogger;
 pub mod slave;
+pub mod adapt_rst;
+
 pub struct RoutinePage {
     nag: Nag52Diag,
 }
@@ -35,6 +37,18 @@ impl crate::window::InterfacePage for RoutinePage {
         );
         ui.separator();
         let mut page_action = PageAction::None;
+
+        ui.label(
+            "
+            Reset shift adaptation values
+        ",
+        );
+        if ui.button("Adaptation reset").clicked() {
+            page_action = PageAction::Add(Box::new(AdaptResetPage::new(
+                self.nag.clone()
+            )));
+        }
+
         ui.label(
             "
             Run the solenoid test to test if any of gearbox's solenoids are bad
