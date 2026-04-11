@@ -9,6 +9,8 @@ use eframe::egui::RichText;
 use eframe::egui::SidePanel;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
+use octocrab::Octocrab;
+use tokio::runtime::Runtime;
 use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
@@ -28,10 +30,30 @@ pub struct MainPage {
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
     first_run: bool,
-    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>
+    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>,
+    octocrab: Arc<Octocrab>
 }
 
 impl MainPage {
+
+    pub fn query_for_updates(instance: Arc<Octocrab>) {
+        std::thread::spawn(move|| {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Ok(updates) = instance.repos("rnd-ash", "ultimate-nag52-config-app")
+                        .releases()
+                        .list()
+                        .page(1u32)
+                        .send()
+                        .await {
+                            for update in updates.items {
+                                println!("{:?}", update.published_at);
+                            }
+                        }
+                });
+        });
+    }
+
     pub fn new(nag: Nag52Diag) -> Self {
         // Static mutable ref creation
         // this Nag52 lives the whole lifetime of the app once created,
@@ -40,14 +62,16 @@ impl MainPage {
         //
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
+        let instance = octocrab::instance();
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
-
+        //Self::query_for_updates(instance.clone());
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
             tcu_mode: Arc::new(RwLock::new(DataState::Unint)),
+            octocrab: instance
         }
     }
 }
@@ -251,6 +275,7 @@ impl InterfacePage for MainPage {
                     if v.button("Updater").clicked() {
                         create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
                             self.diag_server.clone(),
+                            self.octocrab.clone()
                         ))));
                     }
                 });
