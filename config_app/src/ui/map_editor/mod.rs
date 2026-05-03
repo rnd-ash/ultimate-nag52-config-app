@@ -34,7 +34,7 @@ pub enum MapCmd {
     ReadEEPROM = 0x08,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MapViewType {
     EEPROM,
     Default,
@@ -621,11 +621,7 @@ impl Map {
     }
 
     fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui) {
-        let hash = match self.view_type {
-            MapViewType::EEPROM => &self.data_eeprom,
-            MapViewType::Default => &self.data_program,
-            MapViewType::Modify => &self.data_modify,
-        }.clone();
+        let table_id = (self.meta.id as u8, self.view_type);
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
         if self.meta.reset_adaptation {
@@ -650,7 +646,7 @@ impl Map {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
         let mut pointer_over_cell = false;
-        raw_ui.push_id(&hash, |ui| {
+        raw_ui.push_id(table_id, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
                 .cell_layout(
