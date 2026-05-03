@@ -704,6 +704,7 @@ impl Map {
                                     ));
                                 }
                                 MapViewType::Modify => {
+                                    let cell_rect = cell.max_rect();
                                     let map_idx = (row_id * self.x_values.len()) + x_pos;
                                     if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
                                         cell.style_mut().visuals.override_text_color = Some(cell_edit_color)
@@ -738,7 +739,12 @@ impl Map {
                                         }
                                         cell.add(button)
                                     };
-                                    pointer_over_cell |= response.hovered();
+                                    let pointer_over_response = response
+                                        .ctx
+                                        .input(|input| input.pointer.interact_pos())
+                                        .map(|pos| cell_rect.contains(pos))
+                                        .unwrap_or(false);
+                                    pointer_over_cell |= response.hovered() || pointer_over_response;
                                     if selected {
                                         let visuals = cell.visuals().selection;
                                         cell.painter().rect_stroke(
@@ -774,7 +780,7 @@ impl Map {
                                         self.edit_focus_pending = false;
                                     }
                                     if self.selection_dragging
-                                        && response.hovered()
+                                        && pointer_over_response
                                         && response.ctx.input(|input| input.pointer.primary_down())
                                     {
                                         self.update_selection_cursor(row_id, x_pos);
