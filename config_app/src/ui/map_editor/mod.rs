@@ -8,7 +8,7 @@ use backend::{
 };
 use eframe::{
     egui::{
-        self, DragValue, Layout, MenuBar, RichText, ScrollArea, Ui
+        self, DragValue, Layout, MenuBar, RichText, ScrollArea
     }, epaint::Color32,
 };
 use egui_plot::{Bar, BarChart, Line};
@@ -49,6 +49,171 @@ pub struct MapSaveData {
     state: Vec<i16>
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MapSelection {
+    anchor: (usize, usize),
+    cursor: (usize, usize),
+}
+
+impl MapSelection {
+    fn bounds(&self) -> (usize, usize, usize, usize) {
+        (
+            self.anchor.0.min(self.cursor.0),
+            self.anchor.1.min(self.cursor.1),
+            self.anchor.0.max(self.cursor.0),
+            self.anchor.1.max(self.cursor.1),
+        )
+    }
+
+    fn contains(&self, row: usize, col: usize) -> bool {
+        let (min_row, min_col, max_row, max_col) = self.bounds();
+        (min_row..=max_row).contains(&row) && (min_col..=max_col).contains(&col)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MapShortcutAction {
+    AdjustSelection(i16),
+    ClearSelection,
+    WriteToRam,
+    WriteToEeprom,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MapShortcut {
+    shortcut: egui::KeyboardShortcut,
+    action: MapShortcutAction,
+    description: &'static str,
+}
+
+impl MapShortcut {
+    const fn new(
+        modifiers: egui::Modifiers,
+        key: egui::Key,
+        action: MapShortcutAction,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            shortcut: egui::KeyboardShortcut::new(modifiers, key),
+            action,
+            description,
+        }
+    }
+}
+
+const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
+
+const MAP_EDIT_SHORTCUTS: &[MapShortcut] = &[
+    MapShortcut::new(
+        ALT_SHIFT,
+        egui::Key::ArrowUp,
+        MapShortcutAction::AdjustSelection(100),
+        "Increase selected cells by 100",
+    ),
+    MapShortcut::new(
+        ALT_SHIFT,
+        egui::Key::Plus,
+        MapShortcutAction::AdjustSelection(100),
+        "Increase selected cells by 100",
+    ),
+    MapShortcut::new(
+        ALT_SHIFT,
+        egui::Key::Equals,
+        MapShortcutAction::AdjustSelection(100),
+        "Increase selected cells by 100",
+    ),
+    MapShortcut::new(
+        ALT_SHIFT,
+        egui::Key::ArrowDown,
+        MapShortcutAction::AdjustSelection(-100),
+        "Decrease selected cells by 100",
+    ),
+    MapShortcut::new(
+        ALT_SHIFT,
+        egui::Key::Minus,
+        MapShortcutAction::AdjustSelection(-100),
+        "Decrease selected cells by 100",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::SHIFT,
+        egui::Key::ArrowUp,
+        MapShortcutAction::AdjustSelection(10),
+        "Increase selected cells by 10",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::SHIFT,
+        egui::Key::Plus,
+        MapShortcutAction::AdjustSelection(10),
+        "Increase selected cells by 10",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::SHIFT,
+        egui::Key::Equals,
+        MapShortcutAction::AdjustSelection(10),
+        "Increase selected cells by 10",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::SHIFT,
+        egui::Key::ArrowDown,
+        MapShortcutAction::AdjustSelection(-10),
+        "Decrease selected cells by 10",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::SHIFT,
+        egui::Key::Minus,
+        MapShortcutAction::AdjustSelection(-10),
+        "Decrease selected cells by 10",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::ALT,
+        egui::Key::ArrowUp,
+        MapShortcutAction::AdjustSelection(1),
+        "Increase selected cells by 1",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::ALT,
+        egui::Key::Plus,
+        MapShortcutAction::AdjustSelection(1),
+        "Increase selected cells by 1",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::ALT,
+        egui::Key::Equals,
+        MapShortcutAction::AdjustSelection(1),
+        "Increase selected cells by 1",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::ALT,
+        egui::Key::ArrowDown,
+        MapShortcutAction::AdjustSelection(-1),
+        "Decrease selected cells by 1",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::ALT,
+        egui::Key::Minus,
+        MapShortcutAction::AdjustSelection(-1),
+        "Decrease selected cells by 1",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::NONE,
+        egui::Key::Escape,
+        MapShortcutAction::ClearSelection,
+        "Clear selected cells",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::NONE,
+        egui::Key::F4,
+        MapShortcutAction::WriteToRam,
+        "Write changes to RAM when available",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::NONE,
+        egui::Key::F5,
+        MapShortcutAction::WriteToEeprom,
+        "Write changes to EEPROM when available",
+    ),
+];
+
 #[derive(Debug, Clone)]
 pub struct Map {
     meta: MapData,
@@ -67,6 +232,10 @@ pub struct Map {
     view_type: MapViewType,
     pitch: f64,
     rot: f64,
+    selection: Option<MapSelection>,
+    selection_dragging: bool,
+    editing_cell: Option<(usize, usize)>,
+    edit_focus_pending: bool,
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -220,6 +389,10 @@ impl Map {
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
+            selection: None,
+            selection_dragging: false,
+            editing_cell: None,
+            edit_focus_pending: false,
         })
     }
 
@@ -289,6 +462,164 @@ impl Map {
         }
     }
 
+    fn set_selection(&mut self, row: usize, col: usize, extend: bool) {
+        self.selection = Some(if extend {
+            MapSelection {
+                anchor: self.selection.map(|s| s.anchor).unwrap_or((row, col)),
+                cursor: (row, col),
+            }
+        } else {
+            MapSelection {
+                anchor: (row, col),
+                cursor: (row, col),
+            }
+        });
+    }
+
+    fn update_selection_cursor(&mut self, row: usize, col: usize) {
+        if let Some(selection) = self.selection.as_mut() {
+            selection.cursor = (row, col);
+        }
+    }
+
+    fn clear_selection(&mut self) {
+        self.selection = None;
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn selected_map_indices(&self) -> Vec<usize> {
+        let Some(selection) = self.selection else {
+            return Vec::new();
+        };
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+        let x_len = self.x_values.len();
+        let mut result = Vec::new();
+        for row in min_row..=max_row {
+            for col in min_col..=max_col {
+                result.push((row * x_len) + col);
+            }
+        }
+        result
+    }
+
+    fn apply_selection_delta(&mut self, delta: i16) {
+        for idx in self.selected_map_indices() {
+            self.data_modify[idx] = self.data_modify[idx].saturating_add(delta);
+        }
+    }
+
+    fn can_write_to_ram(&self) -> bool {
+        self.data_modify != self.data_eeprom
+    }
+
+    fn can_write_to_eeprom(&self) -> bool {
+        self.data_memory != self.data_eeprom
+    }
+
+    fn write_changes_to_ram(&mut self) -> PageAction {
+        match self.write_to_ram() {
+            Ok(_) => {
+                self.data_memory = self.data_modify.clone();
+                PageAction::SendNotification {
+                    text: format!("Map {} RAM write OK!", self.eeprom_key),
+                    kind: egui_notify::ToastLevel::Success,
+                }
+            }
+            Err(e) => PageAction::SendNotification {
+                text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
+                kind: egui_notify::ToastLevel::Error,
+            },
+        }
+    }
+
+    fn write_changes_to_eeprom(&mut self) -> PageAction {
+        match self.save_to_eeprom() {
+            Ok(_) => {
+                if let Ok(new_data) =
+                    Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
+                {
+                    *self = new_data;
+                }
+                PageAction::SendNotification {
+                    text: format!("Map {} EEPROM save OK!", self.eeprom_key),
+                    kind: egui_notify::ToastLevel::Success,
+                }
+            }
+            Err(e) => PageAction::SendNotification {
+                text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
+                kind: egui_notify::ToastLevel::Error,
+            },
+        }
+    }
+
+    fn handle_write_shortcuts(&mut self, ui: &mut egui::Ui) -> Option<PageAction> {
+        if ui.memory(|mem| mem.top_modal_layer().is_some() || mem.focused().is_some()) {
+            return None;
+        }
+
+        let action = ui.input_mut(|input| {
+            MAP_EDIT_SHORTCUTS
+                .iter()
+                .find(|shortcut| {
+                    matches!(
+                        shortcut.action,
+                        MapShortcutAction::WriteToRam | MapShortcutAction::WriteToEeprom
+                    ) && input.consume_shortcut(&shortcut.shortcut)
+                })
+                .map(|shortcut| shortcut.action)
+        });
+
+        match action {
+            Some(MapShortcutAction::WriteToRam) if self.can_write_to_ram() => {
+                Some(self.write_changes_to_ram())
+            }
+            Some(MapShortcutAction::WriteToEeprom) if self.can_write_to_eeprom() => {
+                Some(self.write_changes_to_eeprom())
+            }
+            _ => None,
+        }
+    }
+
+    fn handle_edit_shortcuts(&mut self, ui: &mut egui::Ui) {
+        if ui.memory(|mem| mem.top_modal_layer().is_some()) {
+            return;
+        }
+        let has_selection_state = self.selection.is_some() || self.editing_cell.is_some();
+        let clear_shortcut = MAP_EDIT_SHORTCUTS
+            .iter()
+            .find(|shortcut| shortcut.action == MapShortcutAction::ClearSelection)
+            .map(|shortcut| shortcut.shortcut)
+            .expect("map editor clear shortcut must be registered");
+        if has_selection_state && ui.input_mut(|input| input.consume_shortcut(&clear_shortcut)) {
+            self.clear_selection();
+            return;
+        }
+        if self.view_type != MapViewType::Modify || self.selection.is_none() {
+            return;
+        }
+        if ui.memory(|mem| mem.focused().is_some()) {
+            return;
+        }
+
+        let action = ui.input_mut(|input| {
+            MAP_EDIT_SHORTCUTS
+                .iter()
+                .find(|shortcut| {
+                    matches!(
+                        shortcut.action,
+                        MapShortcutAction::AdjustSelection(_)
+                    ) && input.consume_shortcut(&shortcut.shortcut)
+                })
+                .map(|shortcut| shortcut.action)
+        });
+
+        if let Some(MapShortcutAction::AdjustSelection(delta)) = action {
+            self.apply_selection_delta(delta);
+        }
+    }
+
     fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui) {
         let hash = match self.view_type {
             MapViewType::EEPROM => &self.data_eeprom,
@@ -299,6 +630,12 @@ impl Map {
         let cell_edit_color = raw_ui.visuals().error_fg_color;
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
+        }
+        if self.view_type != MapViewType::Modify {
+            self.clear_selection();
+        }
+        if !raw_ui.input(|input| input.pointer.primary_down()) {
+            self.selection_dragging = false;
         }
         if let Some(h) = self.meta.help {
             raw_ui.label(h);
@@ -312,6 +649,7 @@ impl Map {
         if !self.meta.v_desc.is_empty() {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
+        let mut pointer_over_cell = false;
         raw_ui.push_id(&hash, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
@@ -370,17 +708,87 @@ impl Map {
                                     if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
                                         cell.style_mut().visuals.override_text_color = Some(cell_edit_color)
                                     }
-                                    let edit = DragValue::new(&mut self.data_modify[map_idx])
-                                        .suffix(self.meta.value_unit)
-                                        .update_while_editing(false)
-                                        .speed(0);
-                                    cell.add(edit);                             
+                                    let selected = self.selection
+                                        .map(|selection| selection.contains(row_id, x_pos))
+                                        .unwrap_or(false);
+                                    let is_editing = self.editing_cell == Some((row_id, x_pos));
+                                    let response = if is_editing {
+                                        let edit = DragValue::new(&mut self.data_modify[map_idx])
+                                            .suffix(self.meta.value_unit)
+                                            .update_while_editing(false)
+                                            .speed(0);
+                                        let response = cell.add(edit);
+                                        if self.edit_focus_pending {
+                                            response.request_focus();
+                                            self.edit_focus_pending = false;
+                                        }
+                                        response
+                                    } else {
+                                        let text = RichText::new(format!(
+                                            "{}{}",
+                                            self.data_modify[map_idx],
+                                            self.meta.value_unit
+                                        ));
+                                        let mut button = egui::Button::new(text)
+                                            .sense(egui::Sense::click_and_drag())
+                                            .min_size(cell.spacing().interact_size);
+                                        if selected {
+                                            let visuals = cell.visuals().selection;
+                                            button = button.fill(visuals.bg_fill).stroke(visuals.stroke);
+                                        }
+                                        cell.add(button)
+                                    };
+                                    pointer_over_cell |= response.hovered();
+                                    if selected {
+                                        let visuals = cell.visuals().selection;
+                                        cell.painter().rect_stroke(
+                                            response.rect.expand(1.0),
+                                            egui::CornerRadius::same(2),
+                                            egui::Stroke::new(1.0, visuals.stroke.color),
+                                            egui::StrokeKind::Outside,
+                                        );
+                                    }
+                                    if is_editing
+                                        && (response.lost_focus()
+                                            || response.ctx.input(|input| {
+                                                input.key_pressed(egui::Key::Enter)
+                                                    || input.key_pressed(egui::Key::Escape)
+                                            }))
+                                    {
+                                        self.editing_cell = None;
+                                    }
+                                    if response.double_clicked() {
+                                        self.set_selection(row_id, x_pos, false);
+                                        self.editing_cell = Some((row_id, x_pos));
+                                        self.edit_focus_pending = true;
+                                    } else if response.clicked() {
+                                        let extend = response.ctx.input(|input| input.modifiers.shift);
+                                        self.set_selection(row_id, x_pos, extend);
+                                        self.editing_cell = None;
+                                        self.edit_focus_pending = false;
+                                    }
+                                    if response.drag_started() {
+                                        self.set_selection(row_id, x_pos, false);
+                                        self.selection_dragging = true;
+                                        self.editing_cell = None;
+                                        self.edit_focus_pending = false;
+                                    }
+                                    if self.selection_dragging
+                                        && response.hovered()
+                                        && response.ctx.input(|input| input.pointer.primary_down())
+                                    {
+                                        self.update_selection_cursor(row_id, x_pos);
+                                    }
                                 }
                             });
                         }
                     })
                 });
         });
+        if raw_ui.input(|input| input.pointer.primary_clicked()) && !pointer_over_cell {
+            self.clear_selection();
+        }
+        self.handle_edit_shortcuts(raw_ui);
     }
 
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
@@ -429,7 +837,7 @@ impl Map {
                     self.data_modify = self.data_program.clone();
                 }
             });
-            raw_ui.add_enabled_ui(self.data_modify != self.data_eeprom, |ui| {
+            raw_ui.add_enabled_ui(self.can_write_to_ram(), |ui| {
                 if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
@@ -446,43 +854,18 @@ impl Map {
                     };
                 }
                 if ui.button("Write changes (To RAM)").clicked() {
-                    action = match self.write_to_ram() {
-                        Ok(_) => {
-                            self.data_memory = self.data_modify.clone();
-                            Some(PageAction::SendNotification {
-                                text: format!("Map {} RAM write OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
-                            })
-                        }
-                        Err(e) => Some(PageAction::SendNotification {
-                            text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
-                        }),
-                    };
+                    action = Some(self.write_changes_to_ram());
                 }
             });
-            raw_ui.add_enabled_ui(self.data_memory != self.data_eeprom, |ui| {
+            raw_ui.add_enabled_ui(self.can_write_to_eeprom(), |ui| {
                 if ui.button("Write changes (To EEPROM)").clicked() {
-                    action = match self.save_to_eeprom() {
-                        Ok(_) => {
-                            if let Ok(new_data) =
-                                Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
-                            {
-                                *self = new_data;
-                            }
-                            Some(PageAction::SendNotification {
-                                text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
-                            })
-                        }
-                        Err(e) => Some(PageAction::SendNotification {
-                            text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
-                        }),
-                    };
+                    action = Some(self.write_changes_to_eeprom());
                 }
             });
         });
+        if action.is_none() {
+            action = self.handle_write_shortcuts(raw_ui);
+        }
         self.gen_edit_table(raw_ui);
         ScrollArea::new([true, true])
             .max_height(raw_ui.available_height())
@@ -715,6 +1098,7 @@ pub struct MapEditor {
     nag: Nag52Diag,
     loaded_map: Option<Map>,
     error: Option<String>,
+    show_shortcuts: bool,
 }
 
 impl MapEditor {
@@ -724,6 +1108,48 @@ impl MapEditor {
             nag,
             loaded_map: None,
             error: None,
+            show_shortcuts: false,
+        }
+    }
+
+    fn show_shortcuts_modal(&mut self, ctx: &egui::Context) {
+        if !self.show_shortcuts {
+            return;
+        }
+
+        let mut close_requested = false;
+        let response = egui::Modal::new(egui::Id::new("map_editor_shortcuts_modal")).show(
+            ctx,
+            |ui| {
+                ui.set_min_width(420.0);
+                ui.heading("Map tuner shortcuts");
+                ui.separator();
+                egui::Grid::new("map_editor_shortcuts_grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.strong("Shortcut");
+                        ui.strong("Action");
+                        ui.end_row();
+                        for shortcut in MAP_EDIT_SHORTCUTS {
+                            ui.label(ctx.format_shortcut(&shortcut.shortcut));
+                            ui.label(shortcut.description);
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            close_requested = true;
+                        }
+                    });
+                });
+            },
+        );
+        if response.should_close() || close_requested {
+            self.show_shortcuts = false;
         }
     }
 }
@@ -829,7 +1255,11 @@ impl super::InterfacePage for MapEditor {
                     }
                 });
             });
+            if ui.button("Keyboard shortcuts").clicked() {
+                self.show_shortcuts = true;
+            }
         });
+        self.show_shortcuts_modal(ui.ctx());
         if let Some(selected) = map_to_switch {
             // Stop user changing maps if they have unsaved changes
             let mut allowed_to_swtich = true;
