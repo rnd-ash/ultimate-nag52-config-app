@@ -214,6 +214,30 @@ const MAP_EDIT_SHORTCUTS: &[MapShortcut] = &[
     ),
 ];
 
+fn lerp_u8(start: u8, end: u8, factor: f32) -> u8 {
+    (start as f32 + ((end as f32 - start as f32) * factor)).round() as u8
+}
+
+fn blend_color(start: Color32, end: Color32, factor: f32) -> Color32 {
+    let factor = factor.clamp(0.0, 1.0);
+    Color32::from_rgb(
+        lerp_u8(start.r(), end.r(), factor),
+        lerp_u8(start.g(), end.g(), factor),
+        lerp_u8(start.b(), end.b(), factor),
+    )
+}
+
+fn readable_text_color(background: Color32) -> Color32 {
+    let luminance = (0.299 * background.r() as f32)
+        + (0.587 * background.g() as f32)
+        + (0.114 * background.b() as f32);
+    if luminance > 140.0 {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Map {
     meta: MapData,
@@ -624,6 +648,13 @@ impl Map {
         let table_id = (self.meta.id as u8, self.view_type);
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
+        let max_delta = self
+            .data_modify
+            .iter()
+            .zip(self.data_eeprom.iter())
+            .map(|(modified, eeprom)| (*modified as i32 - *eeprom as i32).abs())
+            .max()
+            .unwrap_or(0);
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
@@ -702,7 +733,10 @@ impl Map {
                                 MapViewType::Modify => {
                                     let cell_rect = cell.max_rect();
                                     let map_idx = (row_id * self.x_values.len()) + x_pos;
-                                    if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
+                                    let modified_value = self.data_modify[map_idx];
+                                    let eeprom_value = self.data_eeprom[map_idx];
+                                    let delta = modified_value as i32 - eeprom_value as i32;
+                                    if delta != 0 {
                                         cell.style_mut().visuals.override_text_color = Some(cell_edit_color)
                                     }
                                     let selected = self.selection
@@ -714,26 +748,83 @@ impl Map {
                                             .suffix(self.meta.value_unit)
                                             .update_while_editing(false)
                                             .speed(0);
-                                        let response = cell.add(edit);
+                                        let mut response = cell.add(edit);
+                                        if delta != 0 {
+                                            response = response.on_hover_text(format!(
+                                                "EEPROM: {}{}\nCurrent: {}{}\nDelta: {:+}{}",
+                                                eeprom_value,
+                                                self.meta.value_unit,
+                                                modified_value,
+                                                self.meta.value_unit,
+                                                delta,
+                                                self.meta.value_unit,
+                                            ));
+                                        }
                                         if self.edit_focus_pending {
                                             response.request_focus();
                                             self.edit_focus_pending = false;
                                         }
                                         response
                                     } else {
-                                        let text = RichText::new(format!(
+                                        let mut button_fill = None;
+                                        let mut text_color = None;
+                                        if delta != 0 && max_delta > 0 {
+                                            let intensity = (delta.abs() as f32 / max_delta as f32)
+                                                .clamp(0.25, 1.0);
+                                            let base_fill = cell.visuals().widgets.inactive.bg_fill;
+                                            let delta_fill = if delta > 0 {
+                                                blend_color(
+                                                    base_fill,
+                                                    Color32::from_rgb(34, 197, 94),
+                                                    intensity,
+                                                )
+                                            } else {
+                                                blend_color(
+                                                    base_fill,
+                                                    Color32::from_rgb(239, 68, 68),
+                                                    intensity,
+                                                )
+                                            };
+                                            text_color = Some(readable_text_color(delta_fill));
+                                            button_fill = Some(delta_fill);
+                                        }
+                                        if selected {
+                                            let visuals = cell.visuals().selection;
+                                            text_color = Some(readable_text_color(visuals.bg_fill));
+                                            button_fill = Some(visuals.bg_fill);
+                                        }
+                                        let mut text = RichText::new(format!(
                                             "{}{}",
                                             self.data_modify[map_idx],
                                             self.meta.value_unit
                                         ));
+                                        if let Some(text_color) = text_color {
+                                            text = text.color(text_color);
+                                        }
                                         let mut button = egui::Button::new(text)
                                             .sense(egui::Sense::click_and_drag())
                                             .min_size(cell.spacing().interact_size);
+                                        if let Some(fill) = button_fill {
+                                            button = button.fill(fill);
+                                        }
                                         if selected {
                                             let visuals = cell.visuals().selection;
-                                            button = button.fill(visuals.bg_fill).stroke(visuals.stroke);
+                                            button = button.stroke(visuals.stroke);
                                         }
-                                        cell.add(button)
+                                        let response = cell.add(button);
+                                        if delta != 0 {
+                                            response.on_hover_text(format!(
+                                                "EEPROM: {}{}\nCurrent: {}{}\nDelta: {:+}{}",
+                                                eeprom_value,
+                                                self.meta.value_unit,
+                                                modified_value,
+                                                self.meta.value_unit,
+                                                delta,
+                                                self.meta.value_unit,
+                                            ))
+                                        } else {
+                                            response
+                                        }
                                     };
                                     let pointer_over_response = response
                                         .ctx
