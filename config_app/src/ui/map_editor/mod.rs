@@ -238,6 +238,17 @@ fn readable_text_color(background: Color32) -> Color32 {
     }
 }
 
+fn select_all_value_text(response: &egui::Response, value: i16) {
+    let mut state = egui::TextEdit::load_state(&response.ctx, response.id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::default(),
+            egui::text::CCursor::new(value.to_string().chars().count()),
+        )));
+    state.store(&response.ctx, response.id);
+}
+
 #[derive(Debug, Clone)]
 pub struct Map {
     meta: MapData,
@@ -506,6 +517,54 @@ impl Map {
         }
     }
 
+    fn move_selection(&mut self, row_delta: isize, col_delta: isize) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+
+        let row_delta = if row_delta < 0 && min_row == 0 {
+            0
+        } else if row_delta > 0 && max_row + 1 >= self.y_values.len() {
+            0
+        } else {
+            row_delta
+        };
+        let col_delta = if col_delta < 0 && min_col == 0 {
+            0
+        } else if col_delta > 0 && max_col + 1 >= self.x_values.len() {
+            0
+        } else {
+            col_delta
+        };
+
+        if row_delta == 0 && col_delta == 0 {
+            return;
+        }
+
+        let move_point = |(row, col): (usize, usize)| {
+            (
+                row.saturating_add_signed(row_delta),
+                col.saturating_add_signed(col_delta),
+            )
+        };
+        self.selection = Some(MapSelection {
+            anchor: move_point(selection.anchor),
+            cursor: move_point(selection.cursor),
+        });
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn edit_selection_start(&mut self) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (row, col, _, _) = selection.bounds();
+        self.editing_cell = Some((row, col));
+        self.edit_focus_pending = true;
+    }
+
     fn clear_selection(&mut self) {
         self.selection = None;
         self.selection_dragging = false;
@@ -531,6 +590,43 @@ impl Map {
     fn apply_selection_delta(&mut self, delta: i16) {
         for idx in self.selected_map_indices() {
             self.data_modify[idx] = self.data_modify[idx].saturating_add(delta);
+        }
+    }
+
+    fn handle_selection_navigation(&mut self, ui: &mut egui::Ui) -> bool {
+        if self.editing_cell.is_some() {
+            return false;
+        }
+
+        let action = ui.input_mut(|input| {
+            if input.modifiers != egui::Modifiers::NONE {
+                return None;
+            }
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                Some((-1, 0))
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                Some((1, 0))
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) {
+                Some((0, -1))
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) {
+                Some((0, 1))
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                Some((0, 0))
+            } else {
+                None
+            }
+        });
+
+        match action {
+            Some((0, 0)) => {
+                self.edit_selection_start();
+                true
+            }
+            Some((row_delta, col_delta)) => {
+                self.move_selection(row_delta, col_delta);
+                true
+            }
+            None => false,
         }
     }
 
@@ -624,6 +720,10 @@ impl Map {
             return;
         }
         if ui.memory(|mem| mem.focused().is_some()) {
+            return;
+        }
+
+        if self.handle_selection_navigation(ui) {
             return;
         }
 
@@ -762,7 +862,16 @@ impl Map {
                                         }
                                         if self.edit_focus_pending {
                                             response.request_focus();
+                                            select_all_value_text(
+                                                &response,
+                                                self.data_modify[map_idx],
+                                            );
                                             self.edit_focus_pending = false;
+                                        } else if response.gained_focus() {
+                                            select_all_value_text(
+                                                &response,
+                                                self.data_modify[map_idx],
+                                            );
                                         }
                                         response
                                     } else {
@@ -841,14 +950,27 @@ impl Map {
                                             egui::StrokeKind::Outside,
                                         );
                                     }
-                                    if is_editing
-                                        && (response.lost_focus()
-                                            || response.ctx.input(|input| {
-                                                input.key_pressed(egui::Key::Enter)
-                                                    || input.key_pressed(egui::Key::Escape)
-                                            }))
-                                    {
-                                        self.editing_cell = None;
+                                    if is_editing {
+                                        let (enter_pressed, escape_pressed) =
+                                            response.ctx.input(|input| {
+                                                (
+                                                    input.key_pressed(egui::Key::Enter),
+                                                    input.key_pressed(egui::Key::Escape),
+                                                )
+                                            });
+                                        if enter_pressed {
+                                            response.surrender_focus();
+                                            response.ctx.input_mut(|input| {
+                                                input.consume_key(
+                                                    egui::Modifiers::NONE,
+                                                    egui::Key::Enter,
+                                                );
+                                            });
+                                        }
+                                        if response.lost_focus() || escape_pressed {
+                                            self.editing_cell = None;
+                                            self.edit_focus_pending = false;
+                                        }
                                     }
                                     if response.double_clicked() {
                                         self.set_selection(row_id, x_pos, false);
