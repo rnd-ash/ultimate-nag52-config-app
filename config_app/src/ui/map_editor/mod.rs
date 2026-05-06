@@ -80,6 +80,11 @@ enum MapShortcutAction {
     WriteToEeprom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MapHoldShortcutAction {
+    ShowRamEepromDelta,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct MapShortcut {
     shortcut: egui::KeyboardShortcut,
@@ -100,6 +105,34 @@ impl MapShortcut {
             description,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MapHoldShortcut {
+    shortcut: egui::KeyboardShortcut,
+    action: MapHoldShortcutAction,
+    description: &'static str,
+}
+
+impl MapHoldShortcut {
+    const fn new(
+        modifiers: egui::Modifiers,
+        key: egui::Key,
+        action: MapHoldShortcutAction,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            shortcut: egui::KeyboardShortcut::new(modifiers, key),
+            action,
+            description,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MapMouseAction {
+    input: &'static str,
+    description: &'static str,
 }
 
 const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
@@ -219,6 +252,32 @@ const MAP_EDIT_SHORTCUTS: &[MapShortcut] = &[
         MapShortcutAction::WriteToEeprom,
         "Write changes to EEPROM when available",
     ),
+];
+
+const MAP_EDIT_HOLD_SHORTCUTS: &[MapHoldShortcut] = &[MapHoldShortcut::new(
+    egui::Modifiers::CTRL,
+    egui::Key::D,
+    MapHoldShortcutAction::ShowRamEepromDelta,
+    "Hold to show RAM - EEPROM deltas",
+)];
+
+const MAP_EDIT_MOUSE_ACTIONS: &[MapMouseAction] = &[
+    MapMouseAction {
+        input: "Click",
+        description: "Select one cell",
+    },
+    MapMouseAction {
+        input: "Click, then Shift + Click",
+        description: "Select rectangular area",
+    },
+    MapMouseAction {
+        input: "Drag",
+        description: "Select rectangular area",
+    },
+    MapMouseAction {
+        input: "Double click",
+        description: "Edit cell",
+    },
 ];
 
 fn lerp_u8(start: u8, end: u8, factor: f32) -> u8 {
@@ -823,7 +882,17 @@ impl Map {
         let show_ram_eeprom_delta = self.view_type == MapViewType::Modify
             && self.editing_cell.is_none()
             && raw_ui.memory(|mem| mem.focused().is_none())
-            && raw_ui.input(|input| input.modifiers.ctrl && input.key_down(egui::Key::D));
+            && raw_ui.input(|input| {
+                MAP_EDIT_HOLD_SHORTCUTS
+                    .iter()
+                    .any(|shortcut| {
+                        shortcut.action == MapHoldShortcutAction::ShowRamEepromDelta
+                            && input
+                                .modifiers
+                                .matches_logically(shortcut.shortcut.modifiers)
+                            && input.key_down(shortcut.shortcut.logical_key)
+                    })
+            });
         if let Some(h) = self.meta.help {
             raw_ui.label(h);
         }
@@ -1422,22 +1491,46 @@ impl MapEditor {
         let response = egui::Modal::new(egui::Id::new("map_editor_shortcuts_modal")).show(
             ctx,
             |ui| {
-                ui.set_min_width(420.0);
-                ui.heading("Map tuner shortcuts");
+                ui.set_min_width(760.0);
+                ui.heading("Map tuner controls");
                 ui.separator();
-                egui::Grid::new("map_editor_shortcuts_grid")
-                    .num_columns(2)
-                    .striped(true)
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.strong("Shortcut");
-                        ui.strong("Action");
-                        ui.end_row();
-                        for shortcut in MAP_EDIT_SHORTCUTS {
-                            ui.label(ctx.format_shortcut(&shortcut.shortcut));
-                            ui.label(shortcut.description);
+                ui.columns(2, |columns| {
+                    columns[0].strong("Keyboard");
+                    egui::Grid::new("map_editor_shortcuts_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([16.0, 6.0])
+                        .show(&mut columns[0], |ui| {
+                            ui.strong("Shortcut");
+                            ui.strong("Action");
                             ui.end_row();
-                        }
+                            for shortcut in MAP_EDIT_SHORTCUTS {
+                                ui.label(ctx.format_shortcut(&shortcut.shortcut));
+                                ui.label(shortcut.description);
+                                ui.end_row();
+                            }
+                            for shortcut in MAP_EDIT_HOLD_SHORTCUTS {
+                                ui.label(ctx.format_shortcut(&shortcut.shortcut));
+                                ui.label(shortcut.description);
+                                ui.end_row();
+                            }
+                        });
+
+                    columns[1].strong("Mouse");
+                    egui::Grid::new("map_editor_mouse_actions_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([16.0, 6.0])
+                        .show(&mut columns[1], |ui| {
+                            ui.strong("Input");
+                            ui.strong("Action");
+                            ui.end_row();
+                            for action in MAP_EDIT_MOUSE_ACTIONS {
+                                ui.label(action.input);
+                                ui.label(action.description);
+                                ui.end_row();
+                            }
+                        });
                     });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -1556,7 +1649,7 @@ impl super::InterfacePage for MapEditor {
                     }
                 });
             });
-            if ui.button("Keyboard shortcuts").clicked() {
+            if ui.button("Map controls").clicked() {
                 self.show_shortcuts = true;
             }
         });
