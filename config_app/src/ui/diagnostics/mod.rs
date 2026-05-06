@@ -3,7 +3,7 @@ use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use eframe::egui::{self, CentralPanel, Color32, RichText, ScrollArea, SidePanel, Slider, Ui};
+use eframe::egui::{self, CentralPanel, Color32, Panel, RichText, ScrollArea, Slider, Ui};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
 use strum::VariantArray;
@@ -133,7 +133,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         let current_val = self.curr_values.read().clone();
         let chart_data = self.charting_data.read().clone();
 
-        SidePanel::left("Side bar")
+        Panel::left("Side bar")
             .show_animated_inside(ui, self.sidebar_shown, |ui| {
 
                 ui.heading("Data logger");

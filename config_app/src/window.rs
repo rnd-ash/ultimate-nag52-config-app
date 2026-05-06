@@ -77,15 +77,16 @@ impl MainWindow {
 pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
-        egui_extras::install_image_loaders(ctx);
+    fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        egui_extras::install_image_loaders(&ctx);
 
         let stack_size = self.pages.len();
         let mut s_bar_height = 0.0;
         if stack_size > 0 {
             let mut pop_page = false;
             if self.show_sbar {
-                egui::TopBottomPanel::bottom("NAV").show(ctx, |nav| {
+                egui::Panel::bottom("NAV").show_inside(ui, |nav| {
                     nav.horizontal(|row| {
                         egui::widgets::global_theme_preference_buttons(row);
                         if stack_size > 1 {
@@ -217,7 +218,7 @@ impl eframe::App for MainWindow {
             }
 
             self.show_back = true;
-            egui::CentralPanel::default().show(ctx, |main_win_ui| {
+            egui::CentralPanel::default().show_inside(ui, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui) {
                     PageAction::None => {}
                     PageAction::Destroy => {
@@ -252,8 +253,8 @@ impl eframe::App for MainWindow {
 
             // Show Log viewer
             if self.show_logger {
-                egui::Window::new("Log view").open(&mut self.show_logger).show(ctx, |ui| {
-                    let is_dark = ctx.style().visuals.dark_mode;
+                egui::Window::new("Log view").open(&mut self.show_logger).show(&ctx, |ui| {
+                    let is_dark = ctx.global_style().visuals.dark_mode;
                     let table = TableBuilder::new(ui)
                         .striped(false)
                         .resizable(true)
@@ -334,7 +335,7 @@ impl eframe::App for MainWindow {
             }
 
             if self.show_tracer {
-                egui::Window::new("packet trace").open(&mut self.show_tracer).show(ctx, |ui| {
+                egui::Window::new("packet trace").open(&mut self.show_tracer).show(&ctx, |ui| {
                     ScrollArea::new([true, true]).stick_to_bottom(true).max_height(300.0).max_width(600.0).show(ui, |s| {
                         for x in &self.trace {
                             s.label(x);

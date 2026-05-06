@@ -11,15 +11,13 @@ use eframe::{
         self, DragValue, Layout, MenuBar, RichText, ScrollArea
     }, epaint::Color32,
 };
-use egui_plot::{Bar, BarChart, Line};
+use egui_plot::{Bar, BarChart, GridMark, Heatmap, Line, PlotPoint};
 use egui_extras::Column;
-use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
+use crate::{ui::map_editor::map_list::MapType, window::PageAction};
 use map_list::MAP_ARRAY;
-use plotters::prelude::*;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -310,6 +308,110 @@ fn plot_auto_color(index: usize) -> Color32 {
     egui::epaint::Hsva::new(hue, 0.85, 0.5, 1.0).into()
 }
 
+fn heatmap_color_range(values: &[i16]) -> (f64, f64) {
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+    let mut sorted: Vec<i16> = values.to_vec();
+    sorted.sort_unstable();
+    let percentile_idx = |percentile: f64| -> usize {
+        (((sorted.len() - 1) as f64) * percentile)
+            .round()
+            .clamp(0.0, (sorted.len() - 1) as f64) as usize
+    };
+    let low = sorted[percentile_idx(0.05)] as f64;
+    let high = sorted[percentile_idx(0.95)] as f64;
+    if low < high {
+        (low, high)
+    } else {
+        let value = sorted[0] as f64;
+        (value - 1.0, value + 1.0)
+    }
+}
+
+fn heatmap_value_color(value: f64, min: f64, max: f64) -> Color32 {
+    let stops = [
+        Color32::from_rgb(34, 197, 94),
+        Color32::from_rgb(250, 204, 21),
+        Color32::from_rgb(239, 68, 68),
+    ];
+    if stops.len() == 1 || min >= max {
+        return stops[stops.len() / 2];
+    }
+    let scaled = ((value - min) / (max - min)).clamp(0.0, 1.0).powf(0.65) as f32;
+    let segment = scaled * (stops.len() - 1) as f32;
+    let start = segment.floor() as usize;
+    let end = (start + 1).min(stops.len() - 1);
+    blend_color(stops[start], stops[end], segment - start as f32)
+}
+
+fn draw_heatmap_colorbar(ui: &mut egui::Ui, min: f64, max: f64, unit: &str, height: f32) {
+    let desired_size = egui::vec2(70.0, height);
+    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    let bar_rect = egui::Rect::from_min_size(
+        rect.left_top() + egui::vec2(4.0, 18.0),
+        egui::vec2(14.0, (rect.height() - 36.0).max(40.0)),
+    );
+    let steps = 96;
+    for step in 0..steps {
+        let t0 = step as f32 / steps as f32;
+        let t1 = (step + 1) as f32 / steps as f32;
+        let value = max - ((max - min) * t0 as f64);
+        let y0 = egui::lerp(bar_rect.top()..=bar_rect.bottom(), t0);
+        let y1 = egui::lerp(bar_rect.top()..=bar_rect.bottom(), t1);
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(bar_rect.left(), y0),
+                egui::pos2(bar_rect.right(), y1),
+            ),
+            0,
+            heatmap_value_color(value, min, max),
+        );
+    }
+    painter.rect_stroke(
+        bar_rect,
+        0,
+        egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        egui::StrokeKind::Outside,
+    );
+
+    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let text_color = ui.visuals().text_color();
+    let label_x = bar_rect.right() + 6.0;
+    let mid = (min + max) / 2.0;
+    for (label, y, align) in [
+        (format!(">= {:.0}{unit}", max), bar_rect.top(), egui::Align2::LEFT_TOP),
+        (format!("{:.0}{unit}", mid), bar_rect.center().y, egui::Align2::LEFT_CENTER),
+        (format!("<= {:.0}{unit}", min), bar_rect.bottom(), egui::Align2::LEFT_BOTTOM),
+    ] {
+        painter.text(
+            egui::pos2(label_x, y),
+            align,
+            label,
+            font_id.clone(),
+            text_color,
+        );
+    }
+}
+
+fn heatmap_axis_label(mark: GridMark, labels: &[String], reverse: bool) -> String {
+    let idx = mark.value.round();
+    if (mark.value - idx).abs() > 0.001 || idx < 0.0 {
+        return String::new();
+    }
+    let idx = idx as usize;
+    if idx >= labels.len() {
+        return String::new();
+    }
+    let label_idx = if reverse {
+        labels.len() - 1 - idx
+    } else {
+        idx
+    };
+    labels[label_idx].clone()
+}
+
 fn select_all_value_text(response: &egui::Response, value: i16) {
     let mut state = egui::TextEdit::load_state(&response.ctx, response.id).unwrap_or_default();
     state
@@ -337,8 +439,6 @@ pub struct Map {
     data_modify: Vec<i16>,
     ecu_ref: Nag52Diag,
     view_type: MapViewType,
-    pitch: f64,
-    rot: f64,
     selection: Option<MapSelection>,
     selection_dragging: bool,
     editing_cell: Option<(usize, usize)>,
@@ -494,8 +594,6 @@ impl Map {
             meta,
             ecu_ref: nag,
             view_type: MapViewType::Modify,
-            pitch: 0.8,
-            rot: 0.8,
             selection: None,
             selection_dragging: false,
             editing_cell: None,
@@ -1294,66 +1392,54 @@ impl Map {
                     MapViewType::EEPROM => &self.data_eeprom,
                     MapViewType::Modify => &self.data_modify,
                 };
-                let desired_size = egui::Vec2::new(raw_ui.available_width(), raw_ui.available_height());
-                let (rect, response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
-                let painter = raw_ui.painter_at(rect);
-                let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned()).into_drawing_area();
-                
-                let x_min = *self.x_values.iter().min().unwrap() as f64;
-                let x_max = *self.x_values.iter().max().unwrap() as f64;
-                let z_min = *self.y_values.iter().min().unwrap() as f64;
-                let z_max = *self.y_values.iter().max().unwrap() as f64;
-
-                let y_min = *src.iter().min().unwrap() as f64;
-                let y_max = *src.iter().max().unwrap() as f64;
-
-                self.pitch += response.drag_delta().y as f64 /30.0;
-                self.rot += response.drag_delta().x as f64 /30.0;
-                if self.pitch < 0.0 {
-                    self.pitch = 0.0;
-                } else if self.pitch > 1.57 {
-                    self.pitch = 1.57;
+                let cols = self.x_values.len();
+                let rows = self.y_values.len();
+                let plot_height = raw_ui.available_height().max(220.0);
+                let mut heatmap_values = Vec::with_capacity(src.len());
+                for row_idx in (0..rows).rev() {
+                    let row_start = row_idx * cols;
+                    heatmap_values.extend(
+                        src[row_start..row_start + cols]
+                            .iter()
+                            .map(|value| *value as f64),
+                    );
                 }
-                let vis = &raw_ui.ctx().style().visuals;
-                let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
-                let mut chart = ChartBuilder::on(&area)
-                    .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
-                    chart.with_projection(|mut p| {
-                    p.pitch = self.pitch; //0.8;
-                    p.scale = 0.75;
-                    p.yaw = self.rot;
-                    p.into_matrix() // build the projection matrix
+                let (min_value, max_value) = heatmap_color_range(src);
+                let value_unit = self.meta.value_unit;
+                let show_tile_labels = cols * rows <= 100;
+                let heatmap = Heatmap::new(heatmap_values, cols)
+                    .at(PlotPoint::new(-0.5, -0.5))
+                    .tile_size(1.0, 1.0)
+                    .show_labels(show_tile_labels)
+                    .formatter(Box::new(move |value| format!("{value:.0}{value_unit}")))
+                    .custom_mapping(Box::new(move |value| {
+                        heatmap_value_color(value, min_value, max_value)
+                    }));
+                let x_labels: Vec<String> = (0..cols).map(|idx| self.get_x_label(idx)).collect();
+                let y_labels: Vec<String> = (0..rows).map(|idx| self.get_y_label(idx)).collect();
+                let x_axis_labels = x_labels.clone();
+                let y_axis_labels = y_labels.clone();
+                raw_ui.horizontal(|ui| {
+                    egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .allow_zoom(false)
+                        .show_grid(false)
+                        .width((ui.available_width() - 76.0).max(120.0))
+                        .height(plot_height)
+                        .include_x(-0.5)
+                        .include_x(cols as f64 - 0.5)
+                        .include_y(-0.5)
+                        .include_y(rows as f64 - 0.5)
+                        .x_axis_formatter(move |mark, _| {
+                            heatmap_axis_label(mark, &x_axis_labels, false)
+                        })
+                        .y_axis_formatter(move |mark, _| {
+                            heatmap_axis_label(mark, &y_axis_labels, true)
+                        })
+                        .show(ui, |plot_ui| plot_ui.heatmap(heatmap));
+                    draw_heatmap_colorbar(ui, min_value, max_value, self.meta.value_unit, plot_height);
                 });
-
-
-                chart
-                    .configure_axes()
-                    .x_labels(self.x_values.len())
-                    .y_labels(10)
-                    .z_labels(self.y_values.len())
-                    .light_grid_style(into_rgba_color(vis.text_color()))
-                    .max_light_lines(1)
-                    .draw().unwrap();
-
-                chart.draw_series(
-                    SurfaceSeries::xoz(
-                        self.x_values.iter().map(|x| *x as f64),
-                        self.y_values.iter().map(|y| *y as f64),
-                        |x, y| {
-                            let x_v = x as i16;
-                            let y_v = y as i16;
-                            let x_idx = self.x_values.iter().position(|s| *s == x_v).unwrap();
-                            let y_idx = self.y_values.iter().position(|s| *s == y_v).unwrap();
-                            let len = self.x_values.len();
-                            src[(len*y_idx)+x_idx] as f64
-                        }
-                    )
-                    .style_func(&|&v| {
-                        (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
-                    })
-                )
-                .unwrap();
-                let _ = area.present();
             };
         });
         action

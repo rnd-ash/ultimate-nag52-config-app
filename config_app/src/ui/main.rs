@@ -5,8 +5,7 @@ use backend::diag::Nag52Diag;
 use config_app_macros::include_base64;
 use eframe::egui;
 use eframe::egui::CentralPanel;
-use eframe::egui::RichText;
-use eframe::egui::SidePanel;
+use eframe::egui::Panel;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
 use octocrab::Octocrab;
@@ -109,7 +108,7 @@ impl InterfacePage for MainPage {
         let mut efuse_ok = true;
         let mut compatibility_ok = true;
         let mut special_mode = false;
-        let w = SidePanel::left("l-s").resizable(false).show_inside(ui, |ui| {
+        let w = Panel::left("l-s").resizable(false).show_inside(ui, |ui| {
             // Left panel (Status)
             ui.vertical_centered(|ui| {
                 ui.heading("Status");
@@ -203,7 +202,7 @@ impl InterfacePage for MainPage {
                 ui.end_row();
             });
         }).response.rect.width();
-        SidePanel::right("r-s").exact_width(w).resizable(false).show_inside(ui, |ui| {
+        Panel::right("r-s").exact_size(w).resizable(false).show_inside(ui, |ui| {
             // Right panel (links)
             ui.vertical_centered(|ui| {
                 ui.heading("Resources");

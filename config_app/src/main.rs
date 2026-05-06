@@ -3,7 +3,6 @@ use std::sync::Arc;
 use eframe::{egui::IconData, NativeOptions, Renderer};
 use ui::launcher::Launcher;
 
-mod plot_backend;
 mod ui;
 mod window;
 
