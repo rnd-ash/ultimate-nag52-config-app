@@ -978,9 +978,18 @@ impl Map {
                                         self.edit_focus_pending = true;
                                     } else if response.clicked() {
                                         let extend = response.ctx.input(|input| input.modifiers.shift);
-                                        self.set_selection(row_id, x_pos, extend);
-                                        self.editing_cell = None;
-                                        self.edit_focus_pending = false;
+                                        let enter_activated = response.has_focus()
+                                            && response.ctx.input(|input| {
+                                                input.key_pressed(egui::Key::Enter)
+                                            });
+                                        if enter_activated && selected {
+                                            self.editing_cell = Some((row_id, x_pos));
+                                            self.edit_focus_pending = true;
+                                        } else {
+                                            self.set_selection(row_id, x_pos, extend);
+                                            self.editing_cell = None;
+                                            self.edit_focus_pending = false;
+                                        }
                                     }
                                     if response.drag_started() {
                                         self.set_selection(row_id, x_pos, false);
