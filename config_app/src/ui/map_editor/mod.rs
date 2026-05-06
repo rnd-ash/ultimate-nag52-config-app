@@ -75,6 +75,7 @@ impl MapSelection {
 enum MapShortcutAction {
     AdjustSelection(i16),
     ClearSelection,
+    SelectAll,
     WriteToRam,
     WriteToEeprom,
 }
@@ -199,6 +200,12 @@ const MAP_EDIT_SHORTCUTS: &[MapShortcut] = &[
         egui::Key::Escape,
         MapShortcutAction::ClearSelection,
         "Clear selected cells",
+    ),
+    MapShortcut::new(
+        egui::Modifiers::CTRL,
+        egui::Key::A,
+        MapShortcutAction::SelectAll,
+        "Select all cells in current map",
     ),
     MapShortcut::new(
         egui::Modifiers::NONE,
@@ -572,6 +579,19 @@ impl Map {
         self.edit_focus_pending = false;
     }
 
+    fn select_all_cells(&mut self) {
+        if self.y_values.is_empty() || self.x_values.is_empty() {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (0, 0),
+            cursor: (self.y_values.len() - 1, self.x_values.len() - 1),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
     fn selected_map_indices(&self) -> Vec<usize> {
         let Some(selection) = self.selection else {
             return Vec::new();
@@ -733,14 +753,16 @@ impl Map {
                 .find(|shortcut| {
                     matches!(
                         shortcut.action,
-                        MapShortcutAction::AdjustSelection(_)
+                        MapShortcutAction::AdjustSelection(_) | MapShortcutAction::SelectAll
                     ) && input.consume_shortcut(&shortcut.shortcut)
                 })
                 .map(|shortcut| shortcut.action)
         });
 
-        if let Some(MapShortcutAction::AdjustSelection(delta)) = action {
-            self.apply_selection_delta(delta);
+        match action {
+            Some(MapShortcutAction::AdjustSelection(delta)) => self.apply_selection_delta(delta),
+            Some(MapShortcutAction::SelectAll) => self.select_all_cells(),
+            _ => {}
         }
     }
 
