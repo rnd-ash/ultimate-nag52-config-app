@@ -783,14 +783,19 @@ impl Map {
             .iter()
             .chain(self.data_eeprom.iter())
             .chain(self.data_program.iter())
-            .map(|value| {
+            .map(|value| format!("{}{}", value, self.meta.value_unit))
+            .chain(
+                self.data_memory
+                    .iter()
+                    .zip(self.data_eeprom.iter())
+                    .map(|(ram, eeprom)| {
+                        format!("{:+}{}", *ram as i32 - *eeprom as i32, self.meta.value_unit)
+                    }),
+            )
+            .map(|text| {
                 raw_ui
                     .painter()
-                    .layout_no_wrap(
-                        format!("{}{}", value, self.meta.value_unit),
-                        value_font_id.clone(),
-                        Color32::WHITE,
-                    )
+                    .layout_no_wrap(text, value_font_id.clone(), Color32::WHITE)
                     .size()
                     .x
             })
@@ -809,6 +814,10 @@ impl Map {
         if !raw_ui.input(|input| input.pointer.primary_down()) {
             self.selection_dragging = false;
         }
+        let show_ram_eeprom_delta = self.view_type == MapViewType::Modify
+            && self.editing_cell.is_none()
+            && raw_ui.memory(|mem| mem.focused().is_none())
+            && raw_ui.input(|input| input.modifiers.ctrl && input.key_down(egui::Key::D));
         if let Some(h) = self.meta.help {
             raw_ui.label(h);
         }
@@ -956,11 +965,21 @@ impl Map {
                                             text_color = Some(readable_text_color(visuals.bg_fill));
                                             button_fill = Some(visuals.bg_fill);
                                         }
-                                        let mut text = RichText::new(format!(
-                                            "{}{}",
-                                            self.data_modify[map_idx],
-                                            self.meta.value_unit
-                                        ));
+                                        let display_value = if show_ram_eeprom_delta {
+                                            format!(
+                                                "{:+}{}",
+                                                self.data_memory[map_idx] as i32
+                                                    - self.data_eeprom[map_idx] as i32,
+                                                self.meta.value_unit
+                                            )
+                                        } else {
+                                            format!(
+                                                "{}{}",
+                                                self.data_modify[map_idx],
+                                                self.meta.value_unit
+                                            )
+                                        };
+                                        let mut text = RichText::new(display_value);
                                         if let Some(text_color) = text_color {
                                             text = text.color(text_color);
                                         }
@@ -978,20 +997,7 @@ impl Map {
                                             let visuals = cell.visuals().selection;
                                             button = button.stroke(visuals.stroke);
                                         }
-                                        let response = cell.add(button);
-                                        if delta != 0 {
-                                            response.on_hover_text(format!(
-                                                "EEPROM: {}{}\nCurrent: {}{}\nDelta: {:+}{}",
-                                                eeprom_value,
-                                                self.meta.value_unit,
-                                                modified_value,
-                                                self.meta.value_unit,
-                                                delta,
-                                                self.meta.value_unit,
-                                            ))
-                                        } else {
-                                            response
-                                        }
+                                        cell.add(button)
                                     };
                                     let pointer_over_response = response
                                         .ctx
