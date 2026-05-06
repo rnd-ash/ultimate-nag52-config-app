@@ -755,6 +755,29 @@ impl Map {
             .map(|(modified, eeprom)| (*modified as i32 - *eeprom as i32).abs())
             .max()
             .unwrap_or(0);
+        let value_font_id = egui::TextStyle::Button.resolve(raw_ui.style());
+        let value_cell_width = self
+            .data_modify
+            .iter()
+            .chain(self.data_eeprom.iter())
+            .chain(self.data_program.iter())
+            .map(|value| {
+                raw_ui
+                    .painter()
+                    .layout_no_wrap(
+                        format!("{}{}", value, self.meta.value_unit),
+                        value_font_id.clone(),
+                        Color32::WHITE,
+                    )
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, f32::max)
+            + (raw_ui.spacing().button_padding.x * 2.0)
+            + 8.0;
+        let value_cell_width = value_cell_width
+            .max(raw_ui.spacing().interact_size.x)
+            .ceil();
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
@@ -786,7 +809,7 @@ impl Map {
                 )
                 .column(Column::initial(60.0).at_least(60.0));
             for _ in 0..self.x_values.len() {
-                table_builder = table_builder.column(Column::auto().at_least(80.0));
+                table_builder = table_builder.column(Column::auto().at_least(value_cell_width));
             }
             table_builder
                 .header(15.0, |mut header| {
@@ -848,7 +871,16 @@ impl Map {
                                             .suffix(self.meta.value_unit)
                                             .update_while_editing(false)
                                             .speed(0);
-                                        let mut response = cell.add(edit);
+                                        let mut response = cell
+                                            .with_layout(
+                                                Layout::right_to_left(egui::Align::Center),
+                                                |cell| {
+                                                    cell.spacing_mut().interact_size.x =
+                                                        value_cell_width;
+                                                    cell.add(edit)
+                                                },
+                                            )
+                                            .inner;
                                         if delta != 0 {
                                             response = response.on_hover_text(format!(
                                                 "EEPROM: {}{}\nCurrent: {}{}\nDelta: {:+}{}",
@@ -910,9 +942,13 @@ impl Map {
                                         if let Some(text_color) = text_color {
                                             text = text.color(text_color);
                                         }
-                                        let mut button = egui::Button::new(text)
+                                        let mut button = egui::Button::new(())
+                                            .right_text(text)
                                             .sense(egui::Sense::click_and_drag())
-                                            .min_size(cell.spacing().interact_size);
+                                            .min_size(egui::vec2(
+                                                value_cell_width,
+                                                cell.spacing().interact_size.y,
+                                            ));
                                         if let Some(fill) = button_fill {
                                             button = button.fill(fill);
                                         }
