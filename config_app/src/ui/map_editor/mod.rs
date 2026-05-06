@@ -245,6 +245,12 @@ fn readable_text_color(background: Color32) -> Color32 {
     }
 }
 
+fn plot_auto_color(index: usize) -> Color32 {
+    let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0;
+    let hue = index as f32 * golden_ratio;
+    egui::epaint::Hsva::new(hue, 0.85, 0.5, 1.0).into()
+}
+
 fn select_all_value_text(response: &egui::Response, value: i16) {
     let mut state = egui::TextEdit::load_state(&response.ctx, response.id).unwrap_or_default();
     state
@@ -863,10 +869,17 @@ impl Map {
                         let row_id = row.index();
                         // Header column
                         row.col(|c| {
-                            c.label(
-                                RichText::new(format!("{}", self.get_y_label(row_id)))
-                                    .color(header_color),
-                            );
+                            let row_color = plot_auto_color(row_id);
+                            egui::Frame::new()
+                                .fill(row_color)
+                                .corner_radius(egui::CornerRadius::same(2))
+                                .inner_margin(egui::Margin::symmetric(4, 0))
+                                .show(c, |c| {
+                                    c.label(
+                                        RichText::new(format!("{}", self.get_y_label(row_id)))
+                                            .color(readable_text_color(row_color)),
+                                    );
+                                });
                         });
 
                         // Data columns
@@ -1194,7 +1207,7 @@ impl Map {
                         };
                         points.push([*key as f64, data as f64]);
                     }
-                    lines.push(Line::new(self.get_y_label(y_idx), points));
+                    lines.push(Line::new(self.get_y_label(y_idx), points).color(plot_auto_color(y_idx)));
                 }
                 egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
                     .allow_drag(false)
