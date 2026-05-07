@@ -60,6 +60,7 @@ const TRACE_PAYLOAD_VERSION: u8 = 1;
 const TRACE_ENTRY_SIZE: u8 = 8;
 const TRACE_MAX_SLOTS: u8 = 8;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
+const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MapViewType {
@@ -167,6 +168,7 @@ impl LookupTraceResponse {
 enum TraceReadResult {
     Data(LookupTraceResponse),
     Busy,
+    Unsupported,
     Error(String),
 }
 
@@ -484,6 +486,11 @@ impl Map {
         }) {
             Ok(Some(trace)) => TraceReadResult::Data(trace),
             Ok(None) => TraceReadResult::Busy,
+            Err(DiagError::ECUError {
+                code: KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT,
+                ..
+            })
+            | Err(DiagError::NotSupported) => TraceReadResult::Unsupported,
             Err(e) => TraceReadResult::Error(e.to_string()),
         }
     }
@@ -553,6 +560,12 @@ impl Map {
             TraceReadResult::Busy => {
                 self.trace.status = "diagnostics busy";
                 self.trace.next_poll = Instant::now() + TRACE_POLL_INTERVAL;
+            }
+            TraceReadResult::Unsupported => {
+                self.trace.disabled = true;
+                self.trace.status = "unsupported";
+                self.trace.last_error = Some("Live cursor unsupported by firmware".into());
+                self.trace.next_poll = Instant::now() + TRACE_BACKOFF_INTERVAL;
             }
             TraceReadResult::Error(err) => {
                 self.trace.consecutive_errors = self.trace.consecutive_errors.saturating_add(1);
