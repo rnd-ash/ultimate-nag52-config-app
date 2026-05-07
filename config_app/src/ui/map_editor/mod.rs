@@ -1,36 +1,23 @@
-use std::{
-    fs::File,
-    io::{Read, Write},
-    sync::mpsc::{self, Receiver, Sender},
-    thread,
-    time::{Duration, Instant},
-};
+use std::{fs::File, io::{Read, Write}, sync::mpsc::{self, Receiver, Sender}, thread, time::{Duration, Instant}};
 
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        kwp2000::{KwpCommand, KwpSessionTypeByte},
-        DiagError, DiagServerResult,
+        DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
     },
 };
 use eframe::{
-    egui::{self, DragValue, Layout, MenuBar, RichText, ScrollArea},
-    epaint::Color32,
+    egui::{
+        self, DragValue, Layout, MenuBar, RichText, ScrollArea
+    }, epaint::Color32,
 };
 use egui_extras::Column;
 use egui_plot::{Bar, BarChart, Line, MarkerShape, Points, VLine};
-use plotters::{
-    prelude::{ChartBuilder, IntoDrawingArea},
-    series::SurfaceSeries,
-};
+use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-use crate::{
-    plot_backend::{into_rgba_color, EguiPlotBackend},
-    ui::map_editor::map_list::MapType,
-    window::PageAction,
-};
+use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
 
@@ -1178,11 +1165,7 @@ pub fn save_map(map: &Map) {
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
     };
-    if let Some(picked) = rfd::FileDialog::new()
-        .set_title(format!("Save map {}", map.meta.name))
-        .set_file_name(format!("map_{}.mapbin", map.eeprom_key))
-        .save_file()
-    {
+    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
         let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
         let _ = f.write_all(&bin);
@@ -1190,44 +1173,32 @@ pub fn save_map(map: &Map) {
 }
 
 pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
-    let path = rfd::FileDialog::new()
-        .add_filter("mapbin", &["mapbin"])
-        .set_title(format!("Pick map file for {}", map.meta.name))
-        .pick_file()?;
+    let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data =
-        bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy())
-            .map_err(|e| e.to_string());
+    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
             if data.id != map.meta.id as u8 {
-                return Some(Err(format!(
-                    "Map key is different. Expected {}, got {}",
-                    map.meta.id as u8, data.id
-                )));
+                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id as u8, data.id)));
             }
             if data.x_values != map.x_values {
-                return Some(Err(format!(
-                    "X sizes differ! Map spec has changed. Saved map is no longer valid"
-                )));
+                return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
             }
             if data.y_values != map.y_values {
-                return Some(Err(format!(
-                    "Y sizes differ! Map spec has changed. Saved map is no longer valid"
-                )));
+                return Some(Err(format!("Y sizes differ! Map spec has changed. Saved map is no longer valid")));
             }
             if data.state.len() != map.data_eeprom.len() {
-                return Some(Err(format!(
-                    "Z sizes differ! Map spec has changed. Saved map is no longer valid"
-                )));
+                return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
             }
             // All OK!
             map.data_modify = data.state;
-            return Some(Ok(()));
+            return Some(Ok(()))
+        },
+        Err(e) => {
+            return Some(Err(e))
         }
-        Err(e) => return Some(Err(e)),
     }
 }
 
@@ -1244,7 +1215,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     help: Option<&'static str>,
-    reset_adaptation: bool,
+    reset_adaptation: bool
 }
 
 impl MapData {
@@ -1273,7 +1244,7 @@ impl MapData {
             x_replace,
             y_replace,
             help: None,
-            reset_adaptation,
+            reset_adaptation
         }
     }
 
@@ -1301,10 +1272,14 @@ impl MapEditor {
 }
 
 impl super::InterfacePage for MapEditor {
-    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
+    fn make_ui(
+        &mut self,
+        ui: &mut eframe::egui::Ui,
+    ) -> crate::window::PageAction {
         let mut action = None;
         let mut map_to_switch = None;
-        MenuBar::new().ui(ui, |ui| {
+        MenuBar::new()
+        .ui(ui, |ui| {
             ui.menu_button("Select map", |ui| {
                 ui.menu_button("Shift points", |ui| {
                     ui.label("(S)tandard mode");
@@ -1330,6 +1305,7 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftA);
                     }
+
                 });
                 ui.menu_button("Shift speed", |ui| {
                     ui.label("(S)tandard mode");
@@ -1407,23 +1383,22 @@ impl super::InterfacePage for MapEditor {
             if !allowed_to_swtich {
                 action = Some(PageAction::SendNotification {
                     text: "You have uncommited changes, please reset or write to EEPROM".into(),
-                    kind: egui_notify::ToastLevel::Warning,
+                    kind: egui_notify::ToastLevel::Warning
                 })
             } else {
                 if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
                     self.error = None;
                     match Map::new(selected, self.nag.clone(), found_map_info.clone()) {
-                        Ok(m) => self.loaded_map = Some(m),
+                        Ok(m) => {
+                            self.loaded_map = Some(m)
+                        }
                         Err(e) => self.error = Some(e.to_string()),
                     }
                 } else {
                     //Error toast
                     action = Some(PageAction::SendNotification {
-                        text: format!(
-                            "Failed to find map {:?} (0x{:02X}). This is a bug!",
-                            selected, selected as u8
-                        ),
-                        kind: egui_notify::ToastLevel::Error,
+                        text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8),
+                        kind: egui_notify::ToastLevel::Error
                     })
                 }
             }
@@ -1431,9 +1406,7 @@ impl super::InterfacePage for MapEditor {
         ui.separator();
         if let Some(loaded_map) = self.loaded_map.as_mut() {
             if let Some(err) = &self.error {
-                ui.centered_and_justified(|ui| {
-                    ui.colored_label(Color32::RED, format!("Map failed to load: {err}"))
-                });
+                ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
             } else {
                 if action.is_none() {
                     action = loaded_map.generate_window_ui(ui);
