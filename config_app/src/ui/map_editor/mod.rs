@@ -50,7 +50,10 @@ pub enum MapCmd {
 
 const TRACE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const TRACE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
-const TRACE_REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+// The diagnostic server read timeout is 10s; keep the UI timeout just above it
+// so we do not report a visual timeout while the request is still legitimately
+// waiting inside the diagnostics layer.
+const TRACE_REQUEST_TIMEOUT: Duration = Duration::from_millis(11000);
 const TRACE_BACKOFF_AFTER_ERRORS: u8 = 3;
 const TRACE_DISABLE_AFTER_ERRORS: u8 = 5;
 const TRACE_PAYLOAD_VERSION: u8 = 1;
