@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{Read, Write},
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, Receiver, Sender},
     thread,
     time::{Duration, Instant},
 };
@@ -169,12 +169,23 @@ enum TraceReadResult {
     Error(String),
 }
 
+enum TraceWorkerCommand {
+    Read { manual: bool },
+}
+
+struct TraceWorkerResult {
+    manual: bool,
+    result: TraceReadResult,
+}
+
 #[derive(Debug)]
 struct LookupTraceState {
     enabled: bool,
     disabled: bool,
     next_poll: Instant,
-    in_flight: Option<(Receiver<TraceReadResult>, Instant, bool)>,
+    worker_tx: Option<Sender<TraceWorkerCommand>>,
+    worker_rx: Option<Receiver<TraceWorkerResult>>,
+    in_flight: Option<(Instant, bool)>,
     latest: Option<LookupTraceResponse>,
     consecutive_errors: u8,
     status: &'static str,
@@ -194,6 +205,8 @@ impl Default for LookupTraceState {
             enabled: false,
             disabled: false,
             next_poll: Instant::now(),
+            worker_tx: None,
+            worker_rx: None,
             in_flight: None,
             latest: None,
             consecutive_errors: 0,
@@ -468,16 +481,54 @@ impl Map {
         }
     }
 
-    fn start_trace_request(&mut self, manual: bool) {
+    fn ensure_trace_worker(&mut self) {
+        if self.trace.worker_tx.is_some() {
+            return;
+        }
         let nag = self.ecu_ref.clone();
         let map_id = self.meta.id;
-        let (tx, rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<TraceWorkerCommand>();
+        let (result_tx, result_rx) = mpsc::channel::<TraceWorkerResult>();
         let _ = thread::Builder::new()
             .name("map-lookup-trace-poll".into())
             .spawn(move || {
-                let _ = tx.send(Self::read_trace_once(nag, map_id));
+                while let Ok(cmd) = cmd_rx.recv() {
+                    match cmd {
+                        TraceWorkerCommand::Read { manual } => {
+                            let result = Self::read_trace_once(nag.clone(), map_id);
+                            if result_tx.send(TraceWorkerResult { manual, result }).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
             });
-        self.trace.in_flight = Some((rx, Instant::now(), manual));
+        self.trace.worker_tx = Some(cmd_tx);
+        self.trace.worker_rx = Some(result_rx);
+    }
+
+    fn start_trace_request(&mut self, manual: bool) {
+        self.ensure_trace_worker();
+        let Some(worker_tx) = &self.trace.worker_tx else {
+            self.handle_trace_result(
+                TraceReadResult::Error("Trace worker unavailable".into()),
+                manual,
+            );
+            return;
+        };
+        if worker_tx
+            .send(TraceWorkerCommand::Read { manual })
+            .is_err()
+        {
+            self.trace.worker_tx = None;
+            self.trace.worker_rx = None;
+            self.handle_trace_result(
+                TraceReadResult::Error("Trace worker disconnected".into()),
+                manual,
+            );
+            return;
+        }
+        self.trace.in_flight = Some((Instant::now(), manual));
         self.trace.timeout_reported = false;
         self.trace.status = "in flight";
     }
@@ -515,23 +566,32 @@ impl Map {
     }
 
     fn update_trace_poll(&mut self, ctx: &egui::Context, skip_start: bool) {
-        if let Some((rx, started, manual)) = self.trace.in_flight.take() {
+        if let Some(rx) = self.trace.worker_rx.take() {
             match rx.try_recv() {
-                Ok(result) => self.handle_trace_result(result, manual),
+                Ok(worker_result) => {
+                    self.trace.in_flight = None;
+                    self.handle_trace_result(worker_result.result, worker_result.manual);
+                }
                 Err(mpsc::TryRecvError::Empty) => {
-                    if !self.trace.timeout_reported && started.elapsed() > TRACE_REQUEST_TIMEOUT {
-                        self.trace.timeout_reported = true;
-                        self.trace.status = "timeout";
-                        self.trace.last_error = Some("Trace request timed out".into());
-                    }
-                    self.trace.in_flight = Some((rx, started, manual));
+                    self.trace.worker_rx = Some(rx);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
+                    let manual = self.trace.in_flight.map(|(_, manual)| manual).unwrap_or(false);
+                    self.trace.in_flight = None;
+                    self.trace.worker_tx = None;
                     self.handle_trace_result(
                         TraceReadResult::Error("Trace worker disconnected".into()),
                         manual,
                     );
                 }
+            }
+        }
+
+        if let Some((started, _manual)) = self.trace.in_flight {
+            if !self.trace.timeout_reported && started.elapsed() > TRACE_REQUEST_TIMEOUT {
+                self.trace.timeout_reported = true;
+                self.trace.status = "timeout";
+                self.trace.last_error = Some("Trace request timed out".into());
             }
         }
 
