@@ -59,6 +59,7 @@ const TRACE_DISABLE_AFTER_ERRORS: u8 = 5;
 const TRACE_PAYLOAD_VERSION: u8 = 1;
 const TRACE_ENTRY_SIZE: u8 = 8;
 const TRACE_MAX_SLOTS: u8 = 8;
+const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MapViewType {
@@ -472,6 +473,9 @@ impl Map {
                 )
                 .and_then(|mut x| {
                     if x.is_empty() {
+                        return Err(DiagError::InvalidResponseLength);
+                    }
+                    if x[0] != KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER {
                         return Err(DiagError::InvalidResponseLength);
                     }
                     x.drain(0..1);
