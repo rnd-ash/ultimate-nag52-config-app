@@ -638,6 +638,20 @@ impl Map {
         src[(y_idx * self.x_values.len()) + x_idx] as f64
     }
 
+    fn trace_write_busy_notification(&self) -> Option<PageAction> {
+        if self.trace.in_flight.is_some() {
+            Some(PageAction::SendNotification {
+                text: format!(
+                    "Map {} live cursor request is in flight. Retry the write after it finishes.",
+                    self.eeprom_key
+                ),
+                kind: egui_notify::ToastLevel::Warning,
+            })
+        } else {
+            None
+        }
+    }
+
     fn get_x_label(&self, idx: usize) -> String {
         if let Some(replace) = self.meta.x_replace {
             format!("{}", replace.get(idx).unwrap_or(&"ERROR"))
@@ -837,39 +851,47 @@ impl Map {
                     };
                 }
                 if ui.button("Write changes (To RAM)").clicked() {
-                    action = match self.write_to_ram() {
-                        Ok(_) => {
-                            self.data_memory = self.data_modify.clone();
-                            Some(PageAction::SendNotification {
-                                text: format!("Map {} RAM write OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
-                            })
+                    action = if let Some(busy) = self.trace_write_busy_notification() {
+                        Some(busy)
+                    } else {
+                        match self.write_to_ram() {
+                            Ok(_) => {
+                                self.data_memory = self.data_modify.clone();
+                                Some(PageAction::SendNotification {
+                                    text: format!("Map {} RAM write OK!", self.eeprom_key),
+                                    kind: egui_notify::ToastLevel::Success,
+                                })
+                            }
+                            Err(e) => Some(PageAction::SendNotification {
+                                text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
+                                kind: egui_notify::ToastLevel::Error,
+                            }),
                         }
-                        Err(e) => Some(PageAction::SendNotification {
-                            text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
-                        }),
                     };
                 }
             });
             raw_ui.add_enabled_ui(self.data_memory != self.data_eeprom, |ui| {
                 if ui.button("Write changes (To EEPROM)").clicked() {
-                    action = match self.save_to_eeprom() {
-                        Ok(_) => {
-                            if let Ok(new_data) =
-                                Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
-                            {
-                                *self = new_data;
+                    action = if let Some(busy) = self.trace_write_busy_notification() {
+                        Some(busy)
+                    } else {
+                        match self.save_to_eeprom() {
+                            Ok(_) => {
+                                if let Ok(new_data) =
+                                    Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
+                                {
+                                    *self = new_data;
+                                }
+                                Some(PageAction::SendNotification {
+                                    text: format!("Map {} EEPROM save OK!", self.eeprom_key),
+                                    kind: egui_notify::ToastLevel::Success,
+                                })
                             }
-                            Some(PageAction::SendNotification {
-                                text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
-                            })
+                            Err(e) => Some(PageAction::SendNotification {
+                                text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
+                                kind: egui_notify::ToastLevel::Error,
+                            }),
                         }
-                        Err(e) => Some(PageAction::SendNotification {
-                            text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
-                        }),
                     };
                 }
             });
