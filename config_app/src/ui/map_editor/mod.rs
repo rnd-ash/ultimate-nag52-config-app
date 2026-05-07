@@ -83,6 +83,7 @@ pub struct Map {
     pitch: f64,
     rot: f64,
     trace: LookupTraceState,
+    pending_write: Option<PendingMapWrite>,
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -166,6 +167,12 @@ enum TraceWorkerCommand {
 struct TraceWorkerResult {
     manual: bool,
     result: TraceReadResult,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PendingMapWrite {
+    Ram,
+    Eeprom,
 }
 
 #[derive(Debug)]
@@ -355,6 +362,7 @@ impl Map {
             pitch: 0.8,
             rot: 0.8,
             trace: LookupTraceState::default(),
+            pending_write: None,
         })
     }
 
@@ -577,6 +585,7 @@ impl Map {
             match rx.try_recv() {
                 Ok(worker_result) => {
                     self.trace.in_flight = None;
+                    self.trace.worker_rx = Some(rx);
                     self.handle_trace_result(worker_result.result, worker_result.manual);
                 }
                 Err(mpsc::TryRecvError::Empty) => {
@@ -597,8 +606,15 @@ impl Map {
         if let Some((started, _manual)) = self.trace.in_flight {
             if !self.trace.timeout_reported && started.elapsed() > TRACE_REQUEST_TIMEOUT {
                 self.trace.timeout_reported = true;
+                self.trace.in_flight = None;
+                self.trace.worker_tx = None;
+                self.trace.worker_rx = None;
+                self.trace.disabled = true;
                 self.trace.status = "timeout";
-                self.trace.last_error = Some("Trace request timed out".into());
+                self.trace.last_error =
+                    Some("Trace request timed out; live cursor disabled until refresh".into());
+                self.trace.next_poll = Instant::now() + TRACE_BACKOFF_INTERVAL;
+                return;
             }
         }
 
@@ -708,18 +724,68 @@ impl Map {
         src[(y_idx * self.x_values.len()) + x_idx] as f64
     }
 
-    fn trace_write_busy_notification(&self) -> Option<PageAction> {
+    fn perform_map_write(&mut self, write: PendingMapWrite) -> PageAction {
+        match write {
+            PendingMapWrite::Ram => match self.write_to_ram() {
+                Ok(_) => {
+                    self.data_memory = self.data_modify.clone();
+                    PageAction::SendNotification {
+                        text: format!("Map {} RAM write OK!", self.eeprom_key),
+                        kind: egui_notify::ToastLevel::Success,
+                    }
+                }
+                Err(e) => PageAction::SendNotification {
+                    text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
+                    kind: egui_notify::ToastLevel::Error,
+                },
+            },
+            PendingMapWrite::Eeprom => match self.save_to_eeprom() {
+                Ok(_) => {
+                    let eeprom_key = self.eeprom_key.clone();
+                    if let Ok(new_data) =
+                        Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
+                    {
+                        *self = new_data;
+                    }
+                    PageAction::SendNotification {
+                        text: format!("Map {} EEPROM save OK!", eeprom_key),
+                        kind: egui_notify::ToastLevel::Success,
+                    }
+                }
+                Err(e) => PageAction::SendNotification {
+                    text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
+                    kind: egui_notify::ToastLevel::Error,
+                },
+            },
+        }
+    }
+
+    fn request_map_write(&mut self, write: PendingMapWrite) -> PageAction {
         if self.trace.in_flight.is_some() {
-            Some(PageAction::SendNotification {
+            self.pending_write = Some(write);
+            self.trace.enabled = false;
+            self.trace.disabled = true;
+            self.trace.status = "write queued";
+            self.trace.last_error = Some("Live cursor paused until queued write completes".into());
+            PageAction::SendNotification {
                 text: format!(
-                    "Map {} live cursor request is in flight. Retry the write after it finishes.",
+                    "Map {} write queued until live cursor request finishes.",
                     self.eeprom_key
                 ),
-                kind: egui_notify::ToastLevel::Warning,
-            })
+                kind: egui_notify::ToastLevel::Info,
+            }
         } else {
-            None
+            self.pending_write = None;
+            self.perform_map_write(write)
         }
+    }
+
+    fn execute_pending_write(&mut self) -> Option<PageAction> {
+        if self.trace.in_flight.is_some() {
+            return None;
+        }
+        let write = self.pending_write.take()?;
+        Some(self.perform_map_write(write))
     }
 
     fn get_x_label(&self, idx: usize) -> String {
@@ -921,53 +987,20 @@ impl Map {
                     };
                 }
                 if ui.button("Write changes (To RAM)").clicked() {
-                    action = if let Some(busy) = self.trace_write_busy_notification() {
-                        Some(busy)
-                    } else {
-                        match self.write_to_ram() {
-                            Ok(_) => {
-                                self.data_memory = self.data_modify.clone();
-                                Some(PageAction::SendNotification {
-                                    text: format!("Map {} RAM write OK!", self.eeprom_key),
-                                    kind: egui_notify::ToastLevel::Success,
-                                })
-                            }
-                            Err(e) => Some(PageAction::SendNotification {
-                                text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                                kind: egui_notify::ToastLevel::Error,
-                            }),
-                        }
-                    };
+                    action = Some(self.request_map_write(PendingMapWrite::Ram));
                 }
             });
             raw_ui.add_enabled_ui(self.data_memory != self.data_eeprom, |ui| {
                 if ui.button("Write changes (To EEPROM)").clicked() {
-                    action = if let Some(busy) = self.trace_write_busy_notification() {
-                        Some(busy)
-                    } else {
-                        match self.save_to_eeprom() {
-                            Ok(_) => {
-                                if let Ok(new_data) =
-                                    Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
-                                {
-                                    *self = new_data;
-                                }
-                                Some(PageAction::SendNotification {
-                                    text: format!("Map {} EEPROM save OK!", self.eeprom_key),
-                                    kind: egui_notify::ToastLevel::Success,
-                                })
-                            }
-                            Err(e) => Some(PageAction::SendNotification {
-                                text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                                kind: egui_notify::ToastLevel::Error,
-                            }),
-                        }
-                    };
+                    action = Some(self.request_map_write(PendingMapWrite::Eeprom));
                 }
             });
         });
         self.show_trace_controls(raw_ui);
         self.update_trace_poll(raw_ui.ctx(), action.is_some());
+        if action.is_none() {
+            action = self.execute_pending_write();
+        }
         self.gen_edit_table(raw_ui);
         ScrollArea::new([true, true])
             .max_height(raw_ui.available_height())
