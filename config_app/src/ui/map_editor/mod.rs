@@ -1,23 +1,36 @@
-use std::{fs::File, io::{Read, Write}};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    sync::mpsc::{self, Receiver},
+    thread,
+    time::{Duration, Instant},
+};
 
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
-        DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
+        kwp2000::{KwpCommand, KwpSessionTypeByte},
+        DiagError, DiagServerResult,
     },
 };
 use eframe::{
-    egui::{
-        self, DragValue, Layout, MenuBar, RichText, ScrollArea, Ui
-    }, epaint::Color32,
+    egui::{self, DragValue, Layout, MenuBar, RichText, ScrollArea},
+    epaint::Color32,
 };
-use egui_plot::{Bar, BarChart, Line};
 use egui_extras::Column;
-use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
+use egui_plot::{Bar, BarChart, Line};
+use plotters::{
+    prelude::{ChartBuilder, IntoDrawingArea},
+    series::SurfaceSeries,
+};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
+use crate::{
+    plot_backend::{into_rgba_color, EguiPlotBackend},
+    ui::map_editor::map_list::MapType,
+    window::PageAction,
+};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
 
@@ -32,7 +45,17 @@ pub enum MapCmd {
     Undo = 0x06,
     ReadMeta = 0x07,
     ReadEEPROM = 0x08,
+    ReadTrace = 0x09,
 }
+
+const TRACE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const TRACE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
+const TRACE_REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+const TRACE_BACKOFF_AFTER_ERRORS: u8 = 3;
+const TRACE_DISABLE_AFTER_ERRORS: u8 = 5;
+const TRACE_PAYLOAD_VERSION: u8 = 1;
+const TRACE_ENTRY_SIZE: u8 = 8;
+const TRACE_MAX_SLOTS: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MapViewType {
@@ -46,7 +69,7 @@ pub struct MapSaveData {
     id: u8,
     x_values: Vec<i16>,
     y_values: Vec<i16>,
-    state: Vec<i16>
+    state: Vec<i16>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +90,7 @@ pub struct Map {
     view_type: MapViewType,
     pitch: f64,
     rot: f64,
+    trace: LookupTraceState,
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -85,20 +109,105 @@ fn read_u16(a: &[u8]) -> DiagServerResult<(&[u8], u16)> {
     Ok((&a[2..], r))
 }
 
+fn read_u32(a: &[u8]) -> DiagServerResult<(&[u8], u32)> {
+    if a.len() < 4 {
+        return Err(DiagError::InvalidResponseLength);
+    }
+    let r = u32::from_le_bytes(a[0..4].try_into().unwrap());
+    Ok((&a[4..], r))
+}
+
+fn nearest_index(values: &[i16], value: i16) -> Option<usize> {
+    values
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, candidate)| ((**candidate as i32) - (value as i32)).abs())
+        .map(|(idx, _)| idx)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LookupTraceEntry {
+    x: i16,
+    y: i16,
+    timestamp_ms: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LookupTraceResponse {
+    firmware_now_ms: u32,
+    valid_mask: u8,
+    entries: Vec<LookupTraceEntry>,
+}
+
+impl LookupTraceResponse {
+    fn age_ms(&self, slot: usize) -> Option<u32> {
+        let entry = self.entries.get(slot)?;
+        Some(self.firmware_now_ms.wrapping_sub(entry.timestamp_ms))
+    }
+
+    fn is_valid(&self, slot: usize) -> bool {
+        slot < 8 && (self.valid_mask & (1u8 << slot)) != 0
+    }
+}
+
+enum TraceReadResult {
+    Data(LookupTraceResponse),
+    Busy,
+    Error(String),
+}
+
+#[derive(Debug)]
+struct LookupTraceState {
+    enabled: bool,
+    disabled: bool,
+    next_poll: Instant,
+    in_flight: Option<(Receiver<TraceReadResult>, Instant, bool)>,
+    latest: Option<LookupTraceResponse>,
+    consecutive_errors: u8,
+    status: &'static str,
+    last_error: Option<String>,
+    timeout_reported: bool,
+}
+
+impl Clone for LookupTraceState {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl Default for LookupTraceState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            disabled: false,
+            next_poll: Instant::now(),
+            in_flight: None,
+            latest: None,
+            consecutive_errors: 0,
+            status: "idle",
+            last_error: None,
+            timeout_reported: false,
+        }
+    }
+}
+
 impl Map {
     pub fn new(map_id: MapType, nag: Nag52Diag, meta: MapData) -> DiagServerResult<Self> {
         // Read metadata
 
         let ecu_response = nag.with_kwp(|server| {
             server
-                .send_byte_array_with_response(&[
-                    KwpCommand::ReadDataByLocalIdentifier.into(),
-                    0x19,
-                    map_id as u8,
-                    MapCmd::ReadMeta as u8,
-                    0x00,
-                    0x00,
-                ], None)
+                .send_byte_array_with_response(
+                    &[
+                        KwpCommand::ReadDataByLocalIdentifier.into(),
+                        0x19,
+                        map_id as u8,
+                        MapCmd::ReadMeta as u8,
+                        0x00,
+                        0x00,
+                    ],
+                    None,
+                )
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -135,14 +244,17 @@ impl Map {
         // Read current data
         let ecu_response = nag.with_kwp(|server| {
             server
-                .send_byte_array_with_response(&[
-                    KwpCommand::ReadDataByLocalIdentifier.into(),
-                    0x19,
-                    map_id as u8,
-                    MapCmd::Read as u8,
-                    0x00,
-                    0x00,
-                ], None)
+                .send_byte_array_with_response(
+                    &[
+                        KwpCommand::ReadDataByLocalIdentifier.into(),
+                        0x19,
+                        map_id as u8,
+                        MapCmd::Read as u8,
+                        0x00,
+                        0x00,
+                    ],
+                    None,
+                )
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -160,14 +272,17 @@ impl Map {
         // Read default data
         let ecu_response = nag.with_kwp(|server| {
             server
-                .send_byte_array_with_response(&[
-                    KwpCommand::ReadDataByLocalIdentifier.into(),
-                    0x19,
-                    map_id as u8,
-                    MapCmd::ReadDefault as u8,
-                    0x00,
-                    0x00,
-                ], None)
+                .send_byte_array_with_response(
+                    &[
+                        KwpCommand::ReadDataByLocalIdentifier.into(),
+                        0x19,
+                        map_id as u8,
+                        MapCmd::ReadDefault as u8,
+                        0x00,
+                        0x00,
+                    ],
+                    None,
+                )
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -184,14 +299,17 @@ impl Map {
         }
         let ecu_response = nag.with_kwp(|server| {
             server
-                .send_byte_array_with_response(&[
-                    KwpCommand::ReadDataByLocalIdentifier.into(),
-                    0x19,
-                    map_id as u8,
-                    MapCmd::ReadEEPROM as u8,
-                    0x00,
-                    0x00,
-                ], None)
+                .send_byte_array_with_response(
+                    &[
+                        KwpCommand::ReadDataByLocalIdentifier.into(),
+                        0x19,
+                        map_id as u8,
+                        MapCmd::ReadEEPROM as u8,
+                        0x00,
+                        0x00,
+                    ],
+                    None,
+                )
                 .map(|mut x| {
                     x.drain(0..1);
                     x
@@ -220,6 +338,7 @@ impl Map {
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
+            trace: LookupTraceState::default(),
         })
     }
 
@@ -273,6 +392,208 @@ impl Map {
         Ok(())
     }
 
+    fn parse_trace_response(ecu_response: Vec<u8>) -> DiagServerResult<LookupTraceResponse> {
+        let (payload, payload_len) = read_u16(&ecu_response)?;
+        if payload.len() != payload_len as usize || payload_len < 8 {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        let version = payload[0];
+        let entry_size = payload[1];
+        let slot_count = payload[2];
+        let valid_mask = payload[3];
+        if version != TRACE_PAYLOAD_VERSION
+            || entry_size != TRACE_ENTRY_SIZE
+            || slot_count > TRACE_MAX_SLOTS
+        {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        if slot_count < 8 && (valid_mask & !((1u8 << slot_count) - 1)) != 0 {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        let expected_len = 8usize + (slot_count as usize * entry_size as usize);
+        if payload.len() != expected_len {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        let (mut data, firmware_now_ms) = read_u32(&payload[4..])?;
+        let mut entries = Vec::with_capacity(slot_count as usize);
+        for _ in 0..slot_count {
+            let (d, x) = read_i16(data)?;
+            let (d, y) = read_i16(d)?;
+            let (d, timestamp_ms) = read_u32(d)?;
+            entries.push(LookupTraceEntry { x, y, timestamp_ms });
+            data = d;
+        }
+        Ok(LookupTraceResponse {
+            firmware_now_ms,
+            valid_mask,
+            entries,
+        })
+    }
+
+    fn read_trace_once(nag: Nag52Diag, map_id: MapType) -> TraceReadResult {
+        match nag.try_with_kwp(|server| {
+            server
+                .send_byte_array_with_response(
+                    &[
+                        KwpCommand::ReadDataByLocalIdentifier.into(),
+                        0x19,
+                        map_id as u8,
+                        MapCmd::ReadTrace as u8,
+                        0x00,
+                        0x00,
+                    ],
+                    None,
+                )
+                .and_then(|mut x| {
+                    x.drain(0..1);
+                    Self::parse_trace_response(x)
+                })
+        }) {
+            Ok(Some(trace)) => TraceReadResult::Data(trace),
+            Ok(None) => TraceReadResult::Busy,
+            Err(e) => TraceReadResult::Error(e.to_string()),
+        }
+    }
+
+    fn start_trace_request(&mut self, manual: bool) {
+        let nag = self.ecu_ref.clone();
+        let map_id = self.meta.id;
+        let (tx, rx) = mpsc::channel();
+        let _ = thread::Builder::new()
+            .name("map-lookup-trace-poll".into())
+            .spawn(move || {
+                let _ = tx.send(Self::read_trace_once(nag, map_id));
+            });
+        self.trace.in_flight = Some((rx, Instant::now(), manual));
+        self.trace.timeout_reported = false;
+        self.trace.status = "in flight";
+    }
+
+    fn handle_trace_result(&mut self, result: TraceReadResult, manual: bool) {
+        match result {
+            TraceReadResult::Data(trace) => {
+                self.trace.latest = Some(trace);
+                self.trace.consecutive_errors = 0;
+                self.trace.disabled = false;
+                self.trace.status = "live";
+                self.trace.last_error = None;
+                self.trace.next_poll = Instant::now() + TRACE_POLL_INTERVAL;
+            }
+            TraceReadResult::Busy => {
+                self.trace.status = "diagnostics busy";
+                self.trace.next_poll = Instant::now() + TRACE_POLL_INTERVAL;
+            }
+            TraceReadResult::Error(err) => {
+                self.trace.consecutive_errors = self.trace.consecutive_errors.saturating_add(1);
+                self.trace.status = "error";
+                self.trace.last_error = Some(err);
+                if self.trace.consecutive_errors >= TRACE_DISABLE_AFTER_ERRORS && !manual {
+                    self.trace.disabled = true;
+                    self.trace.status = "disabled";
+                }
+                let delay = if self.trace.consecutive_errors >= TRACE_BACKOFF_AFTER_ERRORS {
+                    TRACE_BACKOFF_INTERVAL
+                } else {
+                    TRACE_POLL_INTERVAL
+                };
+                self.trace.next_poll = Instant::now() + delay;
+            }
+        }
+    }
+
+    fn update_trace_poll(&mut self, ctx: &egui::Context, skip_start: bool) {
+        if let Some((rx, started, manual)) = self.trace.in_flight.take() {
+            match rx.try_recv() {
+                Ok(result) => self.handle_trace_result(result, manual),
+                Err(mpsc::TryRecvError::Empty) => {
+                    if !self.trace.timeout_reported && started.elapsed() > TRACE_REQUEST_TIMEOUT {
+                        self.trace.timeout_reported = true;
+                        self.trace.status = "timeout";
+                        self.trace.last_error = Some("Trace request timed out".into());
+                    }
+                    self.trace.in_flight = Some((rx, started, manual));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.handle_trace_result(
+                        TraceReadResult::Error("Trace worker disconnected".into()),
+                        manual,
+                    );
+                }
+            }
+        }
+
+        if self.trace.enabled {
+            ctx.request_repaint_after(TRACE_POLL_INTERVAL);
+        }
+
+        if !self.trace.enabled
+            || self.trace.disabled
+            || skip_start
+            || self.trace.in_flight.is_some()
+        {
+            return;
+        }
+
+        if Instant::now() >= self.trace.next_poll {
+            self.start_trace_request(false);
+        }
+    }
+
+    fn show_trace_controls(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.trace.enabled, "Live cursor");
+            let refresh = ui.button("Refresh").clicked();
+            if refresh {
+                self.trace.disabled = false;
+                self.trace.consecutive_errors = 0;
+                if self.trace.in_flight.is_none() {
+                    self.start_trace_request(true);
+                }
+            }
+            ui.label(format!("Trace: {}", self.trace.status));
+            if let Some(trace) = &self.trace.latest {
+                let valid_count = (0..trace.entries.len())
+                    .filter(|slot| trace.is_valid(*slot))
+                    .count();
+                ui.label(format!("{} active point(s)", valid_count));
+            }
+        });
+        if let Some(err) = &self.trace.last_error {
+            ui.colored_label(ui.visuals().warn_fg_color, err);
+        }
+    }
+
+    fn trace_cell_alpha(&self, x_pos: usize, y_pos: usize) -> u8 {
+        let Some(trace) = &self.trace.latest else {
+            return 0;
+        };
+        let mut alpha = 0u8;
+        for (slot, entry) in trace.entries.iter().enumerate() {
+            if !trace.is_valid(slot) {
+                continue;
+            }
+            let Some(age) = trace.age_ms(slot) else {
+                continue;
+            };
+            if age > 2000 {
+                continue;
+            }
+            let nearest_x = nearest_index(&self.x_values, entry.x);
+            let nearest_y = nearest_index(&self.y_values, entry.y);
+            if nearest_x == Some(x_pos) && nearest_y == Some(y_pos) {
+                let slot_alpha = if age <= 250 {
+                    96
+                } else if age <= 1000 {
+                    72
+                } else {
+                    44
+                };
+                alpha = alpha.max(slot_alpha);
+            }
+        }
+        alpha
+    }
+
     fn get_x_label(&self, idx: usize) -> String {
         if let Some(replace) = self.meta.x_replace {
             format!("{}", replace.get(idx).unwrap_or(&"ERROR"))
@@ -294,7 +615,8 @@ impl Map {
             MapViewType::EEPROM => &self.data_eeprom,
             MapViewType::Default => &self.data_program,
             MapViewType::Modify => &self.data_modify,
-        }.clone();
+        }
+        .clone();
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
         if self.meta.reset_adaptation {
@@ -352,29 +674,42 @@ impl Map {
 
                         // Data columns
                         for x_pos in 0..self.x_values.len() {
-                            row.col(|cell| match self.view_type {
-                                MapViewType::EEPROM => {
-                                    cell.label(format!(
-                                        "{}",
-                                        self.data_eeprom[(row_id * self.x_values.len()) + x_pos]
-                                    ));
+                            let trace_alpha = self.trace_cell_alpha(x_pos, row_id);
+                            row.col(|cell| {
+                                if trace_alpha > 0 {
+                                    let fill =
+                                        Color32::from_rgba_unmultiplied(255, 215, 0, trace_alpha);
+                                    cell.style_mut().visuals.widgets.inactive.bg_fill = fill;
+                                    cell.style_mut().visuals.widgets.hovered.bg_fill = fill;
+                                    cell.style_mut().visuals.widgets.active.bg_fill = fill;
                                 }
-                                MapViewType::Default => {
-                                    cell.label(format!(
-                                        "{}",
-                                        self.data_program[(row_id * self.x_values.len()) + x_pos]
-                                    ));
-                                }
-                                MapViewType::Modify => {
-                                    let map_idx = (row_id * self.x_values.len()) + x_pos;
-                                    if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
-                                        cell.style_mut().visuals.override_text_color = Some(cell_edit_color)
+                                match self.view_type {
+                                    MapViewType::EEPROM => {
+                                        cell.label(format!(
+                                            "{}",
+                                            self.data_eeprom
+                                                [(row_id * self.x_values.len()) + x_pos]
+                                        ));
                                     }
-                                    let edit = DragValue::new(&mut self.data_modify[map_idx])
-                                        .suffix(self.meta.value_unit)
-                                        .update_while_editing(false)
-                                        .speed(0);
-                                    cell.add(edit);                             
+                                    MapViewType::Default => {
+                                        cell.label(format!(
+                                            "{}",
+                                            self.data_program
+                                                [(row_id * self.x_values.len()) + x_pos]
+                                        ));
+                                    }
+                                    MapViewType::Modify => {
+                                        let map_idx = (row_id * self.x_values.len()) + x_pos;
+                                        if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
+                                            cell.style_mut().visuals.override_text_color =
+                                                Some(cell_edit_color)
+                                        }
+                                        let edit = DragValue::new(&mut self.data_modify[map_idx])
+                                            .suffix(self.meta.value_unit)
+                                            .update_while_editing(false)
+                                            .speed(0);
+                                        cell.add(edit);
+                                    }
                                 }
                             });
                         }
@@ -392,25 +727,27 @@ impl Map {
                     match res {
                         Ok(_) => {
                             *self = copy;
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Map loading OK!"), 
-                                kind: egui_notify::ToastLevel::Success 
+                            action = Some(PageAction::SendNotification {
+                                text: format!("Map loading OK!"),
+                                kind: egui_notify::ToastLevel::Success,
                             });
-                        },
+                        }
                         Err(e) => {
-                            action = Some(PageAction::SendNotification { 
-                                text: format!("Map loading failed: {e}"), 
-                                kind: egui_notify::ToastLevel::Error 
+                            action = Some(PageAction::SendNotification {
+                                text: format!("Map loading failed: {e}"),
+                                kind: egui_notify::ToastLevel::Error,
                             });
-                        },
+                        }
                     }
                 }
             }
             if ui.button("Save to file").clicked() {
                 if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
-                    action = Some(PageAction::SendNotification { 
-                        text: "You have unsaved data in the map. Please write to EEPROM before saving".into(), 
-                        kind: egui_notify::ToastLevel::Warning 
+                    action = Some(PageAction::SendNotification {
+                        text:
+                            "You have unsaved data in the map. Please write to EEPROM before saving"
+                                .into(),
+                        kind: egui_notify::ToastLevel::Warning,
                     });
                 } else {
                     save_map(&self);
@@ -483,126 +820,133 @@ impl Map {
                 }
             });
         });
+        self.show_trace_controls(raw_ui);
+        self.update_trace_poll(raw_ui.ctx(), action.is_some());
         self.gen_edit_table(raw_ui);
         ScrollArea::new([true, true])
             .max_height(raw_ui.available_height())
             .show(raw_ui, |raw_ui| {
-            // Generate display chart
-            if self.x_values.len() == 1 {
-                // Bar chart
-                let mut bars = Vec::new();
-                for x in 0..self.y_values.len() {
-                    // Distinct points
-                    let value = match self.view_type {
-                        MapViewType::Default => self.data_program[x],
-                        MapViewType::EEPROM => self.data_eeprom[x],
-                        MapViewType::Modify => self.data_modify[x],
-                    };
-                    let key = self.get_y_label(x);
-                    bars.push(Bar::new(x as f64, value as f64).name(key))
-                }
-                egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
-                    .allow_drag(false)
-                    .allow_scroll(false)
-                    .allow_zoom(false)
-                    .width(raw_ui.available_width())
-                    .include_x(0)
-                    .include_y((self.y_values.len() + 1) as f64 * 1.5)
-                    .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new("", bars)));
-            } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
-                // Line chart
-                let mut lines: Vec<Line> = Vec::new();
-                for (y_idx, _key) in self.y_values.iter().enumerate() {
-                    let mut points: Vec<[f64; 2]> = Vec::new();
-                    for (x_idx, key) in self.x_values.iter().enumerate() {
-                        let map_idx = (y_idx * self.x_values.len()) + x_idx;
-                        let data = match self.view_type {
-                            MapViewType::Default => self.data_program[map_idx],
-                            MapViewType::EEPROM => self.data_eeprom[map_idx],
-                            MapViewType::Modify => self.data_modify[map_idx],
+                // Generate display chart
+                if self.x_values.len() == 1 {
+                    // Bar chart
+                    let mut bars = Vec::new();
+                    for x in 0..self.y_values.len() {
+                        // Distinct points
+                        let value = match self.view_type {
+                            MapViewType::Default => self.data_program[x],
+                            MapViewType::EEPROM => self.data_eeprom[x],
+                            MapViewType::Modify => self.data_modify[x],
                         };
-                        points.push([*key as f64, data as f64]);
+                        let key = self.get_y_label(x);
+                        bars.push(Bar::new(x as f64, value as f64).name(key))
                     }
-                    lines.push(Line::new(self.get_y_label(y_idx), points));
-                }
-                egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
-                    .allow_drag(false)
-                    .allow_scroll(false)
-                    .allow_zoom(false)
-                    .width(raw_ui.available_width())
-                    .show(raw_ui, |plot_ui| {
-                        for l in lines {
-                            plot_ui.line(l);
+                    egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .allow_zoom(false)
+                        .width(raw_ui.available_width())
+                        .include_x(0)
+                        .include_y((self.y_values.len() + 1) as f64 * 1.5)
+                        .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new("", bars)));
+                } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
+                    // Line chart
+                    let mut lines: Vec<Line> = Vec::new();
+                    for (y_idx, _key) in self.y_values.iter().enumerate() {
+                        let mut points: Vec<[f64; 2]> = Vec::new();
+                        for (x_idx, key) in self.x_values.iter().enumerate() {
+                            let map_idx = (y_idx * self.x_values.len()) + x_idx;
+                            let data = match self.view_type {
+                                MapViewType::Default => self.data_program[map_idx],
+                                MapViewType::EEPROM => self.data_eeprom[map_idx],
+                                MapViewType::Modify => self.data_modify[map_idx],
+                            };
+                            points.push([*key as f64, data as f64]);
                         }
-                    });
-            } else {
-                let src = match self.view_type {
-                    MapViewType::Default => &self.data_program,
-                    MapViewType::EEPROM => &self.data_eeprom,
-                    MapViewType::Modify => &self.data_modify,
-                };
-                let desired_size = egui::Vec2::new(raw_ui.available_width(), raw_ui.available_height());
-                let (rect, response) = raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
-                let painter = raw_ui.painter_at(rect);
-                let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned()).into_drawing_area();
-                
-                let x_min = *self.x_values.iter().min().unwrap() as f64;
-                let x_max = *self.x_values.iter().max().unwrap() as f64;
-                let z_min = *self.y_values.iter().min().unwrap() as f64;
-                let z_max = *self.y_values.iter().max().unwrap() as f64;
+                        lines.push(Line::new(self.get_y_label(y_idx), points));
+                    }
+                    egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .allow_zoom(false)
+                        .width(raw_ui.available_width())
+                        .show(raw_ui, |plot_ui| {
+                            for l in lines {
+                                plot_ui.line(l);
+                            }
+                        });
+                } else {
+                    let src = match self.view_type {
+                        MapViewType::Default => &self.data_program,
+                        MapViewType::EEPROM => &self.data_eeprom,
+                        MapViewType::Modify => &self.data_modify,
+                    };
+                    let desired_size =
+                        egui::Vec2::new(raw_ui.available_width(), raw_ui.available_height());
+                    let (rect, response) =
+                        raw_ui.allocate_exact_size(desired_size, egui::Sense::drag());
+                    let painter = raw_ui.painter_at(rect);
+                    let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned())
+                        .into_drawing_area();
 
-                let y_min = *src.iter().min().unwrap() as f64;
-                let y_max = *src.iter().max().unwrap() as f64;
+                    let x_min = *self.x_values.iter().min().unwrap() as f64;
+                    let x_max = *self.x_values.iter().max().unwrap() as f64;
+                    let z_min = *self.y_values.iter().min().unwrap() as f64;
+                    let z_max = *self.y_values.iter().max().unwrap() as f64;
 
-                self.pitch += response.drag_delta().y as f64 /30.0;
-                self.rot += response.drag_delta().x as f64 /30.0;
-                if self.pitch < 0.0 {
-                    self.pitch = 0.0;
-                } else if self.pitch > 1.57 {
-                    self.pitch = 1.57;
-                }
-                let vis = &raw_ui.ctx().style().visuals;
-                let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
-                let mut chart = ChartBuilder::on(&area)
-                    .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max).unwrap();
+                    let y_min = *src.iter().min().unwrap() as f64;
+                    let y_max = *src.iter().max().unwrap() as f64;
+
+                    self.pitch += response.drag_delta().y as f64 / 30.0;
+                    self.rot += response.drag_delta().x as f64 / 30.0;
+                    if self.pitch < 0.0 {
+                        self.pitch = 0.0;
+                    } else if self.pitch > 1.57 {
+                        self.pitch = 1.57;
+                    }
+                    let vis = &raw_ui.ctx().style().visuals;
+                    let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
+                    let mut chart = ChartBuilder::on(&area)
+                        .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max)
+                        .unwrap();
                     chart.with_projection(|mut p| {
-                    p.pitch = self.pitch; //0.8;
-                    p.scale = 0.75;
-                    p.yaw = self.rot;
-                    p.into_matrix() // build the projection matrix
-                });
+                        p.pitch = self.pitch; //0.8;
+                        p.scale = 0.75;
+                        p.yaw = self.rot;
+                        p.into_matrix() // build the projection matrix
+                    });
 
+                    chart
+                        .configure_axes()
+                        .x_labels(self.x_values.len())
+                        .y_labels(10)
+                        .z_labels(self.y_values.len())
+                        .light_grid_style(into_rgba_color(vis.text_color()))
+                        .max_light_lines(1)
+                        .draw()
+                        .unwrap();
 
-                chart
-                    .configure_axes()
-                    .x_labels(self.x_values.len())
-                    .y_labels(10)
-                    .z_labels(self.y_values.len())
-                    .light_grid_style(into_rgba_color(vis.text_color()))
-                    .max_light_lines(1)
-                    .draw().unwrap();
-
-                chart.draw_series(
-                    SurfaceSeries::xoz(
-                        self.x_values.iter().map(|x| *x as f64),
-                        self.y_values.iter().map(|y| *y as f64),
-                        |x, y| {
-                            let x_v = x as i16;
-                            let y_v = y as i16;
-                            let x_idx = self.x_values.iter().position(|s| *s == x_v).unwrap();
-                            let y_idx = self.y_values.iter().position(|s| *s == y_v).unwrap();
-                            let len = self.x_values.len();
-                            src[(len*y_idx)+x_idx] as f64
-                        }
-                    )
-                    .style_func(&|&v| {
-                        (&HSLColor((v / y_max)*0.3, 1.0, 0.5)).into()
-                    })
-                )
-                .unwrap();
-                let _ = area.present();
-            };
-        });
+                    chart
+                        .draw_series(
+                            SurfaceSeries::xoz(
+                                self.x_values.iter().map(|x| *x as f64),
+                                self.y_values.iter().map(|y| *y as f64),
+                                |x, y| {
+                                    let x_v = x as i16;
+                                    let y_v = y as i16;
+                                    let x_idx =
+                                        self.x_values.iter().position(|s| *s == x_v).unwrap();
+                                    let y_idx =
+                                        self.y_values.iter().position(|s| *s == y_v).unwrap();
+                                    let len = self.x_values.len();
+                                    src[(len * y_idx) + x_idx] as f64
+                                },
+                            )
+                            .style_func(&|&v| (&HSLColor((v / y_max) * 0.3, 1.0, 0.5)).into()),
+                        )
+                        .unwrap();
+                    let _ = area.present();
+                };
+            });
         action
     }
 
@@ -622,40 +966,56 @@ pub fn save_map(map: &Map) {
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
     };
-    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
+    if let Some(picked) = rfd::FileDialog::new()
+        .set_title(format!("Save map {}", map.meta.name))
+        .set_file_name(format!("map_{}.mapbin", map.eeprom_key))
+        .save_file()
+    {
         let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
-        let _ = f.write_all(&bin);  
+        let _ = f.write_all(&bin);
     }
 }
 
 pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
-    let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
+    let path = rfd::FileDialog::new()
+        .add_filter("mapbin", &["mapbin"])
+        .set_title(format!("Pick map file for {}", map.meta.name))
+        .pick_file()?;
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
+    let save_data =
+        bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy())
+            .map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
             if data.id != map.meta.id as u8 {
-                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id as u8, data.id)));
+                return Some(Err(format!(
+                    "Map key is different. Expected {}, got {}",
+                    map.meta.id as u8, data.id
+                )));
             }
             if data.x_values != map.x_values {
-                return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "X sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.y_values != map.y_values {
-                return Some(Err(format!("Y sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Y sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.state.len() != map.data_eeprom.len() {
-                return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Z sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             // All OK!
             map.data_modify = data.state;
-            return Some(Ok(()))
-        },
-        Err(e) => {
-            return Some(Err(e))
+            return Some(Ok(()));
         }
+        Err(e) => return Some(Err(e)),
     }
 }
 
@@ -672,7 +1032,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     help: Option<&'static str>,
-    reset_adaptation: bool
+    reset_adaptation: bool,
 }
 
 impl MapData {
@@ -701,7 +1061,7 @@ impl MapData {
             x_replace,
             y_replace,
             help: None,
-            reset_adaptation
+            reset_adaptation,
         }
     }
 
@@ -728,16 +1088,11 @@ impl MapEditor {
     }
 }
 
-
 impl super::InterfacePage for MapEditor {
-    fn make_ui(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-    ) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let mut action = None;
         let mut map_to_switch = None;
-        MenuBar::new()
-        .ui(ui, |ui| {
+        MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Select map", |ui| {
                 ui.menu_button("Shift points", |ui| {
                     ui.label("(S)tandard mode");
@@ -763,7 +1118,6 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftA);
                     }
-                    
                 });
                 ui.menu_button("Shift speed", |ui| {
                     ui.label("(S)tandard mode");
@@ -839,24 +1193,25 @@ impl super::InterfacePage for MapEditor {
                 }
             }
             if !allowed_to_swtich {
-                action = Some(PageAction::SendNotification { 
-                    text: "You have uncommited changes, please reset or write to EEPROM".into(), 
-                    kind: egui_notify::ToastLevel::Warning 
+                action = Some(PageAction::SendNotification {
+                    text: "You have uncommited changes, please reset or write to EEPROM".into(),
+                    kind: egui_notify::ToastLevel::Warning,
                 })
             } else {
                 if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
                     self.error = None;
                     match Map::new(selected, self.nag.clone(), found_map_info.clone()) {
-                        Ok(m) => {
-                            self.loaded_map = Some(m)
-                        }
+                        Ok(m) => self.loaded_map = Some(m),
                         Err(e) => self.error = Some(e.to_string()),
                     }
                 } else {
                     //Error toast
-                    action = Some(PageAction::SendNotification { 
-                        text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8), 
-                        kind: egui_notify::ToastLevel::Error 
+                    action = Some(PageAction::SendNotification {
+                        text: format!(
+                            "Failed to find map {:?} (0x{:02X}). This is a bug!",
+                            selected, selected as u8
+                        ),
+                        kind: egui_notify::ToastLevel::Error,
                     })
                 }
             }
@@ -864,7 +1219,9 @@ impl super::InterfacePage for MapEditor {
         ui.separator();
         if let Some(loaded_map) = self.loaded_map.as_mut() {
             if let Some(err) = &self.error {
-                ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
+                ui.centered_and_justified(|ui| {
+                    ui.colored_label(Color32::RED, format!("Map failed to load: {err}"))
+                });
             } else {
                 if action.is_none() {
                     action = loaded_map.generate_window_ui(ui);
