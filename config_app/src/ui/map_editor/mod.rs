@@ -471,6 +471,9 @@ impl Map {
                     None,
                 )
                 .and_then(|mut x| {
+                    if x.is_empty() {
+                        return Err(DiagError::InvalidResponseLength);
+                    }
                     x.drain(0..1);
                     Self::parse_trace_response(x)
                 })
