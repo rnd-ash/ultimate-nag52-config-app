@@ -18,7 +18,7 @@ use eframe::{
     epaint::Color32,
 };
 use egui_extras::Column;
-use egui_plot::{Bar, BarChart, Line};
+use egui_plot::{Bar, BarChart, Line, MarkerShape, Points, VLine};
 use plotters::{
     prelude::{ChartBuilder, IntoDrawingArea},
     series::SurfaceSeries,
@@ -137,6 +137,16 @@ pub struct LookupTraceResponse {
     firmware_now_ms: u32,
     valid_mask: u8,
     entries: Vec<LookupTraceEntry>,
+}
+
+struct ActiveTracePoint {
+    slot: usize,
+    x: i16,
+    y: i16,
+    age_ms: u32,
+    alpha: u8,
+    x_idx: usize,
+    y_idx: usize,
 }
 
 impl LookupTraceResponse {
@@ -563,35 +573,69 @@ impl Map {
         }
     }
 
-    fn trace_cell_alpha(&self, x_pos: usize, y_pos: usize) -> u8 {
+    fn active_trace_points(&self) -> Vec<ActiveTracePoint> {
         let Some(trace) = &self.trace.latest else {
-            return 0;
+            return Vec::new();
         };
-        let mut alpha = 0u8;
-        for (slot, entry) in trace.entries.iter().enumerate() {
-            if !trace.is_valid(slot) {
-                continue;
-            }
-            let Some(age) = trace.age_ms(slot) else {
-                continue;
-            };
-            if age > 2000 {
-                continue;
-            }
-            let nearest_x = nearest_index(&self.x_values, entry.x);
-            let nearest_y = nearest_index(&self.y_values, entry.y);
-            if nearest_x == Some(x_pos) && nearest_y == Some(y_pos) {
-                let slot_alpha = if age <= 250 {
+        trace
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, entry)| {
+                if !trace.is_valid(slot) {
+                    return None;
+                }
+                let age_ms = trace.age_ms(slot)?;
+                if age_ms > 2000 {
+                    return None;
+                }
+                let alpha = if age_ms <= 250 {
                     96
-                } else if age <= 1000 {
+                } else if age_ms <= 1000 {
                     72
                 } else {
                     44
                 };
-                alpha = alpha.max(slot_alpha);
+                Some(ActiveTracePoint {
+                    slot,
+                    x: entry.x,
+                    y: entry.y,
+                    age_ms,
+                    alpha,
+                    x_idx: nearest_index(&self.x_values, entry.x)?,
+                    y_idx: nearest_index(&self.y_values, entry.y)?,
+                })
+            })
+            .collect()
+    }
+
+    fn trace_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
+        let points = self.active_trace_points();
+        let mut alpha = 0u8;
+        let mut lines = Vec::new();
+        for point in points {
+            if point.x_idx == x_pos && point.y_idx == y_pos {
+                alpha = alpha.max(point.alpha);
+                lines.push(format!(
+                    "Live cursor slot {}: X={} {}, Y={} {}, age={} ms",
+                    point.slot, point.x, self.meta.x_unit, point.y, self.meta.y_unit, point.age_ms
+                ));
             }
         }
-        alpha
+        let tooltip = if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        };
+        (alpha, tooltip)
+    }
+
+    fn trace_marker_color(alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(255, 215, 0, alpha.saturating_add(80))
+    }
+
+    fn data_value_for(&self, src: &[i16], x_idx: usize, y_idx: usize) -> f64 {
+        src[(y_idx * self.x_values.len()) + x_idx] as f64
     }
 
     fn get_x_label(&self, idx: usize) -> String {
@@ -674,7 +718,8 @@ impl Map {
 
                         // Data columns
                         for x_pos in 0..self.x_values.len() {
-                            let trace_alpha = self.trace_cell_alpha(x_pos, row_id);
+                            let (trace_alpha, trace_tooltip) =
+                                self.trace_cell_info(x_pos, row_id);
                             row.col(|cell| {
                                 if trace_alpha > 0 {
                                     let fill =
@@ -685,18 +730,24 @@ impl Map {
                                 }
                                 match self.view_type {
                                     MapViewType::EEPROM => {
-                                        cell.label(format!(
+                                        let response = cell.label(format!(
                                             "{}",
                                             self.data_eeprom
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
+                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                            response.on_hover_text(tooltip);
+                                        }
                                     }
                                     MapViewType::Default => {
-                                        cell.label(format!(
+                                        let response = cell.label(format!(
                                             "{}",
                                             self.data_program
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
+                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                            response.on_hover_text(tooltip);
+                                        }
                                     }
                                     MapViewType::Modify => {
                                         let map_idx = (row_id * self.x_values.len()) + x_pos;
@@ -708,7 +759,10 @@ impl Map {
                                             .suffix(self.meta.value_unit)
                                             .update_while_editing(false)
                                             .speed(0);
-                                        cell.add(edit);
+                                        let response = cell.add(edit);
+                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                            response.on_hover_text(tooltip);
+                                        }
                                     }
                                 }
                             });
@@ -829,14 +883,15 @@ impl Map {
                 // Generate display chart
                 if self.x_values.len() == 1 {
                     // Bar chart
+                    let src = match self.view_type {
+                        MapViewType::Default => &self.data_program,
+                        MapViewType::EEPROM => &self.data_eeprom,
+                        MapViewType::Modify => &self.data_modify,
+                    };
                     let mut bars = Vec::new();
                     for x in 0..self.y_values.len() {
                         // Distinct points
-                        let value = match self.view_type {
-                            MapViewType::Default => self.data_program[x],
-                            MapViewType::EEPROM => self.data_eeprom[x],
-                            MapViewType::Modify => self.data_modify[x],
-                        };
+                        let value = src[x];
                         let key = self.get_y_label(x);
                         bars.push(Bar::new(x as f64, value as f64).name(key))
                     }
@@ -847,19 +902,33 @@ impl Map {
                         .width(raw_ui.available_width())
                         .include_x(0)
                         .include_y((self.y_values.len() + 1) as f64 * 1.5)
-                        .show(raw_ui, |plot_ui| plot_ui.bar_chart(BarChart::new("", bars)));
+                        .show(raw_ui, |plot_ui| {
+                            plot_ui.bar_chart(BarChart::new("", bars));
+                            for point in self.active_trace_points() {
+                                let value = src[point.y_idx] as f64;
+                                plot_ui.points(
+                                    Points::new(
+                                        format!("Live cursor slot {}", point.slot),
+                                        vec![[point.y_idx as f64, value]],
+                                    )
+                                    .shape(MarkerShape::Cross)
+                                    .radius(7.0)
+                                    .color(Self::trace_marker_color(point.alpha)),
+                                );
+                            }
+                        });
                 } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
                     // Line chart
+                    let src = match self.view_type {
+                        MapViewType::Default => &self.data_program,
+                        MapViewType::EEPROM => &self.data_eeprom,
+                        MapViewType::Modify => &self.data_modify,
+                    };
                     let mut lines: Vec<Line> = Vec::new();
                     for (y_idx, _key) in self.y_values.iter().enumerate() {
                         let mut points: Vec<[f64; 2]> = Vec::new();
                         for (x_idx, key) in self.x_values.iter().enumerate() {
-                            let map_idx = (y_idx * self.x_values.len()) + x_idx;
-                            let data = match self.view_type {
-                                MapViewType::Default => self.data_program[map_idx],
-                                MapViewType::EEPROM => self.data_eeprom[map_idx],
-                                MapViewType::Modify => self.data_modify[map_idx],
-                            };
+                            let data = self.data_value_for(src, x_idx, y_idx);
                             points.push([*key as f64, data as f64]);
                         }
                         lines.push(Line::new(self.get_y_label(y_idx), points));
@@ -872,6 +941,24 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             for l in lines {
                                 plot_ui.line(l);
+                            }
+                            for point in self.active_trace_points() {
+                                let x = point.x as f64;
+                                let value = self.data_value_for(src, point.x_idx, point.y_idx);
+                                let color = Self::trace_marker_color(point.alpha);
+                                plot_ui.vline(
+                                    VLine::new(format!("Live cursor X slot {}", point.slot), x)
+                                        .color(color),
+                                );
+                                plot_ui.points(
+                                    Points::new(
+                                        format!("Live cursor slot {}", point.slot),
+                                        vec![[x, value]],
+                                    )
+                                    .shape(MarkerShape::Cross)
+                                    .radius(7.0)
+                                    .color(color),
+                                );
                             }
                         });
                 } else {
@@ -944,6 +1031,26 @@ impl Map {
                             .style_func(&|&v| (&HSLColor((v / y_max) * 0.3, 1.0, 0.5)).into()),
                         )
                         .unwrap();
+                    let x_step = ((x_max - x_min) * 0.015).max(1.0);
+                    let z_step = ((z_max - z_min) * 0.015).max(1.0);
+                    for point in self.active_trace_points() {
+                        let x = point.x as f64;
+                        let z = point.y as f64;
+                        let y = self.data_value_for(src, point.x_idx, point.y_idx);
+                        let color = RGBColor(255, 215, 0).mix(point.alpha as f64 / 255.0);
+                        let _ = chart.draw_series(LineSeries::new(
+                            vec![(x, y_min, z), (x, y, z)],
+                            &color,
+                        ));
+                        let _ = chart.draw_series(LineSeries::new(
+                            vec![(x - x_step, y, z), (x + x_step, y, z)],
+                            &color,
+                        ));
+                        let _ = chart.draw_series(LineSeries::new(
+                            vec![(x, y, z - z_step), (x, y, z + z_step)],
+                            &color,
+                        ));
+                    }
                     let _ = area.present();
                 };
             });
