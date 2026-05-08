@@ -714,6 +714,27 @@ impl Map {
         Color32::from_rgba_unmultiplied(255, 215, 0, alpha.saturating_add(80))
     }
 
+    fn decorate_lookup_cache_cell(
+        ui: &egui::Ui,
+        response: egui::Response,
+        alpha: u8,
+        tooltip: Option<&String>,
+    ) {
+        let response = if let Some(tooltip) = tooltip {
+            response.on_hover_text(tooltip)
+        } else {
+            response
+        };
+        if alpha > 0 {
+            ui.painter().rect_stroke(
+                response.rect.expand(2.0),
+                2.0,
+                egui::Stroke::new(1.5, Self::lookup_cache_marker_color(alpha)),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
+
     fn data_value_for(&self, src: &[i16], x_idx: usize, y_idx: usize) -> f64 {
         src[(y_idx * self.x_values.len()) + x_idx] as f64
     }
@@ -866,11 +887,16 @@ impl Map {
                                 self.lookup_cache_cell_info(x_pos, row_id);
                             row.col(|cell| {
                                 if lookup_cache_alpha > 0 {
-                                    let fill =
-                                        Color32::from_rgba_unmultiplied(255, 215, 0, lookup_cache_alpha);
-                                    cell.style_mut().visuals.widgets.inactive.bg_fill = fill;
-                                    cell.style_mut().visuals.widgets.hovered.bg_fill = fill;
-                                    cell.style_mut().visuals.widgets.active.bg_fill = fill;
+                                    cell.painter().rect_filled(
+                                        cell.max_rect().shrink(1.0),
+                                        2.0,
+                                        Color32::from_rgba_unmultiplied(
+                                            255,
+                                            215,
+                                            0,
+                                            lookup_cache_alpha / 3,
+                                        ),
+                                    );
                                 }
                                 match self.view_type {
                                     MapViewType::EEPROM => {
@@ -879,9 +905,12 @@ impl Map {
                                             self.data_eeprom
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
-                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
-                                            response.on_hover_text(tooltip);
-                                        }
+                                        Self::decorate_lookup_cache_cell(
+                                            cell,
+                                            response,
+                                            lookup_cache_alpha,
+                                            lookup_cache_tooltip.as_ref(),
+                                        );
                                     }
                                     MapViewType::Default => {
                                         let response = cell.label(format!(
@@ -889,9 +918,12 @@ impl Map {
                                             self.data_program
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
-                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
-                                            response.on_hover_text(tooltip);
-                                        }
+                                        Self::decorate_lookup_cache_cell(
+                                            cell,
+                                            response,
+                                            lookup_cache_alpha,
+                                            lookup_cache_tooltip.as_ref(),
+                                        );
                                     }
                                     MapViewType::Modify => {
                                         let map_idx = (row_id * self.x_values.len()) + x_pos;
@@ -904,9 +936,12 @@ impl Map {
                                             .update_while_editing(false)
                                             .speed(0);
                                         let response = cell.add(edit);
-                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
-                                            response.on_hover_text(tooltip);
-                                        }
+                                        Self::decorate_lookup_cache_cell(
+                                            cell,
+                                            response,
+                                            lookup_cache_alpha,
+                                            lookup_cache_tooltip.as_ref(),
+                                        );
                                     }
                                 }
                             });
