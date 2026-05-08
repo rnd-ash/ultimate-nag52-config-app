@@ -32,7 +32,7 @@ pub enum MapCmd {
     Undo = 0x06,
     ReadMeta = 0x07,
     ReadEEPROM = 0x08,
-    ReadTrace = 0x09,
+    GetLookupVals = 0x10,
 }
 
 const TRACE_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -43,9 +43,8 @@ const TRACE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
 const TRACE_REQUEST_TIMEOUT: Duration = Duration::from_millis(11000);
 const TRACE_BACKOFF_AFTER_ERRORS: u8 = 3;
 const TRACE_DISABLE_AFTER_ERRORS: u8 = 5;
-const TRACE_PAYLOAD_VERSION: u8 = 1;
-const TRACE_ENTRY_SIZE: u8 = 8;
-const TRACE_MAX_SLOTS: u8 = 8;
+const TRACE_ENTRY_SIZE: u8 = 12;
+const TRACE_MAX_SLOTS: u8 = 5;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
 
@@ -110,32 +109,43 @@ fn read_u32(a: &[u8]) -> DiagServerResult<(&[u8], u32)> {
     Ok((&a[4..], r))
 }
 
-fn nearest_index(values: &[i16], value: i16) -> Option<usize> {
+fn read_f32(a: &[u8]) -> DiagServerResult<(&[u8], f32)> {
+    if a.len() < 4 {
+        return Err(DiagError::InvalidResponseLength);
+    }
+    let r = f32::from_le_bytes(a[0..4].try_into().unwrap());
+    Ok((&a[4..], r))
+}
+
+fn nearest_index(values: &[i16], value: f32) -> Option<usize> {
     values
         .iter()
         .enumerate()
-        .min_by_key(|(_, candidate)| ((**candidate as i32) - (value as i32)).abs())
+        .min_by(|(_, a), (_, b)| {
+            let a_delta = ((**a as f32) - value).abs();
+            let b_delta = ((**b as f32) - value).abs();
+            a_delta.total_cmp(&b_delta)
+        })
         .map(|(idx, _)| idx)
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct LookupTraceEntry {
-    x: i16,
-    y: i16,
+    x: f32,
+    y: f32,
     timestamp_ms: u32,
 }
 
 #[derive(Debug, Clone)]
 pub struct LookupTraceResponse {
     firmware_now_ms: u32,
-    valid_mask: u8,
     entries: Vec<LookupTraceEntry>,
 }
 
 struct ActiveTracePoint {
     slot: usize,
-    x: i16,
-    y: i16,
+    x: f32,
+    y: f32,
     age_ms: u32,
     alpha: u8,
     x_idx: usize,
@@ -146,10 +156,6 @@ impl LookupTraceResponse {
     fn age_ms(&self, slot: usize) -> Option<u32> {
         let entry = self.entries.get(slot)?;
         Some(self.firmware_now_ms.wrapping_sub(entry.timestamp_ms))
-    }
-
-    fn is_valid(&self, slot: usize) -> bool {
-        slot < 8 && (self.valid_mask & (1u8 << slot)) != 0
     }
 }
 
@@ -421,35 +427,29 @@ impl Map {
         if payload.len() != payload_len as usize || payload_len < 8 {
             return Err(DiagError::InvalidResponseLength);
         }
-        let version = payload[0];
+        let entry_count = payload[0];
         let entry_size = payload[1];
-        let slot_count = payload[2];
-        let valid_mask = payload[3];
-        if version != TRACE_PAYLOAD_VERSION
-            || entry_size != TRACE_ENTRY_SIZE
-            || slot_count > TRACE_MAX_SLOTS
-        {
+        if entry_size != TRACE_ENTRY_SIZE || entry_count > TRACE_MAX_SLOTS {
             return Err(DiagError::InvalidResponseLength);
         }
-        if slot_count < 8 && (valid_mask & !((1u8 << slot_count) - 1)) != 0 {
+        if payload[2] != 0 || payload[3] != 0 {
             return Err(DiagError::InvalidResponseLength);
         }
-        let expected_len = 8usize + (slot_count as usize * entry_size as usize);
+        let expected_len = 8usize + (entry_count as usize * entry_size as usize);
         if payload.len() != expected_len {
             return Err(DiagError::InvalidResponseLength);
         }
         let (mut data, firmware_now_ms) = read_u32(&payload[4..])?;
-        let mut entries = Vec::with_capacity(slot_count as usize);
-        for _ in 0..slot_count {
-            let (d, x) = read_i16(data)?;
-            let (d, y) = read_i16(d)?;
+        let mut entries = Vec::with_capacity(entry_count as usize);
+        for _ in 0..entry_count {
+            let (d, x) = read_f32(data)?;
+            let (d, y) = read_f32(d)?;
             let (d, timestamp_ms) = read_u32(d)?;
             entries.push(LookupTraceEntry { x, y, timestamp_ms });
             data = d;
         }
         Ok(LookupTraceResponse {
             firmware_now_ms,
-            valid_mask,
             entries,
         })
     }
@@ -462,7 +462,7 @@ impl Map {
                         KwpCommand::ReadDataByLocalIdentifier.into(),
                         0x19,
                         map_id as u8,
-                        MapCmd::ReadTrace as u8,
+                        MapCmd::GetLookupVals as u8,
                         0x00,
                         0x00,
                     ],
@@ -648,10 +648,7 @@ impl Map {
             }
             ui.label(format!("Trace: {}", self.trace.status));
             if let Some(trace) = &self.trace.latest {
-                let valid_count = (0..trace.entries.len())
-                    .filter(|slot| trace.is_valid(*slot))
-                    .count();
-                ui.label(format!("{} active point(s)", valid_count));
+                ui.label(format!("{} cached point(s)", trace.entries.len()));
             }
         });
         if let Some(err) = &self.trace.last_error {
@@ -668,9 +665,6 @@ impl Map {
             .iter()
             .enumerate()
             .filter_map(|(slot, entry)| {
-                if !trace.is_valid(slot) {
-                    return None;
-                }
                 let age_ms = trace.age_ms(slot)?;
                 if age_ms > 2000 {
                     return None;
@@ -703,7 +697,7 @@ impl Map {
             if point.x_idx == x_pos && point.y_idx == y_pos {
                 alpha = alpha.max(point.alpha);
                 lines.push(format!(
-                    "Live cursor slot {}: X={} {}, Y={} {}, age={} ms",
+                    "Live cursor slot {}: X={:.2} {}, Y={:.2} {}, age={} ms",
                     point.slot, point.x, self.meta.x_unit, point.y, self.meta.y_unit, point.age_ms
                 ));
             }
