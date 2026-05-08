@@ -35,16 +35,16 @@ pub enum MapCmd {
     GetLookupVals = 0x10,
 }
 
-const TRACE_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const TRACE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
+const LOOKUP_CACHE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const LOOKUP_CACHE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
 // The diagnostic server read timeout is 10s; keep the UI timeout just above it
 // so we do not report a visual timeout while the request is still legitimately
 // waiting inside the diagnostics layer.
-const TRACE_REQUEST_TIMEOUT: Duration = Duration::from_millis(11000);
-const TRACE_BACKOFF_AFTER_ERRORS: u8 = 3;
-const TRACE_DISABLE_AFTER_ERRORS: u8 = 5;
-const TRACE_ENTRY_SIZE: u8 = 12;
-const TRACE_MAX_SLOTS: u8 = 5;
+const LOOKUP_CACHE_REQUEST_TIMEOUT: Duration = Duration::from_millis(11000);
+const LOOKUP_CACHE_BACKOFF_AFTER_ERRORS: u8 = 3;
+const LOOKUP_CACHE_DISABLE_AFTER_ERRORS: u8 = 5;
+const LOOKUP_CACHE_ENTRY_SIZE: u8 = 12;
+const LOOKUP_CACHE_MAX_SLOTS: u8 = 5;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
 
@@ -81,7 +81,7 @@ pub struct Map {
     view_type: MapViewType,
     pitch: f64,
     rot: f64,
-    trace: LookupTraceState,
+    lookup_cache: LookupCacheState,
     pending_write: Option<PendingMapWrite>,
 }
 
@@ -130,19 +130,19 @@ fn nearest_index(values: &[i16], value: f32) -> Option<usize> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct LookupTraceEntry {
+pub struct LookupCacheEntry {
     x: f32,
     y: f32,
     timestamp_ms: u32,
 }
 
 #[derive(Debug, Clone)]
-pub struct LookupTraceResponse {
+pub struct LookupCacheResponse {
     firmware_now_ms: u32,
-    entries: Vec<LookupTraceEntry>,
+    entries: Vec<LookupCacheEntry>,
 }
 
-struct ActiveTracePoint {
+struct ActiveLookupCachePoint {
     slot: usize,
     x: f32,
     y: f32,
@@ -152,27 +152,27 @@ struct ActiveTracePoint {
     y_idx: usize,
 }
 
-impl LookupTraceResponse {
+impl LookupCacheResponse {
     fn age_ms(&self, slot: usize) -> Option<u32> {
         let entry = self.entries.get(slot)?;
         Some(self.firmware_now_ms.wrapping_sub(entry.timestamp_ms))
     }
 }
 
-enum TraceReadResult {
-    Data(LookupTraceResponse),
+enum LookupCacheReadResult {
+    Data(LookupCacheResponse),
     Busy,
     Unsupported,
     Error(String),
 }
 
-enum TraceWorkerCommand {
+enum LookupCacheWorkerCommand {
     Read { manual: bool },
 }
 
-struct TraceWorkerResult {
+struct LookupCacheWorkerResult {
     manual: bool,
-    result: TraceReadResult,
+    result: LookupCacheReadResult,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -182,27 +182,27 @@ enum PendingMapWrite {
 }
 
 #[derive(Debug)]
-struct LookupTraceState {
+struct LookupCacheState {
     enabled: bool,
     disabled: bool,
     next_poll: Instant,
-    worker_tx: Option<Sender<TraceWorkerCommand>>,
-    worker_rx: Option<Receiver<TraceWorkerResult>>,
+    worker_tx: Option<Sender<LookupCacheWorkerCommand>>,
+    worker_rx: Option<Receiver<LookupCacheWorkerResult>>,
     in_flight: Option<(Instant, bool)>,
-    latest: Option<LookupTraceResponse>,
+    latest: Option<LookupCacheResponse>,
     consecutive_errors: u8,
     status: &'static str,
     last_error: Option<String>,
     timeout_reported: bool,
 }
 
-impl Clone for LookupTraceState {
+impl Clone for LookupCacheState {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
-impl Default for LookupTraceState {
+impl Default for LookupCacheState {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -367,7 +367,7 @@ impl Map {
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
-            trace: LookupTraceState::default(),
+            lookup_cache: LookupCacheState::default(),
             pending_write: None,
         })
     }
@@ -422,14 +422,14 @@ impl Map {
         Ok(())
     }
 
-    fn parse_trace_response(ecu_response: Vec<u8>) -> DiagServerResult<LookupTraceResponse> {
+    fn parse_lookup_cache_response(ecu_response: Vec<u8>) -> DiagServerResult<LookupCacheResponse> {
         let (payload, payload_len) = read_u16(&ecu_response)?;
         if payload.len() != payload_len as usize || payload_len < 8 {
             return Err(DiagError::InvalidResponseLength);
         }
         let entry_count = payload[0];
         let entry_size = payload[1];
-        if entry_size != TRACE_ENTRY_SIZE || entry_count > TRACE_MAX_SLOTS {
+        if entry_size != LOOKUP_CACHE_ENTRY_SIZE || entry_count > LOOKUP_CACHE_MAX_SLOTS {
             return Err(DiagError::InvalidResponseLength);
         }
         if payload[2] != 0 || payload[3] != 0 {
@@ -445,16 +445,16 @@ impl Map {
             let (d, x) = read_f32(data)?;
             let (d, y) = read_f32(d)?;
             let (d, timestamp_ms) = read_u32(d)?;
-            entries.push(LookupTraceEntry { x, y, timestamp_ms });
+            entries.push(LookupCacheEntry { x, y, timestamp_ms });
             data = d;
         }
-        Ok(LookupTraceResponse {
+        Ok(LookupCacheResponse {
             firmware_now_ms,
             entries,
         })
     }
 
-    fn read_trace_once(nag: Nag52Diag, map_id: MapType) -> TraceReadResult {
+    fn read_lookup_cache_once(nag: Nag52Diag, map_id: MapType) -> LookupCacheReadResult {
         match nag.try_with_kwp(|server| {
             server
                 .send_byte_array_with_response(
@@ -476,196 +476,196 @@ impl Map {
                         return Err(DiagError::InvalidResponseLength);
                     }
                     x.drain(0..1);
-                    Self::parse_trace_response(x)
+                    Self::parse_lookup_cache_response(x)
                 })
         }) {
-            Ok(Some(trace)) => TraceReadResult::Data(trace),
-            Ok(None) => TraceReadResult::Busy,
+            Ok(Some(cache)) => LookupCacheReadResult::Data(cache),
+            Ok(None) => LookupCacheReadResult::Busy,
             Err(DiagError::ECUError {
                 code: KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT,
                 ..
             })
-            | Err(DiagError::NotSupported) => TraceReadResult::Unsupported,
-            Err(e) => TraceReadResult::Error(e.to_string()),
+            | Err(DiagError::NotSupported) => LookupCacheReadResult::Unsupported,
+            Err(e) => LookupCacheReadResult::Error(e.to_string()),
         }
     }
 
-    fn ensure_trace_worker(&mut self) {
-        if self.trace.worker_tx.is_some() {
+    fn ensure_lookup_cache_worker(&mut self) {
+        if self.lookup_cache.worker_tx.is_some() {
             return;
         }
         let nag = self.ecu_ref.clone();
         let map_id = self.meta.id;
-        let (cmd_tx, cmd_rx) = mpsc::channel::<TraceWorkerCommand>();
-        let (result_tx, result_rx) = mpsc::channel::<TraceWorkerResult>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<LookupCacheWorkerCommand>();
+        let (result_tx, result_rx) = mpsc::channel::<LookupCacheWorkerResult>();
         let _ = thread::Builder::new()
-            .name("map-lookup-trace-poll".into())
+            .name("map-lookup-cache-poll".into())
             .spawn(move || {
                 while let Ok(cmd) = cmd_rx.recv() {
                     match cmd {
-                        TraceWorkerCommand::Read { manual } => {
-                            let result = Self::read_trace_once(nag.clone(), map_id);
-                            if result_tx.send(TraceWorkerResult { manual, result }).is_err() {
+                        LookupCacheWorkerCommand::Read { manual } => {
+                            let result = Self::read_lookup_cache_once(nag.clone(), map_id);
+                            if result_tx.send(LookupCacheWorkerResult { manual, result }).is_err() {
                                 break;
                             }
                         }
                     }
                 }
             });
-        self.trace.worker_tx = Some(cmd_tx);
-        self.trace.worker_rx = Some(result_rx);
+        self.lookup_cache.worker_tx = Some(cmd_tx);
+        self.lookup_cache.worker_rx = Some(result_rx);
     }
 
-    fn start_trace_request(&mut self, manual: bool) {
-        self.ensure_trace_worker();
-        let Some(worker_tx) = &self.trace.worker_tx else {
-            self.handle_trace_result(
-                TraceReadResult::Error("Trace worker unavailable".into()),
+    fn start_lookup_cache_request(&mut self, manual: bool) {
+        self.ensure_lookup_cache_worker();
+        let Some(worker_tx) = &self.lookup_cache.worker_tx else {
+            self.handle_lookup_cache_result(
+                LookupCacheReadResult::Error("Lookup cache worker unavailable".into()),
                 manual,
             );
             return;
         };
         if worker_tx
-            .send(TraceWorkerCommand::Read { manual })
+            .send(LookupCacheWorkerCommand::Read { manual })
             .is_err()
         {
-            self.trace.worker_tx = None;
-            self.trace.worker_rx = None;
-            self.handle_trace_result(
-                TraceReadResult::Error("Trace worker disconnected".into()),
+            self.lookup_cache.worker_tx = None;
+            self.lookup_cache.worker_rx = None;
+            self.handle_lookup_cache_result(
+                LookupCacheReadResult::Error("Lookup cache worker disconnected".into()),
                 manual,
             );
             return;
         }
-        self.trace.in_flight = Some((Instant::now(), manual));
-        self.trace.timeout_reported = false;
-        self.trace.status = "in flight";
+        self.lookup_cache.in_flight = Some((Instant::now(), manual));
+        self.lookup_cache.timeout_reported = false;
+        self.lookup_cache.status = "in flight";
     }
 
-    fn handle_trace_result(&mut self, result: TraceReadResult, manual: bool) {
+    fn handle_lookup_cache_result(&mut self, result: LookupCacheReadResult, manual: bool) {
         match result {
-            TraceReadResult::Data(trace) => {
-                self.trace.latest = Some(trace);
-                self.trace.consecutive_errors = 0;
-                self.trace.disabled = false;
-                self.trace.status = "live";
-                self.trace.last_error = None;
-                self.trace.next_poll = Instant::now() + TRACE_POLL_INTERVAL;
+            LookupCacheReadResult::Data(cache) => {
+                self.lookup_cache.latest = Some(cache);
+                self.lookup_cache.consecutive_errors = 0;
+                self.lookup_cache.disabled = false;
+                self.lookup_cache.status = "live";
+                self.lookup_cache.last_error = None;
+                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_POLL_INTERVAL;
             }
-            TraceReadResult::Busy => {
-                self.trace.status = "diagnostics busy";
-                self.trace.next_poll = Instant::now() + TRACE_POLL_INTERVAL;
+            LookupCacheReadResult::Busy => {
+                self.lookup_cache.status = "diagnostics busy";
+                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_POLL_INTERVAL;
             }
-            TraceReadResult::Unsupported => {
-                self.trace.disabled = true;
-                self.trace.status = "unsupported";
-                self.trace.last_error = Some("Live cursor unsupported by firmware".into());
-                self.trace.next_poll = Instant::now() + TRACE_BACKOFF_INTERVAL;
+            LookupCacheReadResult::Unsupported => {
+                self.lookup_cache.disabled = true;
+                self.lookup_cache.status = "unsupported";
+                self.lookup_cache.last_error = Some("Live cursor unsupported by firmware".into());
+                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
             }
-            TraceReadResult::Error(err) => {
-                self.trace.consecutive_errors = self.trace.consecutive_errors.saturating_add(1);
-                self.trace.status = "error";
-                self.trace.last_error = Some(err);
-                if self.trace.consecutive_errors >= TRACE_DISABLE_AFTER_ERRORS && !manual {
-                    self.trace.disabled = true;
-                    self.trace.status = "disabled";
+            LookupCacheReadResult::Error(err) => {
+                self.lookup_cache.consecutive_errors = self.lookup_cache.consecutive_errors.saturating_add(1);
+                self.lookup_cache.status = "error";
+                self.lookup_cache.last_error = Some(err);
+                if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS && !manual {
+                    self.lookup_cache.disabled = true;
+                    self.lookup_cache.status = "disabled";
                 }
-                let delay = if self.trace.consecutive_errors >= TRACE_BACKOFF_AFTER_ERRORS {
-                    TRACE_BACKOFF_INTERVAL
+                let delay = if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
+                    LOOKUP_CACHE_BACKOFF_INTERVAL
                 } else {
-                    TRACE_POLL_INTERVAL
+                    LOOKUP_CACHE_POLL_INTERVAL
                 };
-                self.trace.next_poll = Instant::now() + delay;
+                self.lookup_cache.next_poll = Instant::now() + delay;
             }
         }
     }
 
-    fn update_trace_poll(&mut self, ctx: &egui::Context, skip_start: bool) {
-        if let Some(rx) = self.trace.worker_rx.take() {
+    fn update_lookup_cache_poll(&mut self, ctx: &egui::Context, skip_start: bool) {
+        if let Some(rx) = self.lookup_cache.worker_rx.take() {
             match rx.try_recv() {
                 Ok(worker_result) => {
-                    self.trace.in_flight = None;
-                    self.trace.worker_rx = Some(rx);
-                    self.handle_trace_result(worker_result.result, worker_result.manual);
+                    self.lookup_cache.in_flight = None;
+                    self.lookup_cache.worker_rx = Some(rx);
+                    self.handle_lookup_cache_result(worker_result.result, worker_result.manual);
                 }
                 Err(mpsc::TryRecvError::Empty) => {
-                    self.trace.worker_rx = Some(rx);
+                    self.lookup_cache.worker_rx = Some(rx);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let manual = self.trace.in_flight.map(|(_, manual)| manual).unwrap_or(false);
-                    self.trace.in_flight = None;
-                    self.trace.worker_tx = None;
-                    self.handle_trace_result(
-                        TraceReadResult::Error("Trace worker disconnected".into()),
+                    let manual = self.lookup_cache.in_flight.map(|(_, manual)| manual).unwrap_or(false);
+                    self.lookup_cache.in_flight = None;
+                    self.lookup_cache.worker_tx = None;
+                    self.handle_lookup_cache_result(
+                        LookupCacheReadResult::Error("Lookup cache worker disconnected".into()),
                         manual,
                     );
                 }
             }
         }
 
-        if let Some((started, _manual)) = self.trace.in_flight {
-            if !self.trace.timeout_reported && started.elapsed() > TRACE_REQUEST_TIMEOUT {
-                self.trace.timeout_reported = true;
-                self.trace.in_flight = None;
-                self.trace.worker_tx = None;
-                self.trace.worker_rx = None;
-                self.trace.disabled = true;
-                self.trace.status = "timeout";
-                self.trace.last_error =
-                    Some("Trace request timed out; live cursor disabled until refresh".into());
-                self.trace.next_poll = Instant::now() + TRACE_BACKOFF_INTERVAL;
+        if let Some((started, _manual)) = self.lookup_cache.in_flight {
+            if !self.lookup_cache.timeout_reported && started.elapsed() > LOOKUP_CACHE_REQUEST_TIMEOUT {
+                self.lookup_cache.timeout_reported = true;
+                self.lookup_cache.in_flight = None;
+                self.lookup_cache.worker_tx = None;
+                self.lookup_cache.worker_rx = None;
+                self.lookup_cache.disabled = true;
+                self.lookup_cache.status = "timeout";
+                self.lookup_cache.last_error =
+                    Some("Lookup cache request timed out; live cursor disabled until refresh".into());
+                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
                 return;
             }
         }
 
-        if self.trace.enabled {
-            ctx.request_repaint_after(TRACE_POLL_INTERVAL);
+        if self.lookup_cache.enabled {
+            ctx.request_repaint_after(LOOKUP_CACHE_POLL_INTERVAL);
         }
 
-        if !self.trace.enabled
-            || self.trace.disabled
+        if !self.lookup_cache.enabled
+            || self.lookup_cache.disabled
             || skip_start
-            || self.trace.in_flight.is_some()
+            || self.lookup_cache.in_flight.is_some()
         {
             return;
         }
 
-        if Instant::now() >= self.trace.next_poll {
-            self.start_trace_request(false);
+        if Instant::now() >= self.lookup_cache.next_poll {
+            self.start_lookup_cache_request(false);
         }
     }
 
-    fn show_trace_controls(&mut self, ui: &mut egui::Ui) {
+    fn show_lookup_cache_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.trace.enabled, "Live cursor");
+            ui.checkbox(&mut self.lookup_cache.enabled, "Live cursor");
             let refresh = ui.button("Refresh").clicked();
             if refresh {
-                self.trace.disabled = false;
-                self.trace.consecutive_errors = 0;
-                if self.trace.in_flight.is_none() {
-                    self.start_trace_request(true);
+                self.lookup_cache.disabled = false;
+                self.lookup_cache.consecutive_errors = 0;
+                if self.lookup_cache.in_flight.is_none() {
+                    self.start_lookup_cache_request(true);
                 }
             }
-            ui.label(format!("Trace: {}", self.trace.status));
-            if let Some(trace) = &self.trace.latest {
-                ui.label(format!("{} cached point(s)", trace.entries.len()));
+            ui.label(format!("Lookup cache: {}", self.lookup_cache.status));
+            if let Some(cache) = &self.lookup_cache.latest {
+                ui.label(format!("{} cached point(s)", cache.entries.len()));
             }
         });
-        if let Some(err) = &self.trace.last_error {
+        if let Some(err) = &self.lookup_cache.last_error {
             ui.colored_label(ui.visuals().warn_fg_color, err);
         }
     }
 
-    fn active_trace_points(&self) -> Vec<ActiveTracePoint> {
-        let Some(trace) = &self.trace.latest else {
+    fn active_lookup_cache_points(&self) -> Vec<ActiveLookupCachePoint> {
+        let Some(cache) = &self.lookup_cache.latest else {
             return Vec::new();
         };
-        trace
+        cache
             .entries
             .iter()
             .enumerate()
             .filter_map(|(slot, entry)| {
-                let age_ms = trace.age_ms(slot)?;
+                let age_ms = cache.age_ms(slot)?;
                 if age_ms > 2000 {
                     return None;
                 }
@@ -676,7 +676,7 @@ impl Map {
                 } else {
                     44
                 };
-                Some(ActiveTracePoint {
+                Some(ActiveLookupCachePoint {
                     slot,
                     x: entry.x,
                     y: entry.y,
@@ -689,8 +689,8 @@ impl Map {
             .collect()
     }
 
-    fn trace_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
-        let points = self.active_trace_points();
+    fn lookup_cache_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
+        let points = self.active_lookup_cache_points();
         let mut alpha = 0u8;
         let mut lines = Vec::new();
         for point in points {
@@ -710,7 +710,7 @@ impl Map {
         (alpha, tooltip)
     }
 
-    fn trace_marker_color(alpha: u8) -> Color32 {
+    fn lookup_cache_marker_color(alpha: u8) -> Color32 {
         Color32::from_rgba_unmultiplied(255, 215, 0, alpha.saturating_add(80))
     }
 
@@ -755,12 +755,12 @@ impl Map {
     }
 
     fn request_map_write(&mut self, write: PendingMapWrite) -> PageAction {
-        if self.trace.in_flight.is_some() {
+        if self.lookup_cache.in_flight.is_some() {
             self.pending_write = Some(write);
-            self.trace.enabled = false;
-            self.trace.disabled = true;
-            self.trace.status = "write queued";
-            self.trace.last_error = Some("Live cursor paused until queued write completes".into());
+            self.lookup_cache.enabled = false;
+            self.lookup_cache.disabled = true;
+            self.lookup_cache.status = "write queued";
+            self.lookup_cache.last_error = Some("Live cursor paused until queued write completes".into());
             PageAction::SendNotification {
                 text: format!(
                     "Map {} write queued until live cursor request finishes.",
@@ -775,7 +775,7 @@ impl Map {
     }
 
     fn execute_pending_write(&mut self) -> Option<PageAction> {
-        if self.trace.in_flight.is_some() {
+        if self.lookup_cache.in_flight.is_some() {
             return None;
         }
         let write = self.pending_write.take()?;
@@ -862,12 +862,12 @@ impl Map {
 
                         // Data columns
                         for x_pos in 0..self.x_values.len() {
-                            let (trace_alpha, trace_tooltip) =
-                                self.trace_cell_info(x_pos, row_id);
+                            let (lookup_cache_alpha, lookup_cache_tooltip) =
+                                self.lookup_cache_cell_info(x_pos, row_id);
                             row.col(|cell| {
-                                if trace_alpha > 0 {
+                                if lookup_cache_alpha > 0 {
                                     let fill =
-                                        Color32::from_rgba_unmultiplied(255, 215, 0, trace_alpha);
+                                        Color32::from_rgba_unmultiplied(255, 215, 0, lookup_cache_alpha);
                                     cell.style_mut().visuals.widgets.inactive.bg_fill = fill;
                                     cell.style_mut().visuals.widgets.hovered.bg_fill = fill;
                                     cell.style_mut().visuals.widgets.active.bg_fill = fill;
@@ -879,7 +879,7 @@ impl Map {
                                             self.data_eeprom
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
-                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
                                             response.on_hover_text(tooltip);
                                         }
                                     }
@@ -889,7 +889,7 @@ impl Map {
                                             self.data_program
                                                 [(row_id * self.x_values.len()) + x_pos]
                                         ));
-                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
                                             response.on_hover_text(tooltip);
                                         }
                                     }
@@ -904,7 +904,7 @@ impl Map {
                                             .update_while_editing(false)
                                             .speed(0);
                                         let response = cell.add(edit);
-                                        if let Some(tooltip) = trace_tooltip.as_ref() {
+                                        if let Some(tooltip) = lookup_cache_tooltip.as_ref() {
                                             response.on_hover_text(tooltip);
                                         }
                                     }
@@ -990,8 +990,8 @@ impl Map {
                 }
             });
         });
-        self.show_trace_controls(raw_ui);
-        self.update_trace_poll(raw_ui.ctx(), action.is_some());
+        self.show_lookup_cache_controls(raw_ui);
+        self.update_lookup_cache_poll(raw_ui.ctx(), action.is_some());
         if action.is_none() {
             action = self.execute_pending_write();
         }
@@ -1023,7 +1023,7 @@ impl Map {
                         .include_y((self.y_values.len() + 1) as f64 * 1.5)
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
-                            for point in self.active_trace_points() {
+                            for point in self.active_lookup_cache_points() {
                                 let value = src[point.y_idx] as f64;
                                 plot_ui.points(
                                     Points::new(
@@ -1032,7 +1032,7 @@ impl Map {
                                     )
                                     .shape(MarkerShape::Cross)
                                     .radius(7.0)
-                                    .color(Self::trace_marker_color(point.alpha)),
+                                    .color(Self::lookup_cache_marker_color(point.alpha)),
                                 );
                             }
                         });
@@ -1061,10 +1061,10 @@ impl Map {
                             for l in lines {
                                 plot_ui.line(l);
                             }
-                            for point in self.active_trace_points() {
+                            for point in self.active_lookup_cache_points() {
                                 let x = point.x as f64;
                                 let value = self.data_value_for(src, point.x_idx, point.y_idx);
-                                let color = Self::trace_marker_color(point.alpha);
+                                let color = Self::lookup_cache_marker_color(point.alpha);
                                 plot_ui.vline(
                                     VLine::new(format!("Live cursor X slot {}", point.slot), x)
                                         .color(color),
@@ -1152,7 +1152,7 @@ impl Map {
                         .unwrap();
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
                     let z_step = ((z_max - z_min) * 0.015).max(1.0);
-                    for point in self.active_trace_points() {
+                    for point in self.active_lookup_cache_points() {
                         let x = point.x as f64;
                         let z = point.y as f64;
                         let y = self.data_value_for(src, point.x_idx, point.y_idx);
