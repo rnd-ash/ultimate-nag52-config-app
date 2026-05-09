@@ -36,7 +36,9 @@ pub enum MapCmd {
     GetLookupVals = 0x10,
 }
 
-const LOOKUP_CACHE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const LOOKUP_CACHE_DEFAULT_POLL_HZ: f32 = 4.0;
+const LOOKUP_CACHE_MIN_POLL_HZ: f32 = 0.1;
+const LOOKUP_CACHE_MAX_POLL_HZ: f32 = 10.0;
 const LOOKUP_CACHE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
 // The diagnostic server read timeout is 10s; keep the UI timeout just above it
 // so we do not report a visual timeout while the request is still legitimately
@@ -210,6 +212,7 @@ struct LookupCacheState {
     in_flight: Option<(Instant, bool)>,
     latest: Option<LookupCacheResponse>,
     time_sync: Option<TcuTimeSync>,
+    poll_hz: f32,
     consecutive_errors: u8,
     status: &'static str,
     last_error: Option<String>,
@@ -233,11 +236,24 @@ impl Default for LookupCacheState {
             in_flight: None,
             latest: None,
             time_sync: None,
+            poll_hz: LOOKUP_CACHE_DEFAULT_POLL_HZ,
             consecutive_errors: 0,
             status: "idle",
             last_error: None,
             timeout_reported: false,
         }
+    }
+}
+
+impl LookupCacheState {
+    fn clamp_poll_hz(&mut self) {
+        self.poll_hz = self
+            .poll_hz
+            .clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ);
+    }
+
+    fn poll_interval(&self) -> Duration {
+        Duration::from_secs_f32(1.0 / self.poll_hz.clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ))
     }
 }
 
@@ -604,6 +620,7 @@ impl Map {
     fn handle_lookup_cache_result(&mut self, result: LookupCacheReadResult, manual: bool) {
         match result {
             LookupCacheReadResult::Data { cache, time_sync } => {
+                let poll_interval = self.lookup_cache.poll_interval();
                 if let Some(time_sync) = time_sync {
                     self.lookup_cache.time_sync = Some(time_sync);
                 }
@@ -612,11 +629,11 @@ impl Map {
                 self.lookup_cache.disabled = false;
                 self.lookup_cache.status = "live";
                 self.lookup_cache.last_error = None;
-                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_POLL_INTERVAL;
+                self.lookup_cache.next_poll = Instant::now() + poll_interval;
             }
             LookupCacheReadResult::Busy => {
                 self.lookup_cache.status = "diagnostics busy";
-                self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_POLL_INTERVAL;
+                self.lookup_cache.next_poll = Instant::now() + self.lookup_cache.poll_interval();
             }
             LookupCacheReadResult::Unsupported => {
                 self.lookup_cache.disabled = true;
@@ -635,7 +652,7 @@ impl Map {
                 let delay = if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
                     LOOKUP_CACHE_BACKOFF_INTERVAL
                 } else {
-                    LOOKUP_CACHE_POLL_INTERVAL
+                    self.lookup_cache.poll_interval()
                 };
                 self.lookup_cache.next_poll = Instant::now() + delay;
             }
@@ -681,7 +698,7 @@ impl Map {
         }
 
         if self.lookup_cache.enabled {
-            ctx.request_repaint_after(LOOKUP_CACHE_POLL_INTERVAL);
+            ctx.request_repaint_after(self.lookup_cache.poll_interval());
         }
 
         if !self.lookup_cache.enabled
@@ -700,6 +717,17 @@ impl Map {
     fn show_lookup_cache_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.lookup_cache.enabled, "Live cursor");
+            ui.label("Hz");
+            let hz_response = ui.add(
+                DragValue::new(&mut self.lookup_cache.poll_hz)
+                    .range(LOOKUP_CACHE_MIN_POLL_HZ..=LOOKUP_CACHE_MAX_POLL_HZ)
+                    .speed(0.1)
+                    .max_decimals(1),
+            );
+            self.lookup_cache.clamp_poll_hz();
+            if hz_response.changed() {
+                self.lookup_cache.next_poll = Instant::now() + self.lookup_cache.poll_interval();
+            }
             let refresh = ui.button("Refresh").clicked();
             if refresh {
                 self.lookup_cache.disabled = false;
