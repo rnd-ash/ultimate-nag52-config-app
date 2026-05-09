@@ -3,6 +3,7 @@ use std::{fs::File, io::{Read, Write}, sync::mpsc::{self, Receiver, Sender}, thr
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
+        dynamic_diag::DynamicDiagSession,
         DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
     },
 };
@@ -43,10 +44,12 @@ const LOOKUP_CACHE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
 const LOOKUP_CACHE_REQUEST_TIMEOUT: Duration = Duration::from_millis(11000);
 const LOOKUP_CACHE_BACKOFF_AFTER_ERRORS: u8 = 3;
 const LOOKUP_CACHE_DISABLE_AFTER_ERRORS: u8 = 5;
-const LOOKUP_CACHE_ENTRY_SIZE: u8 = 12;
+const LOOKUP_CACHE_ENTRY_SIZE: u8 = 13;
 const LOOKUP_CACHE_MAX_SLOTS: u8 = 5;
+const RLI_TCU_TIME: u8 = 0x26;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
+const KWP_NRC_REQUEST_OUT_OF_RANGE: u8 = 0x31;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MapViewType {
@@ -131,6 +134,7 @@ fn nearest_index(values: &[i16], value: f32) -> Option<usize> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct LookupCacheEntry {
+    slot_id: u8,
     x: f32,
     y: f32,
     timestamp_ms: u32,
@@ -138,8 +142,13 @@ pub struct LookupCacheEntry {
 
 #[derive(Debug, Clone)]
 pub struct LookupCacheResponse {
-    firmware_now_ms: u32,
     entries: Vec<LookupCacheEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TcuTimeSync {
+    tcu_ms: u32,
+    host_instant: Instant,
 }
 
 struct ActiveLookupCachePoint {
@@ -152,22 +161,32 @@ struct ActiveLookupCachePoint {
     y_idx: usize,
 }
 
-impl LookupCacheResponse {
-    fn age_ms(&self, slot: usize) -> Option<u32> {
-        let entry = self.entries.get(slot)?;
-        Some(self.firmware_now_ms.wrapping_sub(entry.timestamp_ms))
+impl TcuTimeSync {
+    fn new(tcu_ms: u32) -> Self {
+        Self {
+            tcu_ms,
+            host_instant: Instant::now(),
+        }
+    }
+
+    fn estimated_tcu_now_ms(&self) -> u32 {
+        self.tcu_ms
+            .wrapping_add(self.host_instant.elapsed().as_millis() as u32)
     }
 }
 
 enum LookupCacheReadResult {
-    Data(LookupCacheResponse),
+    Data {
+        cache: LookupCacheResponse,
+        time_sync: Option<TcuTimeSync>,
+    },
     Busy,
     Unsupported,
     Error(String),
 }
 
 enum LookupCacheWorkerCommand {
-    Read { manual: bool },
+    Read { manual: bool, sync_time: bool },
 }
 
 struct LookupCacheWorkerResult {
@@ -190,6 +209,7 @@ struct LookupCacheState {
     worker_rx: Option<Receiver<LookupCacheWorkerResult>>,
     in_flight: Option<(Instant, bool)>,
     latest: Option<LookupCacheResponse>,
+    time_sync: Option<TcuTimeSync>,
     consecutive_errors: u8,
     status: &'static str,
     last_error: Option<String>,
@@ -212,6 +232,7 @@ impl Default for LookupCacheState {
             worker_rx: None,
             in_flight: None,
             latest: None,
+            time_sync: None,
             consecutive_errors: 0,
             status: "idle",
             last_error: None,
@@ -354,6 +375,8 @@ impl Map {
             e_data = d;
         }
 
+        let time_sync = Self::read_tcu_time_sync_blocking(&nag).ok();
+
         Ok(Self {
             x_values: x_elements,
             y_values: y_elements,
@@ -367,7 +390,10 @@ impl Map {
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
-            lookup_cache: LookupCacheState::default(),
+            lookup_cache: LookupCacheState {
+                time_sync,
+                ..LookupCacheState::default()
+            },
             pending_write: None,
         })
     }
@@ -422,9 +448,25 @@ impl Map {
         Ok(())
     }
 
+    fn read_tcu_time_from_server(server: &DynamicDiagSession) -> DiagServerResult<TcuTimeSync> {
+        let response = server.kwp_read_custom_local_identifier(RLI_TCU_TIME)?;
+        if response.len() != 4 {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        let (remaining, tcu_ms) = read_u32(&response)?;
+        if !remaining.is_empty() {
+            return Err(DiagError::InvalidResponseLength);
+        }
+        Ok(TcuTimeSync::new(tcu_ms))
+    }
+
+    fn read_tcu_time_sync_blocking(nag: &Nag52Diag) -> DiagServerResult<TcuTimeSync> {
+        nag.with_kwp(Self::read_tcu_time_from_server)
+    }
+
     fn parse_lookup_cache_response(ecu_response: Vec<u8>) -> DiagServerResult<LookupCacheResponse> {
         let (payload, payload_len) = read_u16(&ecu_response)?;
-        if payload.len() != payload_len as usize || payload_len < 8 {
+        if payload.len() != payload_len as usize || payload_len < 4 {
             return Err(DiagError::InvalidResponseLength);
         }
         let entry_count = payload[0];
@@ -435,27 +477,38 @@ impl Map {
         if payload[2] != 0 || payload[3] != 0 {
             return Err(DiagError::InvalidResponseLength);
         }
-        let expected_len = 8usize + (entry_count as usize * entry_size as usize);
+        let expected_len = 4usize + (entry_count as usize * entry_size as usize);
         if payload.len() != expected_len {
             return Err(DiagError::InvalidResponseLength);
         }
-        let (mut data, firmware_now_ms) = read_u32(&payload[4..])?;
+        let mut data = &payload[4..];
         let mut entries = Vec::with_capacity(entry_count as usize);
+        let mut seen_slots = [false; LOOKUP_CACHE_MAX_SLOTS as usize];
         for _ in 0..entry_count {
-            let (d, x) = read_f32(data)?;
+            if data.is_empty() {
+                return Err(DiagError::InvalidResponseLength);
+            }
+            let slot_id = data[0];
+            if slot_id >= LOOKUP_CACHE_MAX_SLOTS || seen_slots[slot_id as usize] {
+                return Err(DiagError::InvalidResponseLength);
+            }
+            seen_slots[slot_id as usize] = true;
+            let (d, x) = read_f32(&data[1..])?;
             let (d, y) = read_f32(d)?;
             let (d, timestamp_ms) = read_u32(d)?;
-            entries.push(LookupCacheEntry { x, y, timestamp_ms });
+            entries.push(LookupCacheEntry { slot_id, x, y, timestamp_ms });
             data = d;
         }
-        Ok(LookupCacheResponse {
-            firmware_now_ms,
-            entries,
-        })
+        Ok(LookupCacheResponse { entries })
     }
 
-    fn read_lookup_cache_once(nag: Nag52Diag, map_id: MapType) -> LookupCacheReadResult {
+    fn read_lookup_cache_once(nag: Nag52Diag, map_id: MapType, sync_time: bool) -> LookupCacheReadResult {
         match nag.try_with_kwp(|server| {
+            let time_sync = if sync_time {
+                Some(Self::read_tcu_time_from_server(server)?)
+            } else {
+                None
+            };
             server
                 .send_byte_array_with_response(
                     &[
@@ -478,11 +531,16 @@ impl Map {
                     x.drain(0..1);
                     Self::parse_lookup_cache_response(x)
                 })
+                .map(|cache| (cache, time_sync))
         }) {
-            Ok(Some(cache)) => LookupCacheReadResult::Data(cache),
+            Ok(Some((cache, time_sync))) => LookupCacheReadResult::Data { cache, time_sync },
             Ok(None) => LookupCacheReadResult::Busy,
             Err(DiagError::ECUError {
                 code: KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT,
+                ..
+            })
+            | Err(DiagError::ECUError {
+                code: KWP_NRC_REQUEST_OUT_OF_RANGE,
                 ..
             })
             | Err(DiagError::NotSupported) => LookupCacheReadResult::Unsupported,
@@ -503,8 +561,8 @@ impl Map {
             .spawn(move || {
                 while let Ok(cmd) = cmd_rx.recv() {
                     match cmd {
-                        LookupCacheWorkerCommand::Read { manual } => {
-                            let result = Self::read_lookup_cache_once(nag.clone(), map_id);
+                        LookupCacheWorkerCommand::Read { manual, sync_time } => {
+                            let result = Self::read_lookup_cache_once(nag.clone(), map_id, sync_time);
                             if result_tx.send(LookupCacheWorkerResult { manual, result }).is_err() {
                                 break;
                             }
@@ -525,8 +583,9 @@ impl Map {
             );
             return;
         };
+        let sync_time = manual || self.lookup_cache.time_sync.is_none();
         if worker_tx
-            .send(LookupCacheWorkerCommand::Read { manual })
+            .send(LookupCacheWorkerCommand::Read { manual, sync_time })
             .is_err()
         {
             self.lookup_cache.worker_tx = None;
@@ -544,7 +603,10 @@ impl Map {
 
     fn handle_lookup_cache_result(&mut self, result: LookupCacheReadResult, manual: bool) {
         match result {
-            LookupCacheReadResult::Data(cache) => {
+            LookupCacheReadResult::Data { cache, time_sync } => {
+                if let Some(time_sync) = time_sync {
+                    self.lookup_cache.time_sync = Some(time_sync);
+                }
                 self.lookup_cache.latest = Some(cache);
                 self.lookup_cache.consecutive_errors = 0;
                 self.lookup_cache.disabled = false;
@@ -660,12 +722,15 @@ impl Map {
         let Some(cache) = &self.lookup_cache.latest else {
             return Vec::new();
         };
+        let Some(time_sync) = self.lookup_cache.time_sync else {
+            return Vec::new();
+        };
+        let tcu_now_ms = time_sync.estimated_tcu_now_ms();
         cache
             .entries
             .iter()
-            .enumerate()
-            .filter_map(|(slot, entry)| {
-                let age_ms = cache.age_ms(slot)?;
+            .filter_map(|entry| {
+                let age_ms = tcu_now_ms.wrapping_sub(entry.timestamp_ms);
                 if age_ms > 2000 {
                     return None;
                 }
@@ -677,7 +742,7 @@ impl Map {
                     44
                 };
                 Some(ActiveLookupCachePoint {
-                    slot,
+                    slot: entry.slot_id as usize,
                     x: entry.x,
                     y: entry.y,
                     age_ms,
