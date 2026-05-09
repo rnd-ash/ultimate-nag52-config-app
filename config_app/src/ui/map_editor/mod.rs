@@ -134,6 +134,55 @@ fn nearest_index(values: &[i16], value: f32) -> Option<usize> {
         .map(|(idx, _)| idx)
 }
 
+fn axis_position(values: &[i16], value: f32) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    if values.len() == 1 {
+        return Some(0.0);
+    }
+
+    let value = value as f64;
+    let first = values[0] as f64;
+    let last = values[values.len() - 1] as f64;
+    if first <= last {
+        if value <= first {
+            return Some(0.0);
+        }
+        if value >= last {
+            return Some((values.len() - 1) as f64);
+        }
+    } else {
+        if value >= first {
+            return Some(0.0);
+        }
+        if value <= last {
+            return Some((values.len() - 1) as f64);
+        }
+    }
+
+    values.windows(2).enumerate().find_map(|(idx, pair)| {
+        let start = pair[0] as f64;
+        let end = pair[1] as f64;
+        let between = if start <= end {
+            value >= start && value <= end
+        } else {
+            value <= start && value >= end
+        };
+        if !between {
+            return None;
+        }
+        if (end - start).abs() <= f64::EPSILON {
+            return Some(idx as f64);
+        }
+        Some(idx as f64 + ((value - start) / (end - start)))
+    })
+}
+
+fn lerp(start: f64, end: f64, factor: f64) -> f64 {
+    start + ((end - start) * factor)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct LookupCacheEntry {
     slot_id: u8,
@@ -832,6 +881,29 @@ impl Map {
         src[(y_idx * self.x_values.len()) + x_idx] as f64
     }
 
+    fn interpolated_data_value_for(&self, src: &[i16], x: f32, y: f32) -> Option<f64> {
+        let x_pos = axis_position(&self.x_values, x)?;
+        let y_pos = axis_position(&self.y_values, y)?;
+        let x0 = x_pos.floor() as usize;
+        let y0 = y_pos.floor() as usize;
+        let x1 = (x0 + 1).min(self.x_values.len().saturating_sub(1));
+        let y1 = (y0 + 1).min(self.y_values.len().saturating_sub(1));
+        let x_factor = x_pos - x0 as f64;
+        let y_factor = y_pos - y0 as f64;
+
+        let top = lerp(
+            self.data_value_for(src, x0, y0),
+            self.data_value_for(src, x1, y0),
+            x_factor,
+        );
+        let bottom = lerp(
+            self.data_value_for(src, x0, y1),
+            self.data_value_for(src, x1, y1),
+            x_factor,
+        );
+        Some(lerp(top, bottom, y_factor))
+    }
+
     fn perform_map_write(&mut self, write: PendingMapWrite) -> PageAction {
         match write {
             PendingMapWrite::Ram => match self.write_to_ram() {
@@ -1152,11 +1224,15 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
                             for point in self.active_lookup_cache_points() {
-                                let value = src[point.y_idx] as f64;
+                                let x = axis_position(&self.y_values, point.y)
+                                    .unwrap_or(point.y_idx as f64);
+                                let value = self
+                                    .interpolated_data_value_for(src, point.x, point.y)
+                                    .unwrap_or_else(|| src[point.y_idx] as f64);
                                 plot_ui.points(
                                     Points::new(
                                         format!("Live cursor slot {}", point.slot),
-                                        vec![[point.y_idx as f64, value]],
+                                        vec![[x, value]],
                                     )
                                     .shape(MarkerShape::Cross)
                                     .radius(7.0)
@@ -1191,7 +1267,9 @@ impl Map {
                             }
                             for point in self.active_lookup_cache_points() {
                                 let x = point.x as f64;
-                                let value = self.data_value_for(src, point.x_idx, point.y_idx);
+                                let value = self
+                                    .interpolated_data_value_for(src, point.x, point.y)
+                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
                                 let color = Self::lookup_cache_marker_color(point.alpha);
                                 plot_ui.vline(
                                     VLine::new(format!("Live cursor X slot {}", point.slot), x)
@@ -1283,7 +1361,9 @@ impl Map {
                     for point in self.active_lookup_cache_points() {
                         let x = point.x as f64;
                         let z = point.y as f64;
-                        let y = self.data_value_for(src, point.x_idx, point.y_idx);
+                        let y = self
+                            .interpolated_data_value_for(src, point.x, point.y)
+                            .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
                         let color = RGBColor(255, 215, 0).mix(point.alpha as f64 / 255.0);
                         let _ = chart.draw_series(LineSeries::new(
                             vec![(x, y_min, z), (x, y, z)],
