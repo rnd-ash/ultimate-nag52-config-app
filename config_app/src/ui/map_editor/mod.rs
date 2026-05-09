@@ -36,9 +36,9 @@ pub enum MapCmd {
     GetLookupVals = 0x10,
 }
 
-const LOOKUP_CACHE_DEFAULT_POLL_HZ: f32 = 4.0;
+const LOOKUP_CACHE_DEFAULT_POLL_HZ: f32 = 24.0;
 const LOOKUP_CACHE_MIN_POLL_HZ: f32 = 0.1;
-const LOOKUP_CACHE_MAX_POLL_HZ: f32 = 10.0;
+const LOOKUP_CACHE_MAX_POLL_HZ: f32 = 60.0;
 const LOOKUP_CACHE_BACKOFF_INTERVAL: Duration = Duration::from_millis(1000);
 // The diagnostic server read timeout is 10s; keep the UI timeout just above it
 // so we do not report a visual timeout while the request is still legitimately
