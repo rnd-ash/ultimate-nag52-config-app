@@ -49,6 +49,8 @@ const LOOKUP_CACHE_DISABLE_AFTER_ERRORS: u8 = 5;
 const LOOKUP_CACHE_ENTRY_SIZE: u8 = 13;
 const LOOKUP_CACHE_MAX_SLOTS: u8 = 5;
 const LOOKUP_TRACE_FADE_MS: u32 = 2000;
+const LOOKUP_TRACE_LINE_WIDTH: f32 = 2.0;
+const LOOKUP_TRACE_3D_LINE_WIDTH: u32 = 2;
 const LOOKUP_LAMP_POLL_MS: u128 = 160;
 const LOOKUP_LAMP_DATA_MS: u128 = 300;
 const LOOKUP_LAMP_ERROR_MS: u128 = 3000;
@@ -933,6 +935,21 @@ impl Map {
         points
     }
 
+    fn latest_lookup_cache_points(&self) -> Vec<ActiveLookupCachePoint> {
+        let mut points = Vec::new();
+        for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
+            if let Some(point) = self
+                .active_lookup_cache_points()
+                .into_iter()
+                .filter(|point| point.slot == slot)
+                .min_by_key(|point| point.age_ms)
+            {
+                points.push(point);
+            }
+        }
+        points
+    }
+
     fn lookup_cache_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
         let points = self.active_lookup_cache_points();
         let mut alpha = 0u8;
@@ -1345,11 +1362,12 @@ impl Map {
                                             format!("Live cursor trace slot {}", slot),
                                             vec![segment[0].0, segment[1].0],
                                         )
+                                        .width(LOOKUP_TRACE_LINE_WIDTH)
                                         .color(Self::lookup_cache_marker_color(alpha)),
                                     );
                                 }
                             }
-                            for point in self.active_lookup_cache_points() {
+                            for point in self.latest_lookup_cache_points() {
                                 let x = axis_position(&self.y_values, point.y)
                                     .unwrap_or(point.y_idx as f64);
                                 let value = self
@@ -1410,11 +1428,12 @@ impl Map {
                                             format!("Live cursor trace slot {}", slot),
                                             vec![segment[0].0, segment[1].0],
                                         )
+                                        .width(LOOKUP_TRACE_LINE_WIDTH)
                                         .color(Self::lookup_cache_marker_color(alpha)),
                                     );
                                 }
                             }
-                            for point in self.active_lookup_cache_points() {
+                            for point in self.latest_lookup_cache_points() {
                                 let x = point.x as f64;
                                 let value = self
                                     .interpolated_data_value_for(src, point.x, point.y)
@@ -1523,13 +1542,14 @@ impl Map {
                         for segment in points.windows(2) {
                             let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
                             let color = RGBColor(255, 215, 0).mix(alpha);
+                            let style = ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
                             let _ = chart.draw_series(LineSeries::new(
                                 vec![segment[0].0, segment[1].0],
-                                &color,
+                                style,
                             ));
                         }
                     }
-                    for point in self.active_lookup_cache_points() {
+                    for point in self.latest_lookup_cache_points() {
                         let x = point.x as f64;
                         let z = point.y as f64;
                         let y = self
