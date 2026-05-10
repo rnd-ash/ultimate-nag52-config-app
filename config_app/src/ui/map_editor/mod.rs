@@ -48,6 +48,10 @@ const LOOKUP_CACHE_BACKOFF_AFTER_ERRORS: u8 = 3;
 const LOOKUP_CACHE_DISABLE_AFTER_ERRORS: u8 = 5;
 const LOOKUP_CACHE_ENTRY_SIZE: u8 = 13;
 const LOOKUP_CACHE_MAX_SLOTS: u8 = 5;
+const LOOKUP_TRACE_FADE_MS: u32 = 2000;
+const LOOKUP_LAMP_POLL_MS: u128 = 160;
+const LOOKUP_LAMP_DATA_MS: u128 = 300;
+const LOOKUP_LAMP_ERROR_MS: u128 = 3000;
 const RLI_TCU_TIME: u8 = 0x26;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
@@ -212,6 +216,14 @@ struct ActiveLookupCachePoint {
     y_idx: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LookupTraceSample {
+    slot_id: u8,
+    x: f32,
+    y: f32,
+    timestamp_ms: u32,
+}
+
 impl TcuTimeSync {
     fn new(tcu_ms: u32) -> Self {
         Self {
@@ -260,12 +272,16 @@ struct LookupCacheState {
     worker_rx: Option<Receiver<LookupCacheWorkerResult>>,
     in_flight: Option<(Instant, bool)>,
     latest: Option<LookupCacheResponse>,
+    trace: Vec<LookupTraceSample>,
     time_sync: Option<TcuTimeSync>,
     poll_hz: f32,
     consecutive_errors: u8,
     status: &'static str,
     last_error: Option<String>,
     timeout_reported: bool,
+    last_poll_started: Option<Instant>,
+    last_data_received: Option<Instant>,
+    last_error_at: Option<Instant>,
 }
 
 impl Clone for LookupCacheState {
@@ -284,12 +300,16 @@ impl Default for LookupCacheState {
             worker_rx: None,
             in_flight: None,
             latest: None,
+            trace: Vec::new(),
             time_sync: None,
             poll_hz: LOOKUP_CACHE_DEFAULT_POLL_HZ,
             consecutive_errors: 0,
             status: "idle",
             last_error: None,
             timeout_reported: false,
+            last_poll_started: None,
+            last_data_received: None,
+            last_error_at: None,
         }
     }
 }
@@ -662,6 +682,7 @@ impl Map {
             return;
         }
         self.lookup_cache.in_flight = Some((Instant::now(), manual));
+        self.lookup_cache.last_poll_started = Some(Instant::now());
         self.lookup_cache.timeout_reported = false;
         self.lookup_cache.status = "in flight";
     }
@@ -673,11 +694,13 @@ impl Map {
                 if let Some(time_sync) = time_sync {
                     self.lookup_cache.time_sync = Some(time_sync);
                 }
+                self.record_lookup_trace(&cache);
                 self.lookup_cache.latest = Some(cache);
                 self.lookup_cache.consecutive_errors = 0;
                 self.lookup_cache.disabled = false;
                 self.lookup_cache.status = "live";
                 self.lookup_cache.last_error = None;
+                self.lookup_cache.last_data_received = Some(Instant::now());
                 self.lookup_cache.next_poll = Instant::now() + poll_interval;
             }
             LookupCacheReadResult::Busy => {
@@ -688,12 +711,14 @@ impl Map {
                 self.lookup_cache.disabled = true;
                 self.lookup_cache.status = "unsupported";
                 self.lookup_cache.last_error = Some("Live cursor unsupported by firmware".into());
+                self.lookup_cache.last_error_at = Some(Instant::now());
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
             }
             LookupCacheReadResult::Error(err) => {
                 self.lookup_cache.consecutive_errors = self.lookup_cache.consecutive_errors.saturating_add(1);
                 self.lookup_cache.status = "error";
                 self.lookup_cache.last_error = Some(err);
+                self.lookup_cache.last_error_at = Some(Instant::now());
                 if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS && !manual {
                     self.lookup_cache.disabled = true;
                     self.lookup_cache.status = "disabled";
@@ -705,6 +730,29 @@ impl Map {
                 };
                 self.lookup_cache.next_poll = Instant::now() + delay;
             }
+        }
+    }
+
+    fn record_lookup_trace(&mut self, cache: &LookupCacheResponse) {
+        let tcu_now_ms = self.lookup_cache.time_sync.map(|sync| sync.estimated_tcu_now_ms());
+        if let Some(tcu_now_ms) = tcu_now_ms {
+            self.lookup_cache
+                .trace
+                .retain(|sample| tcu_now_ms.wrapping_sub(sample.timestamp_ms) <= LOOKUP_TRACE_FADE_MS);
+        }
+
+        for entry in &cache.entries {
+            if self.lookup_cache.trace.iter().any(|sample| {
+                sample.slot_id == entry.slot_id && sample.timestamp_ms == entry.timestamp_ms
+            }) {
+                continue;
+            }
+            self.lookup_cache.trace.push(LookupTraceSample {
+                slot_id: entry.slot_id,
+                x: entry.x,
+                y: entry.y,
+                timestamp_ms: entry.timestamp_ms,
+            });
         }
     }
 
@@ -741,6 +789,7 @@ impl Map {
                 self.lookup_cache.status = "timeout";
                 self.lookup_cache.last_error =
                     Some("Lookup cache request timed out; live cursor disabled until refresh".into());
+                self.lookup_cache.last_error_at = Some(Instant::now());
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
                 return;
             }
@@ -785,50 +834,103 @@ impl Map {
                     self.start_lookup_cache_request(true);
                 }
             }
-            ui.label(format!("Lookup cache: {}", self.lookup_cache.status));
-            if let Some(cache) = &self.lookup_cache.latest {
-                ui.label(format!("{} cached point(s)", cache.entries.len()));
+            let now = Instant::now();
+            Self::lookup_cache_lamp(
+                ui,
+                "Poll",
+                self.lookup_cache
+                    .last_poll_started
+                    .map(|instant| now.duration_since(instant).as_millis() <= LOOKUP_LAMP_POLL_MS)
+                    .unwrap_or(false),
+                Color32::from_rgb(70, 180, 255),
+            );
+            Self::lookup_cache_lamp(
+                ui,
+                "Data",
+                self.lookup_cache
+                    .last_data_received
+                    .map(|instant| now.duration_since(instant).as_millis() <= LOOKUP_LAMP_DATA_MS)
+                    .unwrap_or(false),
+                Color32::from_rgb(80, 220, 120),
+            );
+            Self::lookup_cache_lamp(
+                ui,
+                "Cache",
+                !self.active_lookup_cache_points().is_empty(),
+                Self::lookup_cache_marker_color(96),
+            );
+            Self::lookup_cache_lamp(
+                ui,
+                "Err",
+                self.lookup_cache
+                    .last_error_at
+                    .map(|instant| now.duration_since(instant).as_millis() <= LOOKUP_LAMP_ERROR_MS)
+                    .unwrap_or(false),
+                Color32::from_rgb(255, 80, 70),
+            );
+            if matches!(
+                self.lookup_cache.status,
+                "diagnostics busy" | "unsupported" | "disabled" | "timeout" | "write queued" | "write active"
+            ) {
+                ui.label(self.lookup_cache.status);
             }
+            ui.label(format!("Trace {}", self.active_lookup_cache_points().len()));
         });
         if let Some(err) = &self.lookup_cache.last_error {
             ui.colored_label(ui.visuals().warn_fg_color, err);
         }
     }
 
-    fn active_lookup_cache_points(&self) -> Vec<ActiveLookupCachePoint> {
-        let Some(cache) = &self.lookup_cache.latest else {
-            return Vec::new();
+    fn lookup_cache_lamp(ui: &mut egui::Ui, label: &str, active: bool, color: Color32) {
+        let size = egui::Vec2::splat(8.0);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let color = if active {
+            color
+        } else {
+            Color32::from_gray(45)
         };
+        ui.painter().circle_filled(rect.center(), 3.5, color);
+        response.on_hover_text(label);
+        ui.label(label);
+    }
+
+    fn active_lookup_cache_points(&self) -> Vec<ActiveLookupCachePoint> {
         let Some(time_sync) = self.lookup_cache.time_sync else {
             return Vec::new();
         };
         let tcu_now_ms = time_sync.estimated_tcu_now_ms();
-        cache
-            .entries
+        self.lookup_cache
+            .trace
             .iter()
-            .filter_map(|entry| {
-                let age_ms = tcu_now_ms.wrapping_sub(entry.timestamp_ms);
-                if age_ms > 2000 {
+            .filter_map(|sample| {
+                let age_ms = tcu_now_ms.wrapping_sub(sample.timestamp_ms);
+                if age_ms > LOOKUP_TRACE_FADE_MS {
                     return None;
                 }
-                let alpha = if age_ms <= 250 {
-                    96
-                } else if age_ms <= 1000 {
-                    72
-                } else {
-                    44
-                };
+                let fade = 1.0 - (age_ms as f32 / LOOKUP_TRACE_FADE_MS as f32);
+                let alpha = ((fade * fade * 128.0).round() as u8).clamp(16, 128);
                 Some(ActiveLookupCachePoint {
-                    slot: entry.slot_id as usize,
-                    x: entry.x,
-                    y: entry.y,
+                    slot: sample.slot_id as usize,
+                    x: sample.x,
+                    y: sample.y,
                     age_ms,
                     alpha,
-                    x_idx: nearest_index(&self.x_values, entry.x)?,
-                    y_idx: nearest_index(&self.y_values, entry.y)?,
+                    x_idx: nearest_index(&self.x_values, sample.x)?,
+                    y_idx: nearest_index(&self.y_values, sample.y)?,
                 })
             })
             .collect()
+    }
+
+    fn active_lookup_cache_points_for_slot(&self, slot: usize) -> Vec<ActiveLookupCachePoint> {
+        let mut points: Vec<_> = self
+            .active_lookup_cache_points()
+            .into_iter()
+            .filter(|point| point.slot == slot)
+            .collect();
+        points.sort_by_key(|point| point.age_ms);
+        points.reverse();
+        points
     }
 
     fn lookup_cache_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
@@ -1223,6 +1325,30 @@ impl Map {
                         .include_y((self.y_values.len() + 1) as f64 * 1.5)
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
+                            for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
+                                let points: Vec<([f64; 2], u8)> = self
+                                    .active_lookup_cache_points_for_slot(slot)
+                                    .into_iter()
+                                    .filter_map(|point| {
+                                        let x = axis_position(&self.y_values, point.y)
+                                            .unwrap_or(point.y_idx as f64);
+                                        let value = self
+                                            .interpolated_data_value_for(src, point.x, point.y)
+                                            .unwrap_or_else(|| src[point.y_idx] as f64);
+                                        Some(([x, value], point.alpha))
+                                    })
+                                    .collect();
+                                for segment in points.windows(2) {
+                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    plot_ui.line(
+                                        Line::new(
+                                            format!("Live cursor trace slot {}", slot),
+                                            vec![segment[0].0, segment[1].0],
+                                        )
+                                        .color(Self::lookup_cache_marker_color(alpha)),
+                                    );
+                                }
+                            }
                             for point in self.active_lookup_cache_points() {
                                 let x = axis_position(&self.y_values, point.y)
                                     .unwrap_or(point.y_idx as f64);
@@ -1264,6 +1390,29 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             for l in lines {
                                 plot_ui.line(l);
+                            }
+                            for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
+                                let points: Vec<([f64; 2], u8)> = self
+                                    .active_lookup_cache_points_for_slot(slot)
+                                    .into_iter()
+                                    .map(|point| {
+                                        let x = point.x as f64;
+                                        let value = self
+                                            .interpolated_data_value_for(src, point.x, point.y)
+                                            .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                        ([x, value], point.alpha)
+                                    })
+                                    .collect();
+                                for segment in points.windows(2) {
+                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    plot_ui.line(
+                                        Line::new(
+                                            format!("Live cursor trace slot {}", slot),
+                                            vec![segment[0].0, segment[1].0],
+                                        )
+                                        .color(Self::lookup_cache_marker_color(alpha)),
+                                    );
+                                }
                             }
                             for point in self.active_lookup_cache_points() {
                                 let x = point.x as f64;
@@ -1358,6 +1507,28 @@ impl Map {
                         .unwrap();
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
                     let z_step = ((z_max - z_min) * 0.015).max(1.0);
+                    for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
+                        let points: Vec<((f64, f64, f64), u8)> = self
+                            .active_lookup_cache_points_for_slot(slot)
+                            .into_iter()
+                            .map(|point| {
+                                let x = point.x as f64;
+                                let z = point.y as f64;
+                                let y = self
+                                    .interpolated_data_value_for(src, point.x, point.y)
+                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                ((x, y, z), point.alpha)
+                            })
+                            .collect();
+                        for segment in points.windows(2) {
+                            let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
+                            let color = RGBColor(255, 215, 0).mix(alpha);
+                            let _ = chart.draw_series(LineSeries::new(
+                                vec![segment[0].0, segment[1].0],
+                                &color,
+                            ));
+                        }
+                    }
                     for point in self.active_lookup_cache_points() {
                         let x = point.x as f64;
                         let z = point.y as f64;
