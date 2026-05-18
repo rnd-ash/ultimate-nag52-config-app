@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     borrow::{Borrow, BorrowMut},
-    sync::{Arc, Mutex, mpsc::{self}},
+    sync::{Arc, Mutex, TryLockError, mpsc::{self}},
 };
 
 use ecu_diagnostics::{hardware::{
@@ -361,13 +361,25 @@ impl Nag52Diag {
     where
         F: FnMut(&DynamicDiagSession) -> DiagServerResult<X>,
     {
-        if self.server_mutex.lock().is_ok() {
-            match self.server.borrow() {
-                None => Err(DiagError::from(Arc::new(HardwareError::DeviceNotOpen))),
-                Some(s) => kwp_fn(&s),
-            }
-        } else {
-            Err(DiagError::ServerNotRunning)
+        let _guard = self.server_mutex.lock().map_err(|_| DiagError::ServerNotRunning)?;
+        match self.server.borrow() {
+            None => Err(DiagError::from(Arc::new(HardwareError::DeviceNotOpen))),
+            Some(s) => kwp_fn(&s),
+        }
+    }
+
+    pub fn try_with_kwp<F, X>(&self, mut kwp_fn: F) -> DiagServerResult<Option<X>>
+    where
+        F: FnMut(&DynamicDiagSession) -> DiagServerResult<X>,
+    {
+        let _guard = match self.server_mutex.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return Ok(None),
+            Err(TryLockError::Poisoned(_)) => return Err(DiagError::ServerNotRunning),
+        };
+        match self.server.borrow() {
+            None => Err(DiagError::from(Arc::new(HardwareError::DeviceNotOpen))),
+            Some(s) => kwp_fn(&s).map(Some),
         }
     }
 
