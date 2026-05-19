@@ -286,6 +286,12 @@ struct LookupCacheState {
     last_error_at: Option<Instant>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LookupCacheUiSettings {
+    enabled: bool,
+    poll_hz: f32,
+}
+
 impl Clone for LookupCacheState {
     fn clone(&self) -> Self {
         Self::default()
@@ -326,6 +332,21 @@ impl LookupCacheState {
     fn poll_interval(&self) -> Duration {
         Duration::from_secs_f32(1.0 / self.poll_hz.clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ))
     }
+
+    fn ui_settings(&self) -> LookupCacheUiSettings {
+        LookupCacheUiSettings {
+            enabled: self.enabled,
+            poll_hz: self.poll_hz,
+        }
+    }
+
+    fn apply_ui_settings(&mut self, settings: LookupCacheUiSettings) {
+        self.enabled = settings.enabled;
+        self.poll_hz = settings.poll_hz;
+        self.clamp_poll_hz();
+        self.next_poll = Instant::now();
+    }
+
 }
 
 impl Map {
@@ -804,6 +825,7 @@ impl Map {
         if !self.lookup_cache.enabled
             || self.lookup_cache.disabled
             || skip_start
+            || self.pending_write.is_some()
             || self.lookup_cache.in_flight.is_some()
         {
             return;
@@ -814,7 +836,11 @@ impl Map {
         }
     }
 
-    fn show_lookup_cache_controls(&mut self, ui: &mut egui::Ui) {
+    fn show_lookup_cache_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        active_lookup_points: &[ActiveLookupCachePoint],
+    ) {
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.lookup_cache.enabled, "Live cursor");
             ui.label("Hz");
@@ -858,7 +884,7 @@ impl Map {
             Self::lookup_cache_lamp(
                 ui,
                 "Cache",
-                !self.active_lookup_cache_points().is_empty(),
+                !active_lookup_points.is_empty(),
                 Self::lookup_cache_marker_color(96),
             );
             Self::lookup_cache_lamp(
@@ -876,7 +902,7 @@ impl Map {
             ) {
                 ui.label(self.lookup_cache.status);
             }
-            ui.label(format!("Trace {}", self.active_lookup_cache_points().len()));
+            ui.label(format!("Trace {}", active_lookup_points.len()));
         });
         if let Some(err) = &self.lookup_cache.last_error {
             ui.colored_label(ui.visuals().warn_fg_color, err);
@@ -924,34 +950,38 @@ impl Map {
             .collect()
     }
 
-    fn active_lookup_cache_points_for_slot(&self, slot: usize) -> Vec<ActiveLookupCachePoint> {
-        let mut points: Vec<_> = self
-            .active_lookup_cache_points()
-            .into_iter()
-            .filter(|point| point.slot == slot)
-            .collect();
+    fn active_lookup_cache_points_for_slot<'a>(
+        points: &'a [ActiveLookupCachePoint],
+        slot: usize,
+    ) -> Vec<&'a ActiveLookupCachePoint> {
+        let mut points: Vec<_> = points.iter().filter(|point| point.slot == slot).collect();
         points.sort_by_key(|point| point.age_ms);
         points.reverse();
         points
     }
 
-    fn latest_lookup_cache_points(&self) -> Vec<ActiveLookupCachePoint> {
-        let mut points = Vec::new();
+    fn latest_lookup_cache_points<'a>(
+        points: &'a [ActiveLookupCachePoint],
+    ) -> Vec<&'a ActiveLookupCachePoint> {
+        let mut latest_points: Vec<&ActiveLookupCachePoint> = Vec::new();
         for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-            if let Some(point) = self
-                .active_lookup_cache_points()
-                .into_iter()
+            if let Some(point) = points
+                .iter()
                 .filter(|point| point.slot == slot)
                 .min_by_key(|point| point.age_ms)
             {
-                points.push(point);
+                latest_points.push(point);
             }
         }
-        points
+        latest_points
     }
 
-    fn lookup_cache_cell_info(&self, x_pos: usize, y_pos: usize) -> (u8, Option<String>) {
-        let points = self.active_lookup_cache_points();
+    fn lookup_cache_cell_info(
+        &self,
+        points: &[ActiveLookupCachePoint],
+        x_pos: usize,
+        y_pos: usize,
+    ) -> (u8, Option<String>) {
         let mut alpha = 0u8;
         let mut lines = Vec::new();
         for point in points {
@@ -973,6 +1003,10 @@ impl Map {
 
     fn lookup_cache_marker_color(alpha: u8) -> Color32 {
         Color32::from_rgba_unmultiplied(255, 215, 0, alpha.saturating_add(80))
+    }
+
+    fn lookup_cache_fill_color(alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(255, 215, 0, alpha / 3)
     }
 
     fn decorate_lookup_cache_cell(
@@ -1041,10 +1075,12 @@ impl Map {
             PendingMapWrite::Eeprom => match self.save_to_eeprom() {
                 Ok(_) => {
                     let eeprom_key = self.eeprom_key.clone();
+                    let lookup_cache_ui_settings = self.lookup_cache.ui_settings();
                     if let Ok(new_data) =
                         Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
                     {
                         *self = new_data;
+                        self.lookup_cache.apply_ui_settings(lookup_cache_ui_settings);
                     }
                     PageAction::SendNotification {
                         text: format!("Map {} EEPROM save OK!", eeprom_key),
@@ -1062,10 +1098,7 @@ impl Map {
     fn request_map_write(&mut self, write: PendingMapWrite) -> PageAction {
         if self.lookup_cache.in_flight.is_some() {
             self.pending_write = Some(write);
-            self.lookup_cache.enabled = false;
-            self.lookup_cache.disabled = true;
             self.lookup_cache.status = "write queued";
-            self.lookup_cache.last_error = Some("Live cursor paused until queued write completes".into());
             PageAction::SendNotification {
                 text: format!(
                     "Map {} write queued until live cursor request finishes.",
@@ -1103,7 +1136,7 @@ impl Map {
         }
     }
 
-    fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui) {
+    fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui, active_lookup_points: &[ActiveLookupCachePoint]) {
         let hash = match self.view_type {
             MapViewType::EEPROM => &self.data_eeprom,
             MapViewType::Default => &self.data_program,
@@ -1168,18 +1201,13 @@ impl Map {
                         // Data columns
                         for x_pos in 0..self.x_values.len() {
                             let (lookup_cache_alpha, lookup_cache_tooltip) =
-                                self.lookup_cache_cell_info(x_pos, row_id);
+                                self.lookup_cache_cell_info(active_lookup_points, x_pos, row_id);
                             row.col(|cell| {
                                 if lookup_cache_alpha > 0 {
                                     cell.painter().rect_filled(
                                         cell.max_rect().shrink(1.0),
                                         2.0,
-                                        Color32::from_rgba_unmultiplied(
-                                            255,
-                                            215,
-                                            0,
-                                            lookup_cache_alpha / 3,
-                                        ),
+                                        Self::lookup_cache_fill_color(lookup_cache_alpha),
                                     );
                                 }
                                 match self.view_type {
@@ -1309,12 +1337,13 @@ impl Map {
                 }
             });
         });
-        self.show_lookup_cache_controls(raw_ui);
         self.update_lookup_cache_poll(raw_ui.ctx(), action.is_some());
         if action.is_none() {
             action = self.execute_pending_write();
         }
-        self.gen_edit_table(raw_ui);
+        let active_lookup_points = self.active_lookup_cache_points();
+        self.show_lookup_cache_controls(raw_ui, &active_lookup_points);
+        self.gen_edit_table(raw_ui, &active_lookup_points);
         ScrollArea::new([true, true])
             .max_height(raw_ui.available_height())
             .show(raw_ui, |raw_ui| {
@@ -1343,8 +1372,10 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = self
-                                    .active_lookup_cache_points_for_slot(slot)
+                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
+                                    &active_lookup_points,
+                                    slot,
+                                )
                                     .into_iter()
                                     .filter_map(|point| {
                                         let x = axis_position(&self.y_values, point.y)
@@ -1367,7 +1398,7 @@ impl Map {
                                     );
                                 }
                             }
-                            for point in self.latest_lookup_cache_points() {
+                            for point in Self::latest_lookup_cache_points(&active_lookup_points) {
                                 let x = axis_position(&self.y_values, point.y)
                                     .unwrap_or(point.y_idx as f64);
                                 let value = self
@@ -1410,8 +1441,10 @@ impl Map {
                                 plot_ui.line(l);
                             }
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = self
-                                    .active_lookup_cache_points_for_slot(slot)
+                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
+                                    &active_lookup_points,
+                                    slot,
+                                )
                                     .into_iter()
                                     .map(|point| {
                                         let x = point.x as f64;
@@ -1433,7 +1466,7 @@ impl Map {
                                     );
                                 }
                             }
-                            for point in self.latest_lookup_cache_points() {
+                            for point in Self::latest_lookup_cache_points(&active_lookup_points) {
                                 let x = point.x as f64;
                                 let value = self
                                     .interpolated_data_value_for(src, point.x, point.y)
@@ -1527,8 +1560,10 @@ impl Map {
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
                     let z_step = ((z_max - z_min) * 0.015).max(1.0);
                     for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                        let points: Vec<((f64, f64, f64), u8)> = self
-                            .active_lookup_cache_points_for_slot(slot)
+                        let points: Vec<((f64, f64, f64), u8)> = Self::active_lookup_cache_points_for_slot(
+                            &active_lookup_points,
+                            slot,
+                        )
                             .into_iter()
                             .map(|point| {
                                 let x = point.x as f64;
@@ -1549,7 +1584,7 @@ impl Map {
                             ));
                         }
                     }
-                    for point in self.latest_lookup_cache_points() {
+                    for point in Self::latest_lookup_cache_points(&active_lookup_points) {
                         let x = point.x as f64;
                         let z = point.y as f64;
                         let y = self
