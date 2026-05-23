@@ -49,8 +49,10 @@ const LOOKUP_CACHE_DISABLE_AFTER_ERRORS: u8 = 5;
 const LOOKUP_CACHE_ENTRY_SIZE: u8 = 13;
 const LOOKUP_CACHE_MAX_SLOTS: u8 = 5;
 const LOOKUP_TRACE_FADE_MS: u32 = 2000;
-const LOOKUP_TRACE_LINE_WIDTH: f32 = 2.0;
-const LOOKUP_TRACE_3D_LINE_WIDTH: u32 = 2;
+const LOOKUP_TRACE_LINE_WIDTH: f32 = 4.0;
+const LOOKUP_TRACE_3D_LINE_WIDTH: u32 = 4;
+const LOOKUP_CURSOR_VLINE_WIDTH: f32 = 2.0;
+const LOOKUP_CURSOR_CROSS_RADIUS: f32 = 14.0;
 const LOOKUP_LAMP_POLL_MS: u128 = 160;
 const LOOKUP_LAMP_DATA_MS: u128 = 300;
 const LOOKUP_LAMP_ERROR_MS: u128 = 3000;
@@ -885,7 +887,7 @@ impl Map {
                 ui,
                 "Cache",
                 !active_lookup_points.is_empty(),
-                Self::lookup_cache_marker_color(96),
+                Self::lookup_cache_marker_color(ui.visuals().dark_mode, 96),
             );
             Self::lookup_cache_lamp(
                 ui,
@@ -1001,17 +1003,28 @@ impl Map {
         (alpha, tooltip)
     }
 
-    fn lookup_cache_marker_color(alpha: u8) -> Color32 {
-        Color32::from_rgba_unmultiplied(255, 215, 0, alpha.saturating_add(80))
+    fn lookup_cache_rgb(dark_mode: bool) -> (u8, u8, u8) {
+        if dark_mode {
+            (60, 230, 255)
+        } else {
+            (0, 110, 170)
+        }
     }
 
-    fn lookup_cache_fill_color(alpha: u8) -> Color32 {
-        Color32::from_rgba_unmultiplied(255, 215, 0, alpha / 3)
+    fn lookup_cache_marker_color(dark_mode: bool, alpha: u8) -> Color32 {
+        let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
+        Color32::from_rgba_unmultiplied(r, g, b, alpha.saturating_add(80))
+    }
+
+    fn lookup_cache_fill_color(dark_mode: bool, alpha: u8) -> Color32 {
+        let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
+        Color32::from_rgba_unmultiplied(r, g, b, alpha / 3)
     }
 
     fn decorate_lookup_cache_cell(
         ui: &egui::Ui,
         response: egui::Response,
+        dark_mode: bool,
         alpha: u8,
         tooltip: Option<&String>,
     ) {
@@ -1024,7 +1037,7 @@ impl Map {
             ui.painter().rect_stroke(
                 response.rect.expand(2.0),
                 2.0,
-                egui::Stroke::new(1.5, Self::lookup_cache_marker_color(alpha)),
+                egui::Stroke::new(1.5, Self::lookup_cache_marker_color(dark_mode, alpha)),
                 egui::StrokeKind::Outside,
             );
         }
@@ -1143,6 +1156,7 @@ impl Map {
             MapViewType::Modify => &self.data_modify,
         }
         .clone();
+        let dark_mode = raw_ui.visuals().dark_mode;
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
         if self.meta.reset_adaptation {
@@ -1207,7 +1221,7 @@ impl Map {
                                     cell.painter().rect_filled(
                                         cell.max_rect().shrink(1.0),
                                         2.0,
-                                        Self::lookup_cache_fill_color(lookup_cache_alpha),
+                                        Self::lookup_cache_fill_color(dark_mode, lookup_cache_alpha),
                                     );
                                 }
                                 match self.view_type {
@@ -1220,6 +1234,7 @@ impl Map {
                                         Self::decorate_lookup_cache_cell(
                                             cell,
                                             response,
+                                            dark_mode,
                                             lookup_cache_alpha,
                                             lookup_cache_tooltip.as_ref(),
                                         );
@@ -1233,6 +1248,7 @@ impl Map {
                                         Self::decorate_lookup_cache_cell(
                                             cell,
                                             response,
+                                            dark_mode,
                                             lookup_cache_alpha,
                                             lookup_cache_tooltip.as_ref(),
                                         );
@@ -1251,6 +1267,7 @@ impl Map {
                                         Self::decorate_lookup_cache_cell(
                                             cell,
                                             response,
+                                            dark_mode,
                                             lookup_cache_alpha,
                                             lookup_cache_tooltip.as_ref(),
                                         );
@@ -1265,6 +1282,7 @@ impl Map {
 
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
         let mut action = None;
+        let dark_mode = raw_ui.visuals().dark_mode;
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
                 let mut copy = self.clone();
@@ -1394,7 +1412,7 @@ impl Map {
                                             vec![segment[0].0, segment[1].0],
                                         )
                                         .width(LOOKUP_TRACE_LINE_WIDTH)
-                                        .color(Self::lookup_cache_marker_color(alpha)),
+                                        .color(Self::lookup_cache_marker_color(dark_mode, alpha)),
                                     );
                                 }
                             }
@@ -1410,8 +1428,8 @@ impl Map {
                                         vec![[x, value]],
                                     )
                                     .shape(MarkerShape::Cross)
-                                    .radius(7.0)
-                                    .color(Self::lookup_cache_marker_color(point.alpha)),
+                                    .radius(LOOKUP_CURSOR_CROSS_RADIUS)
+                                    .color(Self::lookup_cache_marker_color(dark_mode, point.alpha)),
                                 );
                             }
                         });
@@ -1462,7 +1480,7 @@ impl Map {
                                             vec![segment[0].0, segment[1].0],
                                         )
                                         .width(LOOKUP_TRACE_LINE_WIDTH)
-                                        .color(Self::lookup_cache_marker_color(alpha)),
+                                        .color(Self::lookup_cache_marker_color(dark_mode, alpha)),
                                     );
                                 }
                             }
@@ -1471,9 +1489,10 @@ impl Map {
                                 let value = self
                                     .interpolated_data_value_for(src, point.x, point.y)
                                     .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
-                                let color = Self::lookup_cache_marker_color(point.alpha);
+                                let color = Self::lookup_cache_marker_color(dark_mode, point.alpha);
                                 plot_ui.vline(
                                     VLine::new(format!("Live cursor X slot {}", point.slot), x)
+                                        .width(LOOKUP_CURSOR_VLINE_WIDTH)
                                         .color(color),
                                 );
                                 plot_ui.points(
@@ -1482,7 +1501,7 @@ impl Map {
                                         vec![[x, value]],
                                     )
                                     .shape(MarkerShape::Cross)
-                                    .radius(7.0)
+                                    .radius(LOOKUP_CURSOR_CROSS_RADIUS)
                                     .color(color),
                                 );
                             }
@@ -1576,7 +1595,8 @@ impl Map {
                             .collect();
                         for segment in points.windows(2) {
                             let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
-                            let color = RGBColor(255, 215, 0).mix(alpha);
+                            let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
+                            let color = RGBColor(r, g, b).mix(alpha);
                             let style = ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
                             let _ = chart.draw_series(LineSeries::new(
                                 vec![segment[0].0, segment[1].0],
@@ -1590,7 +1610,8 @@ impl Map {
                         let y = self
                             .interpolated_data_value_for(src, point.x, point.y)
                             .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
-                        let color = RGBColor(255, 215, 0).mix(point.alpha as f64 / 255.0);
+                        let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
+                        let color = RGBColor(r, g, b).mix(point.alpha as f64 / 255.0);
                         let _ = chart.draw_series(LineSeries::new(
                             vec![(x, y_min, z), (x, y, z)],
                             &color,
