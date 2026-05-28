@@ -1833,6 +1833,31 @@ impl super::InterfacePage for MapEditor {
                         map_to_switch = Some(MapType::LowFillPressure);
                     }
                 });
+                ui.menu_button("Shift Adaptations", |ui| {
+                    if ui.button("Clutch filling time offset").clicked() {
+                        map_to_switch = Some(MapType::ShiftAdaptFillTMap);
+                    }
+                    if ui.button("Clutch filling pressure offset").clicked() {
+                        map_to_switch = Some(MapType::ShiftAdaptFillPMap);
+                    }
+                    if ui.button("Applying clutch torque offset").clicked() {
+                        map_to_switch = Some(MapType::ShiftAdaptTrqApplMap);
+                    }
+                    if ui.button("Releasing clutch torque offset").clicked() {
+                        map_to_switch = Some(MapType::ShiftAdaptTrqFreeMap);
+                    }
+                });
+                ui.menu_button("HFM CAN Specific maps", |ui| {
+                    if ui.button("HFM Torque map").clicked() {
+                        map_to_switch = Some(MapType::HfmTrqMap);
+                    }
+                    if ui.button("HFM Mass air flow map").clicked() {
+                        map_to_switch = Some(MapType::HfmMafMap);
+                    }
+                    if ui.button("HFM Max mass air flow map").clicked() {
+                        map_to_switch = Some(MapType::HfmMaxMap);
+                    }
+                });
                 ui.menu_button("Torque converter", |ui| {
                     ui.label("Zone pressures (Adaptable)");
                     if ui.button("Slipping pressure").clicked() {
@@ -1874,7 +1899,12 @@ impl super::InterfacePage for MapEditor {
                         Ok(m) => {
                             self.loaded_map = Some(m)
                         }
-                        Err(e) => self.error = Some(e.to_string()),
+                        Err(e) => {
+                            action = Some(PageAction::SendNotification {
+                                text: format!("Failed to read map {:?}. {}", selected, e),
+                                kind: egui_notify::ToastLevel::Error
+                            })
+                        },
                     }
                 } else {
                     //Error toast

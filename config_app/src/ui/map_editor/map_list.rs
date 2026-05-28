@@ -28,8 +28,17 @@ pub enum MapType {
     UpshiftOverlapM  = 0x18,
     DnshiftOverlapM  = 0x19,
 
+    HfmTrqMap = 0x20,
+    HfmMafMap = 0x21,
+    HfmMaxMap = 0x22,
+
     TccAdaptSlipMap = 0xA0,
     TccAdaptLockMap = 0xA1,
+
+    ShiftAdaptFillTMap   = 0xA2,
+    ShiftAdaptFillPMap   = 0xA3,
+    ShiftAdaptTrqApplMap = 0xA4,
+    ShiftAdaptTrqFreeMap = 0xA5,
 
     TccRpmSlipMap = 0xB0
 }
@@ -47,7 +56,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftC,
@@ -61,7 +70,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftS,
@@ -75,7 +84,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftA,
@@ -89,7 +98,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftC,
@@ -103,7 +112,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftS,
@@ -117,7 +126,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::TccPwm,
@@ -131,7 +140,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::FillTime,
@@ -145,7 +154,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["K1", "K2", "K3", "B1", "B2"]),
         true
-        //None
+        
     ).with_help("Duration of stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
         MapType::FillPressure,
@@ -159,7 +168,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
         true
-        //None
+        
     ).with_help("Clutch filling pressure for stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
         MapType::LowFillPressure,
@@ -173,7 +182,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
         true
-        //None
+        
     ).with_help("Clutch filling pressure for stage 2 of the filling process (Tolorance clearning)."),
     MapData::new(
         MapType::UpshiftOverlapA,
@@ -187,7 +196,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftOverlapA,
@@ -201,7 +210,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftOverlapS,
@@ -215,7 +224,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftOverlapS,
@@ -229,7 +238,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftOverlapC,
@@ -243,7 +252,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftOverlapC,
@@ -257,7 +266,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftOverlapW,
@@ -271,7 +280,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftOverlapW,
@@ -285,7 +294,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::UpshiftOverlapM,
@@ -299,7 +308,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::DnshiftOverlapM,
@@ -313,7 +322,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
+        
     ),
     MapData::new(
         MapType::TccAdaptSlipMap,
@@ -327,7 +336,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["D1", "D2", "D3", "D4", "D5"]),
         false
-        //None
+        
     ),
     MapData::new(
         MapType::TccAdaptLockMap,
@@ -341,8 +350,103 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         Some(&["D1", "D2", "D3", "D4", "D5"]),
         false
-        //None
     ),
+    MapData::new(
+        MapType::ShiftAdaptFillTMap,
+        "Shift adaptation fill time map",
+        "",
+        "",
+        "Gear change",
+        "",
+        "Filling cycles offset (20ms per cycle)",
+        "cycle(s)",
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
+        None,
+        false
+    ),
+    MapData::new(
+        MapType::ShiftAdaptFillPMap,
+        "Shift adaptation fill pressure map",
+        "",
+        "",
+        "Gear change",
+        "",
+        "Filling pressure offset",
+        "mBar",
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
+        None,
+        false
+    ),
+    MapData::new(
+        MapType::ShiftAdaptTrqApplMap,
+        "Shift adaptation applying clutch torque offset map",
+        "",
+        "",
+        "Gear change",
+        "",
+        "Torque offset",
+        "Nm",
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
+        None,
+        false
+    ),
+    MapData::new(
+        MapType::ShiftAdaptTrqFreeMap,
+        "Shift adaptation releasing clutch torque offset map",
+        "",
+        "",
+        "Gear change",
+        "",
+        "Torque offset",
+        "Nm",
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
+        None,
+        false
+    ),
+
+    MapData::new(
+        MapType::HfmTrqMap,
+        "HFM Engine max torque table",
+        "RPM",
+        "",
+        "Engine speed",
+        "",
+        "Maximum Torque",
+        "Nm",
+        None,
+        None,
+        false
+    ),
+
+    MapData::new(
+        MapType::HfmMafMap,
+        "HFM Engine MAF table",
+        "RPM",
+        "",
+        "Engine speed",
+        "",
+        "",
+        "",
+        None,
+        None,
+        false
+    ),
+
+    MapData::new(
+        MapType::HfmMaxMap,
+        "HFM Engine Max MAF table",
+        "RPM",
+        "",
+        "Engine speed",
+        "",
+        "",
+        "",
+        None,
+        None,
+        false
+    ),
+
+
     MapData::new(
         MapType::TccRpmSlipMap,
         "Torque converter slipping target",
@@ -355,6 +459,5 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         None,
         None,
         false
-        //None
     ),
 ];
