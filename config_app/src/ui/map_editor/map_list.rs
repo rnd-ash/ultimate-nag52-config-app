@@ -1,5 +1,3 @@
-use crate::ui::map_editor::Map;
-
 use super::MapData;
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
@@ -360,21 +358,21 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         "Filling cycles offset (20ms per cycle)",
         "cycle(s)",
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         None,
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         false
     ),
     MapData::new(
         MapType::ShiftAdaptFillPMap,
-        "Shift adaptation fill pressure map",
+        "Shift adaptation circuit pressure offset map",
         "",
         "",
-        "Gear change",
+        "Shift circuit",
         "",
-        "Filling pressure offset",
+        "Pressure offset",
         "mBar",
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         None,
+        Some(&["1-2/2-1", "2-3/3-2", "3-4", "4-5/5-4", "UNUSED", "UNUSED", "4-3", "UNUSED"]),
         false
     ),
     MapData::new(
@@ -386,8 +384,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         "Torque offset",
         "Nm",
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         None,
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         false
     ),
     MapData::new(
@@ -399,8 +397,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         "Torque offset",
         "Nm",
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         None,
+        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
         false
     ),
 

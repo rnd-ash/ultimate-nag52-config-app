@@ -1837,7 +1837,7 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Clutch filling time offset").clicked() {
                         map_to_switch = Some(MapType::ShiftAdaptFillTMap);
                     }
-                    if ui.button("Clutch filling pressure offset").clicked() {
+                    if ui.button("Shift circuit pressure offset").clicked() {
                         map_to_switch = Some(MapType::ShiftAdaptFillPMap);
                     }
                     if ui.button("Applying clutch torque offset").clicked() {
