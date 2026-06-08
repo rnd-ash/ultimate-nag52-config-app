@@ -1,3 +1,15 @@
+# 1.8.0 (08/06/26)
+* Support identification of 1.3 RevB PCBs
+* Add viewing of adaptation and HFM maps in map editor
+* Add more EGS Calibrations to Calibration database
+* **Live map tracing**
+    * This adds the ability in the map editor to trace
+    in realtime map lookups being performed by UN52, allowing
+    you to better-understand how the maps are being used!
+* Fix datalogger plot axis alignment
+* Add adaptation reset routine to routine page
+* Allow for disabling auto-scale of datalogger plots
+
 # 1.7.0 (10/02/26)
 * Overhaul interface
 * Added support for new Shift algorithm data logger data

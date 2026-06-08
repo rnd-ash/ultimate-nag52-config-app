@@ -85,6 +85,7 @@ impl eframe::App for MainWindow {
         if stack_size > 0 {
             let mut pop_page = false;
             if self.show_sbar {
+                ctx.request_repaint_after(Duration::from_millis(100));
                 egui::TopBottomPanel::bottom("NAV").show(ctx, |nav| {
                     nav.horizontal(|row| {
                         egui::widgets::global_theme_preference_buttons(row);

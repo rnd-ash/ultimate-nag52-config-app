@@ -159,6 +159,7 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.separator();
         ui.hyperlink_to("See getting started for more info", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkI2l2ZS1yZWNlaXZlZC1hbi1hc3NlbWJsZWQtdGN1"));
         ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
+        let mut can_apply = true;
             match config_now.borrow_mut() {
                 DataState::LoadOk(data) => {
                     ui.add_enabled_ui(BoardType::Unknown != board_ver, |ui| {
@@ -368,9 +369,28 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                     }
                     *self.scn.write() = DataState::LoadOk(data.clone());
                 });
-                if ui.button("Apply configuration").clicked() {
-                    Self::write_scn(self.nag.clone(), data.clone(), self.scn.clone());
+
+                if data.diff_ratio == 0 {
+                    ui.colored_label(Color32::RED, "Diff ratio cannot be 0");
+                    can_apply = false;
                 }
+                if data.engine_drag_torque == 0 {
+                    ui.colored_label(Color32::RED, "Engine Inertia cannot be 0");
+                    can_apply = false;
+                }
+                if data.wheel_circumference == 0 {
+                    ui.colored_label(Color32::RED, "Tyre size cannot be 0");
+                    can_apply = false;
+                }
+                if can_apply {
+                     ui.colored_label(Color32::GREEN, "Vehicle configuration OK");
+                }
+
+                ui.add_enabled_ui(can_apply, |ui| {
+                    if ui.button("Apply configuration").clicked() {
+                        Self::write_scn(self.nag.clone(), data.clone(), self.scn.clone());
+                    }
+                });
             });
         },
         DataState::Unint => {
@@ -399,8 +419,12 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                         let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
                         for dev in profiles.iter() {
                             cb_ui.selectable_value(&mut fuse.board_ver, dev.clone(), dev.to_string()).on_hover_ui(|ui| {
-                                if let Some(img) = dev.image_source() {
-                                    ui.add(Image::new(img));
+                                if let Some(imgs) = dev.image_source() {
+                                    ui.horizontal(|row| {
+                                        for img in imgs {
+                                            row.add(Image::new(img));
+                                        }
+                                    });
                                 }
                             });
                         }

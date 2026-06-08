@@ -11,7 +11,8 @@ mod window;
 #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
 compile_error!("Windows can ONLY be built using the i686-pc-windows-msvc target!");
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     //#[cfg(target_os="linux")]

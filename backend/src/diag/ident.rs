@@ -62,7 +62,7 @@ impl Display for PCBVersion {
         f.write_str(match self {
             PCBVersion::OnePointOne => "V1.1",
             PCBVersion::OnePointTwo => "V1.2",
-            PCBVersion::OnePointThree => "V1.3",
+            PCBVersion::OnePointThree => "V1.3/V1.3B",
             PCBVersion::Unknown => "V_NDEF",
         })
     }

@@ -19,6 +19,8 @@ use crate::ui::diagnostics::rli::{LocalRecordData, RecordIdents};
 
 use self::rli::ChartData;
 
+const CHART_Y_AXIS_MIN_WIDTH: f32 = 96.0;
+
 pub struct DiagnosticsPage {
     query_ecu: Arc<AtomicBool>,
     curr_values: Arc<RwLock<Option<LocalRecordData>>>,
@@ -32,6 +34,7 @@ pub struct DiagnosticsPage {
     sidebar_shown: bool,
     max_graph_time: Arc<AtomicU32>,
     graph_interval_ms: Arc<AtomicU32>,
+    auto_scale: bool
 }
 
 impl DiagnosticsPage {
@@ -120,7 +123,8 @@ impl DiagnosticsPage {
             launch_time,
             sidebar_shown: true,
             max_graph_time,
-            graph_interval_ms: graph_interval_time
+            graph_interval_ms: graph_interval_time,
+            auto_scale: true
         }
     }
 }
@@ -171,6 +175,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                         self.max_graph_time.store(20000, Ordering::Relaxed);
                     }
                 });
+                ui.checkbox(&mut self.auto_scale, "Automatically scale charts");
                 ui.separator();
 
 
@@ -218,8 +223,15 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     egui_extras::StripBuilder::new(col)
                         .sizes(Size::exact(space_per_chart), data.get_chart_data().len())
                         .vertical(|mut strip| {
-                            let plot_interval = self.graph_interval_ms.load(Ordering::Relaxed);
                             let plot_range = self.max_graph_time.load(Ordering::Relaxed);
+                            let now = self.launch_time.elapsed().as_millis() - start_time as u128;
+                            let x_max = now as f64;
+                            let x_min = (x_max - plot_range as f64).max(0.0);
+                            let x_max = if x_max <= x_min {
+                                x_min + 1.0
+                            } else {
+                                x_max
+                            };
 
                             for (idx, d) in data.get_chart_data().iter().enumerate() {
                                 strip.cell(|ui| {
@@ -233,19 +245,14 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                         lines.push(Line::new(format!("{} ({:.02} {})", key.clone(), points.points().last().map(|x| x.y).unwrap_or_default(), unit.unwrap_or_default()), points).stroke(Stroke::new(2.0, color.clone())).id(key.clone()));
                                     }
             
-                                    let now = self.launch_time.elapsed().as_millis() - start_time as u128;
-
-                                    let mut last_bound = now as f64 - plot_range as f64;
-                                    if last_bound < 0.0 {
-                                        last_bound = 0.0;
-                                    }
                                     let x = unit.clone();
-                                    let mut plot = Plot::new(d.group_name.clone())
+                                    let mut plot = Plot::new(format!("diagnostics-plot-{idx}-{}", d.group_name))
                                         //.height(space_per_chart)
                                         .allow_drag(false)
                                         .auto_bounds([false, true])
-                                        .include_x(last_bound)
-                                        .include_x(now as f64 - plot_interval as f64)
+                                        .include_x(x_min)
+                                        .include_x(x_max)
+                                        .y_axis_min_width(CHART_Y_AXIS_MIN_WIDTH)
                                         .legend(legend.clone())
                                         .x_axis_formatter(|f, _| {
                                             let seconds = f.value / 1000.0;
@@ -259,7 +266,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                                 f.value.to_string()
                                             }
                                         });
-                                    if let Some((min, max)) = &d.bounds {
+                                    if let Some((min, max)) = &d.bounds && self.auto_scale {
                                         plot = plot.include_y(*min);
                                         if *max > 0.1 {
                                             // 0.0 check

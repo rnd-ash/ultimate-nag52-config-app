@@ -124,6 +124,7 @@ impl Nag52USB {
                         let cf = CanFrame::new(cid as u32, &data, false);
                         let _ = read_tx_can.send(cf);
                     } else {
+                        println!("{line}");
                         let lvl = match line.chars().next().unwrap_or(' ') {
                             'I' => EspLogLevel::Info,
                             'W' => EspLogLevel::Warn,
@@ -137,7 +138,7 @@ impl Nag52USB {
                         let timestamp = match u32::from_str_radix(between(&line, "(", ")"), 10) {
                             Ok(ts) => ts,
                             Err(_) => {
-                                println!("Malformed log line {line}");
+                                //println!("Malformed log line {line}");
                                 continue
                             }
                         };

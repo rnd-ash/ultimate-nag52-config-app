@@ -9,6 +9,8 @@ use eframe::egui::RichText;
 use eframe::egui::SidePanel;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
+use octocrab::Octocrab;
+use tokio::runtime::Runtime;
 use std::sync::Arc;
 use crate::window::{InterfacePage, PageAction};
 
@@ -21,15 +23,37 @@ use super::{
 };
 use crate::ui::diagnostics::DiagnosticsPage;
 
+const APP_COMMIT: &str = env!("VERGEN_GIT_SHA");
+
 pub struct MainPage {
     diag_server: &'static mut Nag52Diag,
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
     first_run: bool,
-    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>
+    tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>,
+    octocrab: Arc<Octocrab>
 }
 
 impl MainPage {
+
+    pub fn query_for_updates(instance: Arc<Octocrab>) {
+        std::thread::spawn(move|| {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Ok(updates) = instance.repos("rnd-ash", "ultimate-nag52-config-app")
+                        .releases()
+                        .list()
+                        .page(1u32)
+                        .send()
+                        .await {
+                            for update in updates.items {
+                                println!("{:?}", update.published_at);
+                            }
+                        }
+                });
+        });
+    }
+
     pub fn new(nag: Nag52Diag) -> Self {
         // Static mutable ref creation
         // this Nag52 lives the whole lifetime of the app once created,
@@ -38,14 +62,16 @@ impl MainPage {
         //
         // We can keep it here as a ref to create a box from it when Drop() is called
         // so we can drop it safely without a memory leak
+        let instance = octocrab::instance();
         let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
-
+        //Self::query_for_updates(instance.clone());
         Self {
             diag_server: static_ref,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
             tcu_mode: Arc::new(RwLock::new(DataState::Unint)),
+            octocrab: instance
         }
     }
 }
@@ -65,13 +91,9 @@ impl InterfacePage for MainPage {
             } else {
                 egui::special_emojis::OS_APPLE
             };
-            x.label(format!("Config app version {} for {} (Build {})", env!("CARGO_PKG_VERSION"), os_logo, env!("GIT_BUILD")));
-            if env!("GIT_BUILD").ends_with("-dirty") || env!("GIT_BUILD") == "UNKNOWN" {
-                x.strong(RichText::new("Warning. You have a modified or testing version of the config app! Bugs may be present!").color(Color32::RED));
-            } else {
-                // Check for updates
-            }
-            let link = if env!("GIT_BRANCH").contains("main") {
+            x.label(format!("Config app version {} for {}", env!("CARGO_PKG_VERSION"), os_logo));
+            x.hyperlink_to(format!("Commit {APP_COMMIT}"), format!("https://github.com/rnd-ash/ultimate-nag52-config-app/commit/{APP_COMMIT}"));
+            let link = if env!("VERGEN_GIT_BRANCH").contains("main") {
                 include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPW1haW4mZXhwYW5kZWQ9dHJ1ZQ")
             } else {
                 include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcC9yZWxlYXNlcz9xPWRldiZleHBhbmRlZD10cnVl")
@@ -130,7 +152,6 @@ impl InterfacePage for MainPage {
                         ui.colored_label(Color32::RED, 
                             "Special mode in use - Slave CAN Manipulator"  
                         );
-                        special_mode = true;
                     } else if mode.contains(TcuDeviceMode::ERROR) {
                         ui.colored_label(Color32::RED, 
                             "Your TCU has encountered an error. Please consult the LOG window to
@@ -148,10 +169,10 @@ impl InterfacePage for MainPage {
                 });
                 ui.end_row();
 
-                ui.strong("PCB Version");
+                ui.strong("PCB Pinout ver");
                 datastate_to_ui(ui, &info_state, |ui, inf| {
                     ui.label(format!(
-                        "{} (HW date: {} week 20{})",
+                        "{} (week {}, 20{})",
                         inf.board_ver, inf.hw_week, inf.hw_year
                     ));
                 });
@@ -254,6 +275,7 @@ impl InterfacePage for MainPage {
                     if v.button("Updater").clicked() {
                         create_page = Some(PageAction::Add(Box::new(UpdatePage::new(
                             self.diag_server.clone(),
+                            self.octocrab.clone()
                         ))));
                     }
                 });

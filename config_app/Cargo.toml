@@ -1,6 +1,6 @@
 [package]
 name = "config_app"
-version = "1.7.0"
+version = "1.8.0"
 edition = "2024"
 resolver = "2"
 description = "Ultimate-NAG52 config app"
@@ -39,6 +39,10 @@ lz4-compression = "0.7.0"
 bincode = {version="2.0.1", features=["serde"]}
 strum = "0.27.1"
 strum_macros = "0.27.1"
+
+[build-dependencies]
+# All features enabled
+vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
 
 #[patch.crates-io]
 #winit = { git = "https://github.com/PolyMeilex/winit ", branch = "master" }

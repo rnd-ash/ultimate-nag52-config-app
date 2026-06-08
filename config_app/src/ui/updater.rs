@@ -3,7 +3,7 @@ use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::Write};
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
 use eframe::egui::{self};
-use octocrab::models::repos::Release;
+use octocrab::{Octocrab, models::repos::Release};
 use tokio::runtime::Runtime;
 
 use crate::window::{InterfacePage, PageAction};
@@ -58,17 +58,18 @@ pub struct UpdatePage {
 }
 
 impl UpdatePage {
-    pub fn new(nag: Nag52Diag) -> Self {
+    pub fn new(nag: Nag52Diag, instance: Arc<Octocrab>) -> Self {
         let coredump_info = nag.get_coredump_flash_info().ok();
         let curr_fw_info = nag.get_running_fw_info().ok().zip(nag.get_running_partition_flash_info().ok());
 
         let fw_list = Arc::new(RwLock::new(DataState::Unint));
         let fw_list_c = fw_list.clone();
-
+        let instance_c = instance.clone();
+        println!("NEW");
         std::thread::spawn(move|| {
             let rt = Runtime::new().unwrap();
             match rt.block_on(async {
-                octocrab::instance().repos("rnd-ash", "ultimate-nag52-fw")
+                instance_c.repos("rnd-ash", "ultimate-nag52-fw")
                     .releases()
                     .list()
                     .send()
