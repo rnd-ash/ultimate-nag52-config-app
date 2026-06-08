@@ -419,8 +419,12 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                         let profiles = vec![BoardType::V11, BoardType::V12, BoardType::V13];
                         for dev in profiles.iter() {
                             cb_ui.selectable_value(&mut fuse.board_ver, dev.clone(), dev.to_string()).on_hover_ui(|ui| {
-                                if let Some(img) = dev.image_source() {
-                                    ui.add(Image::new(img));
+                                if let Some(imgs) = dev.image_source() {
+                                    ui.horizontal(|row| {
+                                        for img in imgs {
+                                            row.add(Image::new(img));
+                                        }
+                                    });
                                 }
                             });
                         }

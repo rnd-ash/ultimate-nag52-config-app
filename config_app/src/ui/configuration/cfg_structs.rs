@@ -170,12 +170,12 @@ pub enum BoardType {
 }
 
 impl BoardType {
-    pub fn image_source(&'_ self) -> Option<ImageSource<'_>> {
+    pub fn image_source(&'_ self) -> Option<Vec<ImageSource<'_>>> {
         match self {
             BoardType::Unknown => None,
-            BoardType::V11 => Some(include_image!("../../../res/pcb_11.jpg")),
-            BoardType::V12 => Some(include_image!("../../../res/pcb_12.jpg")),
-            BoardType::V13 => Some(include_image!("../../../res/pcb_13.jpg")),
+            BoardType::V11 => Some(vec![include_image!("../../../res/pcb_11.jpg")]),
+            BoardType::V12 => Some(vec![include_image!("../../../res/pcb_12.jpg")]),
+            BoardType::V13 => Some(vec![include_image!("../../../res/pcb_13.jpg"), include_image!("../../../res/pcb_13b.png")]),
         }   
     }
 }
@@ -186,7 +186,7 @@ impl Display for BoardType {
             BoardType::Unknown => write!(f, "Unknown"),
             BoardType::V11 => write!(f, "V1.1 (12/12/21)"),
             BoardType::V12 => write!(f, "V1.2 (07/07/22)"),
-            BoardType::V13 => write!(f, "V1.3 (12/12/22)"),
+            BoardType::V13 => write!(f, "V1.3/B (12/12/22 | 23/05/26)"),
         }
     }
 }

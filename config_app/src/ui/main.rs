@@ -169,10 +169,10 @@ impl InterfacePage for MainPage {
                 });
                 ui.end_row();
 
-                ui.strong("PCB Version");
+                ui.strong("PCB Pinout ver");
                 datastate_to_ui(ui, &info_state, |ui, inf| {
                     ui.label(format!(
-                        "{} (HW date: {} week 20{})",
+                        "{} (week {}, 20{})",
                         inf.board_ver, inf.hw_week, inf.hw_year
                     ));
                 });
