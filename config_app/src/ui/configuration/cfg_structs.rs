@@ -41,6 +41,33 @@ pub struct TcmCoreConfig {
     pub jeep_chrysler: bool
 }
 
+impl Default for TcmCoreConfig {
+    fn default() -> Self {
+        Self { 
+            is_large_nag: 0, 
+            diff_ratio: 1000, 
+            wheel_circumference: 0, 
+            is_four_matic: 0, 
+            transfer_case_high_ratio: Default::default(), 
+            transfer_case_low_ratio: Default::default(), 
+            default_profile: DefaultProfile::Standard, 
+            red_line_dieselrpm: 4500, 
+            red_line_petrolrpm: 6000, 
+            engine_type: EngineType::Petrol, 
+            egs_can_type: EgsCanType::Unknown, 
+            shifter_style: ShifterStyle::EwmCan, 
+            io_0_usage: IOPinConfig::NotConnected, 
+            input_sensor_pulses_per_rev: 0, 
+            output_pulse_width_per_kmh: 0, 
+            mosfet_purpose: MosfetPurpose::NotConnected, 
+            throttle_max_open_angle: 89, 
+            c_eng: 0, 
+            engine_drag_torque: 400, 
+            jeep_chrysler: false
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, PrimitiveEnum_u8, EnumIter)]
 pub enum EgsCanType {
     Unknown = 0,

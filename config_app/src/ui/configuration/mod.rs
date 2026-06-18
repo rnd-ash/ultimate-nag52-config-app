@@ -8,7 +8,7 @@ use chrono::Datelike;
 use config_app_macros::include_base64;
 use eframe::egui::{Ui, mutex::RwLock};
 use eframe::egui::{self, *};
-use packed_struct::PackedStructSlice;
+use packed_struct::{PackedStructSlice, PackingError};
 use strum::IntoEnumIterator;
 
 use self::cfg_structs::{
@@ -20,14 +20,14 @@ pub mod cfg_structs;
 pub mod egs_config;
 pub struct ConfigPage {
     nag: Nag52Diag,
-    scn: Arc<RwLock<DataState<TcmCoreConfig>>>,
+    scn: Arc<RwLock<DataState<(TcmCoreConfig, bool)>>>,
     efuse: Arc<RwLock<DataState<(bool, TcmEfuseConfig)>>>,
     show_final_warning: bool,
 }
 
 impl ConfigPage {
 
-    pub fn query(nag: Nag52Diag, scn: Option<Arc<RwLock<DataState<TcmCoreConfig>>>>, efuse: Option<Arc<RwLock<DataState<(bool, TcmEfuseConfig)>>>>) {
+    pub fn query(nag: Nag52Diag, scn: Option<Arc<RwLock<DataState<(TcmCoreConfig, bool)>>>>, efuse: Option<Arc<RwLock<DataState<(bool, TcmEfuseConfig)>>>>) {
         if let Some(scn) = scn.as_ref() {
             *scn.write() = DataState::Unint;
         }
@@ -41,10 +41,15 @@ impl ConfigPage {
                         Ok(res) => {
                             match TcmCoreConfig::unpack_from_slice(&res) {
                                 Ok(res) => {
-                                    *scn.write() = DataState::LoadOk(res);
+                                    *scn.write() = DataState::LoadOk((res, false));
                                 },
                                 Err(e) => {
-                                    *scn.write() = DataState::LoadErr(format!("TCU Config unpack error: {e}"));
+                                    if e == PackingError::InvalidValue {
+                                        let new_cfg = TcmCoreConfig::default();
+                                        *scn.write() = DataState::LoadOk((new_cfg, true));
+                                    } else {
+                                        *scn.write() = DataState::LoadErr(format!("TCU Config unpack error: {e}"));
+                                    }
                                 }
                             }
                         }
@@ -76,7 +81,7 @@ impl ConfigPage {
         });
     }
 
-    pub fn write_scn(nag: Nag52Diag, new_scn: TcmCoreConfig, scn: Arc<RwLock<DataState<TcmCoreConfig>>>) {
+    pub fn write_scn(nag: Nag52Diag, new_scn: TcmCoreConfig, scn: Arc<RwLock<DataState<(TcmCoreConfig, bool)>>>) {
         *scn.write() = DataState::Unint;
         std::thread::spawn(move|| {
             match {
@@ -102,7 +107,7 @@ impl ConfigPage {
     pub fn write_efuse(
         nag: Nag52Diag, 
         new_efuse: TcmEfuseConfig,
-        scn: Arc<RwLock<DataState<TcmCoreConfig>>>, 
+        scn: Arc<RwLock<DataState<(TcmCoreConfig, bool)>>>, 
         efuse: Arc<RwLock<DataState<(bool, TcmEfuseConfig)>>>
 
     ) {
@@ -161,7 +166,10 @@ impl crate::window::InterfacePage for ConfigPage {
         ui.hyperlink_to("See Mercedes VIN lookup table for your car configuration", include_base64!("aHR0cDovL2RvY3MudWx0aW1hdGUtbmFnNTIubmV0L2VuL2dldHRpbmdzdGFydGVkL2NvbmZpZ3VyYXRpb24vVklOTGlzdA"));
         let mut can_apply = true;
             match config_now.borrow_mut() {
-                DataState::LoadOk(data) => {
+                DataState::LoadOk((data, was_reset)) => {
+                    if *was_reset {
+                        ui.colored_label(Color32::RED, "TCM Config was corrupt and thus reset");
+                    }
                     ui.add_enabled_ui(BoardType::Unknown != board_ver, |ui| {
                     egui::Grid::new("DGS").striped(true).show(ui, |ui| {
                     let mut curr_profile = data.default_profile;
@@ -367,7 +375,7 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                             });
                         ui.end_row();
                     }
-                    *self.scn.write() = DataState::LoadOk(data.clone());
+                    *self.scn.write() = DataState::LoadOk((data.clone(), *was_reset));
                 });
 
                 if data.diff_ratio == 0 {
