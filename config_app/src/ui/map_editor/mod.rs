@@ -425,6 +425,7 @@ pub struct Map {
     rot: f64,
     selection: Option<MapSelection>,
     selection_dragging: bool,
+    suppress_outside_click_clear: bool,
     editing_cell: Option<(usize, usize)>,
     edit_focus_pending: bool,
     undo_stack: Vec<Vec<i16>>,
@@ -913,6 +914,7 @@ impl Map {
             rot: 0.8,
             selection: None,
             selection_dragging: false,
+            suppress_outside_click_clear: false,
             editing_cell: None,
             edit_focus_pending: false,
             undo_stack: Vec::new(),
@@ -2405,9 +2407,13 @@ impl Map {
                     })
                 });
         });
-        if raw_ui.input(|input| input.pointer.primary_clicked()) && !pointer_over_cell {
+        if raw_ui.input(|input| input.pointer.primary_clicked())
+            && !pointer_over_cell
+            && !self.suppress_outside_click_clear
+        {
             self.clear_selection();
         }
+        self.suppress_outside_click_clear = false;
         self.handle_edit_shortcuts(raw_ui);
     }
 
@@ -2876,6 +2882,7 @@ pub struct MapEditor {
     loaded_map: Option<Map>,
     error: Option<String>,
     show_shortcuts: bool,
+    show_edit_pad: bool,
 }
 
 impl MapEditor {
@@ -2886,6 +2893,7 @@ impl MapEditor {
             loaded_map: None,
             error: None,
             show_shortcuts: false,
+            show_edit_pad: false,
         }
     }
 
@@ -2974,6 +2982,112 @@ impl MapEditor {
             });
         if response.should_close() || close_requested {
             self.show_shortcuts = false;
+        }
+    }
+
+    fn show_edit_pad_window(&mut self, ctx: &egui::Context) {
+        if !self.show_edit_pad {
+            return;
+        }
+
+        let window = egui::Window::new("Map edit pad")
+            .open(&mut self.show_edit_pad)
+            .resizable(false)
+            .default_width(320.0)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(
+                        ctx.style()
+                            .visuals
+                            .window_fill()
+                            .gamma_multiply(0.82),
+                    )
+                    .shadow(ctx.style().visuals.window_shadow),
+            )
+            .show(ctx, |ui| {
+                ui.spacing_mut().interact_size = egui::vec2(72.0, 46.0);
+                ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+                ui.visuals_mut().widgets.inactive.bg_fill =
+                    ui.visuals().widgets.inactive.bg_fill.gamma_multiply(0.88);
+                ui.visuals_mut().widgets.hovered.bg_fill =
+                    ui.visuals().widgets.hovered.bg_fill.gamma_multiply(0.9);
+                ui.visuals_mut().widgets.active.bg_fill =
+                    ui.visuals().widgets.active.bg_fill.gamma_multiply(0.92);
+
+                let Some(current_map) = self.loaded_map.as_mut() else {
+                    ui.label("Open a map to use the edit pad.");
+                    return;
+                };
+
+                let editable = current_map.view_type == MapViewType::Modify;
+                let has_selection = current_map.selection.is_some();
+
+                if !editable {
+                    ui.label("Switch to User changes to edit this map.");
+                }
+
+                ui.strong("Selection");
+                ui.add_enabled_ui(editable, |ui| {
+                    ui.columns(3, |columns| {
+                        if columns[0].button("Select first").clicked() {
+                            current_map.select_first_cell();
+                        }
+                        if columns[1].button("Clear").clicked() {
+                            current_map.clear_selection();
+                        }
+                        if columns[2].button("Select all").clicked() {
+                            current_map.select_all_cells();
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.strong("Adjust");
+                ui.add_enabled_ui(editable && has_selection, |ui| {
+                    ui.columns(3, |columns| {
+                        if columns[0].button("-100").clicked() {
+                            current_map.apply_selection_delta(-100);
+                        }
+                        if columns[1].button("-10").clicked() {
+                            current_map.apply_selection_delta(-10);
+                        }
+                        if columns[2].button("-1").clicked() {
+                            current_map.apply_selection_delta(-1);
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.columns(3, |columns| {
+                        if columns[0].button("+1").clicked() {
+                            current_map.apply_selection_delta(1);
+                        }
+                        if columns[1].button("+10").clicked() {
+                            current_map.apply_selection_delta(10);
+                        }
+                        if columns[2].button("+100").clicked() {
+                            current_map.apply_selection_delta(100);
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.strong("History");
+                ui.columns(2, |columns| {
+                    columns[0].add_enabled_ui(!current_map.undo_stack.is_empty(), |ui| {
+                        if ui.button("Undo").clicked() {
+                            current_map.apply_undo_edit();
+                        }
+                    });
+                    columns[1].add_enabled_ui(!current_map.redo_stack.is_empty(), |ui| {
+                        if ui.button("Redo").clicked() {
+                            current_map.apply_redo_edit();
+                        }
+                    });
+                });
+            });
+        if let (Some(window), Some(current_map)) = (window, self.loaded_map.as_mut()) {
+            if window.response.contains_pointer() {
+                current_map.suppress_outside_click_clear = true;
+            }
         }
     }
 }
@@ -3136,6 +3250,11 @@ impl super::InterfacePage for MapEditor {
                             ui.close();
                         }
                     });
+                    ui.separator();
+                    if ui.button("Show edit pad").clicked() {
+                        self.show_edit_pad = true;
+                        ui.close();
+                    }
                 } else {
                     ui.add_enabled(
                         false,
@@ -3151,6 +3270,8 @@ impl super::InterfacePage for MapEditor {
                         false,
                         egui::Button::new("Redo").shortcut_text("Ctrl+Y / Ctrl+Shift+Z"),
                     );
+                    ui.separator();
+                    ui.add_enabled(false, egui::Button::new("Show edit pad"));
                 }
             });
             if ui.button("Map controls").clicked() {
@@ -3158,6 +3279,7 @@ impl super::InterfacePage for MapEditor {
             }
         });
         self.show_shortcuts_modal(ui.ctx());
+        self.show_edit_pad_window(ui.ctx());
         if let Some(selected) = map_to_switch {
             // Stop user changing maps if they have unsaved changes
             let mut allowed_to_swtich = true;
