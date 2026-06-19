@@ -145,8 +145,8 @@ struct LineChartAlignmentState {
     column_count: usize,
     table_data_rect: Option<egui::Rect>,
     plot_frame_rect: Option<egui::Rect>,
-    outer_left_margin: Option<f32>,
-    plot_total_width: Option<f32>,
+    outer_left_margin_px: Option<i32>,
+    plot_total_width_px: Option<i32>,
 }
 
 const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
@@ -2100,14 +2100,18 @@ impl Map {
     ) -> (f32, f32) {
         let outer_left_margin = self
             .line_chart_alignment
-            .outer_left_margin
-            .unwrap_or(default_outer_left_margin)
-            .max(0.0);
+            .outer_left_margin_px
+            .map(|v| v as f32)
+            .unwrap_or_else(|| default_outer_left_margin.round())
+            .max(0.0)
+            .round();
         let plot_total_width = self
             .line_chart_alignment
-            .plot_total_width
-            .unwrap_or(default_plot_total_width)
-            .max(1.0);
+            .plot_total_width_px
+            .map(|v| v as f32)
+            .unwrap_or_else(|| default_plot_total_width.round())
+            .max(1.0)
+            .round();
         (outer_left_margin, plot_total_width)
     }
 
@@ -2121,24 +2125,29 @@ impl Map {
     ) {
         let current_outer_left_margin = self
             .line_chart_alignment
-            .outer_left_margin
-            .unwrap_or(default_outer_left_margin);
+            .outer_left_margin_px
+            .unwrap_or_else(|| default_outer_left_margin.round() as i32);
         let current_plot_total_width = self
             .line_chart_alignment
-            .plot_total_width
-            .unwrap_or(default_plot_total_width);
+            .plot_total_width_px
+            .unwrap_or_else(|| default_plot_total_width.round() as i32);
 
         let left_delta = target_rect.left() - plot_frame_rect.left();
         let width_delta = target_rect.width() - plot_frame_rect.width();
 
-        let next_outer_left_margin = (current_outer_left_margin + left_delta).max(0.0);
-        let next_plot_total_width = (current_plot_total_width + width_delta).max(1.0);
+        let next_outer_left_margin =
+            ((current_outer_left_margin as f32) + left_delta).round().max(0.0) as i32;
+        let next_plot_total_width =
+            ((current_plot_total_width as f32) + width_delta).round().max(1.0) as i32;
 
         self.line_chart_alignment.plot_frame_rect = Some(plot_frame_rect);
-        self.line_chart_alignment.outer_left_margin = Some(next_outer_left_margin);
-        self.line_chart_alignment.plot_total_width = Some(next_plot_total_width);
+        let layout_changed = self.line_chart_alignment.outer_left_margin_px
+            != Some(next_outer_left_margin)
+            || self.line_chart_alignment.plot_total_width_px != Some(next_plot_total_width);
+        self.line_chart_alignment.outer_left_margin_px = Some(next_outer_left_margin);
+        self.line_chart_alignment.plot_total_width_px = Some(next_plot_total_width);
 
-        if left_delta.abs() > 0.5 || width_delta.abs() > 0.5 {
+        if layout_changed {
             ctx.request_repaint();
         }
     }
