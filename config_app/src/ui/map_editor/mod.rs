@@ -1,24 +1,37 @@
-use std::{fs::File, io::{Read, Write}, sync::mpsc::{self, Receiver, Sender}, thread, time::{Duration, Instant}};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+    time::{Duration, Instant},
+};
 
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
         dynamic_diag::DynamicDiagSession,
-        DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
+        kwp2000::{KwpCommand, KwpSessionTypeByte},
+        DiagError, DiagServerResult,
     },
 };
 use eframe::{
-    egui::{
-        self, DragValue, Layout, MenuBar, RichText, ScrollArea
-    }, epaint::Color32,
+    egui::{self, DragValue, Layout, MenuBar, RichText, ScrollArea},
+    epaint::Color32,
 };
 use egui_extras::Column;
 use egui_plot::{Bar, BarChart, Line, MarkerShape, Points, VLine};
-use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
+use plotters::{
+    prelude::{ChartBuilder, IntoDrawingArea},
+    series::SurfaceSeries,
+};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
+use crate::{
+    plot_backend::{into_rgba_color, EguiPlotBackend},
+    ui::map_editor::map_list::MapType,
+    window::PageAction,
+};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
 
@@ -61,7 +74,7 @@ const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
 const KWP_NRC_REQUEST_OUT_OF_RANGE: u8 = 0x31;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MapViewType {
     EEPROM,
     Default,
@@ -75,6 +88,322 @@ pub struct MapSaveData {
     y_values: Vec<i16>,
     state: Vec<i16>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MapSelection {
+    anchor: (usize, usize),
+    cursor: (usize, usize),
+}
+
+impl MapSelection {
+    fn bounds(&self) -> (usize, usize, usize, usize) {
+        (
+            self.anchor.0.min(self.cursor.0),
+            self.anchor.1.min(self.cursor.1),
+            self.anchor.0.max(self.cursor.0),
+            self.anchor.1.max(self.cursor.1),
+        )
+    }
+
+    fn contains(&self, row: usize, col: usize) -> bool {
+        let (min_row, min_col, max_row, max_col) = self.bounds();
+        (min_row..=max_row).contains(&row) && (min_col..=max_col).contains(&col)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MapControlAction {
+    AdjustSelection(i16),
+    ClearSelection,
+    SelectAll,
+    UndoEdit,
+    RedoEdit,
+    LoadFromFile,
+    SaveToFile,
+    WriteToRam,
+    WriteToEeprom,
+    ShowRamEepromDelta,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MapControlBinding {
+    Keyboard(egui::KeyboardShortcut),
+    Hold(egui::KeyboardShortcut),
+    Mouse(&'static str),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MapControlEntry {
+    binding: MapControlBinding,
+    action: Option<MapControlAction>,
+    description: &'static str,
+}
+
+const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
+const MAP_EDIT_HISTORY_LIMIT: usize = 100;
+
+const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            ALT_SHIFT,
+            egui::Key::ArrowUp,
+        )),
+        action: Some(MapControlAction::AdjustSelection(100)),
+        description: "Increase selected cells by 100",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            ALT_SHIFT,
+            egui::Key::Plus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(100)),
+        description: "Increase selected cells by 100",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            ALT_SHIFT,
+            egui::Key::Equals,
+        )),
+        action: Some(MapControlAction::AdjustSelection(100)),
+        description: "Increase selected cells by 100",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            ALT_SHIFT,
+            egui::Key::ArrowDown,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-100)),
+        description: "Decrease selected cells by 100",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            ALT_SHIFT,
+            egui::Key::Minus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-100)),
+        description: "Decrease selected cells by 100",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::ArrowUp,
+        )),
+        action: Some(MapControlAction::AdjustSelection(10)),
+        description: "Increase selected cells by 10",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::Plus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(10)),
+        description: "Increase selected cells by 10",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::Equals,
+        )),
+        action: Some(MapControlAction::AdjustSelection(10)),
+        description: "Increase selected cells by 10",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::ArrowDown,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-10)),
+        description: "Decrease selected cells by 10",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::Minus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-10)),
+        description: "Decrease selected cells by 10",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::ALT,
+            egui::Key::ArrowUp,
+        )),
+        action: Some(MapControlAction::AdjustSelection(1)),
+        description: "Increase selected cells by 1",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::ALT,
+            egui::Key::Plus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(1)),
+        description: "Increase selected cells by 1",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::ALT,
+            egui::Key::Equals,
+        )),
+        action: Some(MapControlAction::AdjustSelection(1)),
+        description: "Increase selected cells by 1",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::ALT,
+            egui::Key::ArrowDown,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-1)),
+        description: "Decrease selected cells by 1",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::ALT,
+            egui::Key::Minus,
+        )),
+        action: Some(MapControlAction::AdjustSelection(-1)),
+        description: "Decrease selected cells by 1",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::NONE,
+            egui::Key::Escape,
+        )),
+        action: Some(MapControlAction::ClearSelection),
+        description: "Collapse selection, then clear",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::NONE,
+            egui::Key::Home,
+        )),
+        action: None,
+        description: "Select the first map cell",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::A,
+        )),
+        action: Some(MapControlAction::SelectAll),
+        description: "Select all cells in current map",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT),
+            egui::Key::Z,
+        )),
+        action: Some(MapControlAction::RedoEdit),
+        description: "Redo last undone map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Z,
+        )),
+        action: Some(MapControlAction::UndoEdit),
+        description: "Undo last map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Y,
+        )),
+        action: Some(MapControlAction::RedoEdit),
+        description: "Redo last undone map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::O,
+        )),
+        action: Some(MapControlAction::LoadFromFile),
+        description: "Load map data from file",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::S,
+        )),
+        action: Some(MapControlAction::SaveToFile),
+        description: "Save map data to file",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::NONE,
+            egui::Key::F4,
+        )),
+        action: Some(MapControlAction::WriteToRam),
+        description: "Write changes to RAM when available",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::NONE,
+            egui::Key::F5,
+        )),
+        action: Some(MapControlAction::WriteToEeprom),
+        description: "Write changes to EEPROM when available",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Hold(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::D,
+        )),
+        action: Some(MapControlAction::ShowRamEepromDelta),
+        description: "Hold to show RAM - EEPROM deltas",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowUp,
+        )),
+        action: None,
+        description: "Resize selection upward from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowDown,
+        )),
+        action: None,
+        description: "Resize selection downward from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowLeft,
+        )),
+        action: None,
+        description: "Resize selection left from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowRight,
+        )),
+        action: None,
+        description: "Resize selection right from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Mouse("Click"),
+        action: None,
+        description: "Select one cell",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Mouse("Click, then Shift + Click"),
+        action: None,
+        description: "Select rectangular area",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Mouse("Drag"),
+        action: None,
+        description: "Select rectangular area",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Mouse("Double click"),
+        action: None,
+        description: "Edit cell",
+    },
+];
 
 #[derive(Debug, Clone)]
 pub struct Map {
@@ -94,6 +423,13 @@ pub struct Map {
     view_type: MapViewType,
     pitch: f64,
     rot: f64,
+    selection: Option<MapSelection>,
+    selection_dragging: bool,
+    suppress_outside_click_clear: bool,
+    editing_cell: Option<(usize, usize)>,
+    edit_focus_pending: bool,
+    undo_stack: Vec<Vec<i16>>,
+    redo_stack: Vec<Vec<i16>>,
     lookup_cache: LookupCacheState,
     pending_write: Option<PendingMapWrite>,
 }
@@ -189,6 +525,79 @@ fn axis_position(values: &[i16], value: f32) -> Option<f64> {
 
 fn lerp(start: f64, end: f64, factor: f64) -> f64 {
     start + ((end - start) * factor)
+}
+
+fn lerp_u8(start: u8, end: u8, factor: f32) -> u8 {
+    (start as f32 + ((end as f32 - start as f32) * factor)).round() as u8
+}
+
+fn blend_color(start: Color32, end: Color32, factor: f32) -> Color32 {
+    let factor = factor.clamp(0.0, 1.0);
+    Color32::from_rgb(
+        lerp_u8(start.r(), end.r(), factor),
+        lerp_u8(start.g(), end.g(), factor),
+        lerp_u8(start.b(), end.b(), factor),
+    )
+}
+
+fn readable_text_color(background: Color32) -> Color32 {
+    let luminance = (0.299 * background.r() as f32)
+        + (0.587 * background.g() as f32)
+        + (0.114 * background.b() as f32);
+    if luminance > 140.0 {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
+}
+
+fn plot_auto_color(index: usize) -> Color32 {
+    let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0;
+    let hue = index as f32 * golden_ratio;
+    egui::epaint::Hsva::new(hue, 0.85, 0.5, 1.0).into()
+}
+
+fn select_all_value_text(response: &egui::Response, value: i16) {
+    let mut state = egui::TextEdit::load_state(&response.ctx, response.id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::default(),
+            egui::text::CCursor::new(value.to_string().chars().count()),
+        )));
+    state.store(&response.ctx, response.id);
+}
+
+fn keyboard_control_action<F>(
+    input: &mut egui::InputState,
+    predicate: F,
+) -> Option<MapControlAction>
+where
+    F: Fn(MapControlAction) -> bool,
+{
+    MAP_CONTROL_ENTRIES.iter().find_map(|entry| {
+        let (MapControlBinding::Keyboard(shortcut), Some(action)) = (&entry.binding, entry.action)
+        else {
+            return None;
+        };
+        if predicate(action) && input.consume_shortcut(shortcut) {
+            Some(action)
+        } else {
+            None
+        }
+    })
+}
+
+fn hold_control_active(input: &egui::InputState, target: MapControlAction) -> bool {
+    MAP_CONTROL_ENTRIES.iter().any(|entry| {
+        let (MapControlBinding::Hold(shortcut), Some(action)) = (&entry.binding, entry.action)
+        else {
+            return false;
+        };
+        action == target
+            && input.modifiers.matches_logically(shortcut.modifiers)
+            && input.key_down(shortcut.logical_key)
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -332,7 +741,11 @@ impl LookupCacheState {
     }
 
     fn poll_interval(&self) -> Duration {
-        Duration::from_secs_f32(1.0 / self.poll_hz.clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ))
+        Duration::from_secs_f32(
+            1.0 / self
+                .poll_hz
+                .clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ),
+        )
     }
 
     fn ui_settings(&self) -> LookupCacheUiSettings {
@@ -348,7 +761,6 @@ impl LookupCacheState {
         self.clamp_poll_hz();
         self.next_poll = Instant::now();
     }
-
 }
 
 impl Map {
@@ -500,6 +912,13 @@ impl Map {
             view_type: MapViewType::Modify,
             pitch: 0.8,
             rot: 0.8,
+            selection: None,
+            selection_dragging: false,
+            suppress_outside_click_clear: false,
+            editing_cell: None,
+            edit_focus_pending: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             lookup_cache: LookupCacheState {
                 time_sync,
                 ..LookupCacheState::default()
@@ -606,13 +1025,22 @@ impl Map {
             let (d, x) = read_f32(&data[1..])?;
             let (d, y) = read_f32(d)?;
             let (d, timestamp_ms) = read_u32(d)?;
-            entries.push(LookupCacheEntry { slot_id, x, y, timestamp_ms });
+            entries.push(LookupCacheEntry {
+                slot_id,
+                x,
+                y,
+                timestamp_ms,
+            });
             data = d;
         }
         Ok(LookupCacheResponse { entries })
     }
 
-    fn read_lookup_cache_once(nag: Nag52Diag, map_id: MapType, sync_time: bool) -> LookupCacheReadResult {
+    fn read_lookup_cache_once(
+        nag: Nag52Diag,
+        map_id: MapType,
+        sync_time: bool,
+    ) -> LookupCacheReadResult {
         match nag.try_with_kwp(|server| {
             let time_sync = if sync_time {
                 Some(Self::read_tcu_time_from_server(server)?)
@@ -672,8 +1100,12 @@ impl Map {
                 while let Ok(cmd) = cmd_rx.recv() {
                     match cmd {
                         LookupCacheWorkerCommand::Read { manual, sync_time } => {
-                            let result = Self::read_lookup_cache_once(nag.clone(), map_id, sync_time);
-                            if result_tx.send(LookupCacheWorkerResult { manual, result }).is_err() {
+                            let result =
+                                Self::read_lookup_cache_once(nag.clone(), map_id, sync_time);
+                            if result_tx
+                                .send(LookupCacheWorkerResult { manual, result })
+                                .is_err()
+                            {
                                 break;
                             }
                         }
@@ -740,30 +1172,37 @@ impl Map {
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
             }
             LookupCacheReadResult::Error(err) => {
-                self.lookup_cache.consecutive_errors = self.lookup_cache.consecutive_errors.saturating_add(1);
+                self.lookup_cache.consecutive_errors =
+                    self.lookup_cache.consecutive_errors.saturating_add(1);
                 self.lookup_cache.status = "error";
                 self.lookup_cache.last_error = Some(err);
                 self.lookup_cache.last_error_at = Some(Instant::now());
-                if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS && !manual {
+                if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS
+                    && !manual
+                {
                     self.lookup_cache.disabled = true;
                     self.lookup_cache.status = "disabled";
                 }
-                let delay = if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
-                    LOOKUP_CACHE_BACKOFF_INTERVAL
-                } else {
-                    self.lookup_cache.poll_interval()
-                };
+                let delay =
+                    if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
+                        LOOKUP_CACHE_BACKOFF_INTERVAL
+                    } else {
+                        self.lookup_cache.poll_interval()
+                    };
                 self.lookup_cache.next_poll = Instant::now() + delay;
             }
         }
     }
 
     fn record_lookup_trace(&mut self, cache: &LookupCacheResponse) {
-        let tcu_now_ms = self.lookup_cache.time_sync.map(|sync| sync.estimated_tcu_now_ms());
+        let tcu_now_ms = self
+            .lookup_cache
+            .time_sync
+            .map(|sync| sync.estimated_tcu_now_ms());
         if let Some(tcu_now_ms) = tcu_now_ms {
-            self.lookup_cache
-                .trace
-                .retain(|sample| tcu_now_ms.wrapping_sub(sample.timestamp_ms) <= LOOKUP_TRACE_FADE_MS);
+            self.lookup_cache.trace.retain(|sample| {
+                tcu_now_ms.wrapping_sub(sample.timestamp_ms) <= LOOKUP_TRACE_FADE_MS
+            });
         }
 
         for entry in &cache.entries {
@@ -793,7 +1232,11 @@ impl Map {
                     self.lookup_cache.worker_rx = Some(rx);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let manual = self.lookup_cache.in_flight.map(|(_, manual)| manual).unwrap_or(false);
+                    let manual = self
+                        .lookup_cache
+                        .in_flight
+                        .map(|(_, manual)| manual)
+                        .unwrap_or(false);
                     self.lookup_cache.in_flight = None;
                     self.lookup_cache.worker_tx = None;
                     self.handle_lookup_cache_result(
@@ -805,15 +1248,18 @@ impl Map {
         }
 
         if let Some((started, _manual)) = self.lookup_cache.in_flight {
-            if !self.lookup_cache.timeout_reported && started.elapsed() > LOOKUP_CACHE_REQUEST_TIMEOUT {
+            if !self.lookup_cache.timeout_reported
+                && started.elapsed() > LOOKUP_CACHE_REQUEST_TIMEOUT
+            {
                 self.lookup_cache.timeout_reported = true;
                 self.lookup_cache.in_flight = None;
                 self.lookup_cache.worker_tx = None;
                 self.lookup_cache.worker_rx = None;
                 self.lookup_cache.disabled = true;
                 self.lookup_cache.status = "timeout";
-                self.lookup_cache.last_error =
-                    Some("Lookup cache request timed out; live cursor disabled until refresh".into());
+                self.lookup_cache.last_error = Some(
+                    "Lookup cache request timed out; live cursor disabled until refresh".into(),
+                );
                 self.lookup_cache.last_error_at = Some(Instant::now());
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
                 return;
@@ -900,7 +1346,7 @@ impl Map {
             );
             if matches!(
                 self.lookup_cache.status,
-                "diagnostics busy" | "unsupported" | "disabled" | "timeout" | "write queued" | "write active"
+                "diagnostics busy" | "unsupported" | "disabled" | "timeout" | "write queued"
             ) {
                 ui.label(self.lookup_cache.status);
             }
@@ -1093,7 +1539,8 @@ impl Map {
                         Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
                     {
                         *self = new_data;
-                        self.lookup_cache.apply_ui_settings(lookup_cache_ui_settings);
+                        self.lookup_cache
+                            .apply_ui_settings(lookup_cache_ui_settings);
                     }
                     PageAction::SendNotification {
                         text: format!("Map {} EEPROM save OK!", eeprom_key),
@@ -1133,6 +1580,436 @@ impl Map {
         Some(self.perform_map_write(write))
     }
 
+    fn set_selection(&mut self, row: usize, col: usize, extend: bool) {
+        self.selection = Some(if extend {
+            MapSelection {
+                anchor: self
+                    .selection
+                    .map(|selection| selection.anchor)
+                    .unwrap_or((row, col)),
+                cursor: (row, col),
+            }
+        } else {
+            MapSelection {
+                anchor: (row, col),
+                cursor: (row, col),
+            }
+        });
+    }
+
+    fn update_selection_cursor(&mut self, row: usize, col: usize) {
+        if let Some(selection) = self.selection.as_mut() {
+            selection.cursor = (row, col);
+        }
+    }
+
+    fn move_selection(&mut self, row_delta: isize, col_delta: isize) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+
+        let row_delta = if row_delta < 0 && min_row == 0 {
+            0
+        } else if row_delta > 0 && max_row + 1 >= self.y_values.len() {
+            0
+        } else {
+            row_delta
+        };
+        let col_delta = if col_delta < 0 && min_col == 0 {
+            0
+        } else if col_delta > 0 && max_col + 1 >= self.x_values.len() {
+            0
+        } else {
+            col_delta
+        };
+
+        if row_delta == 0 && col_delta == 0 {
+            return;
+        }
+
+        let move_point = |(row, col): (usize, usize)| {
+            (
+                row.saturating_add_signed(row_delta),
+                col.saturating_add_signed(col_delta),
+            )
+        };
+        self.selection = Some(MapSelection {
+            anchor: move_point(selection.anchor),
+            cursor: move_point(selection.cursor),
+        });
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn edit_selection_start(&mut self) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (row, col, _, _) = selection.bounds();
+        self.editing_cell = Some((row, col));
+        self.edit_focus_pending = true;
+    }
+
+    fn clear_selection(&mut self) {
+        self.selection = None;
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn select_first_cell(&mut self) {
+        if self.y_values.is_empty() || self.x_values.is_empty() {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (0, 0),
+            cursor: (0, 0),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn collapse_or_clear_selection(&mut self) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        if selection.anchor != selection.cursor {
+            let (min_row, min_col, _, _) = selection.bounds();
+            self.selection = Some(MapSelection {
+                anchor: (min_row, min_col),
+                cursor: (min_row, min_col),
+            });
+            self.selection_dragging = false;
+            self.editing_cell = None;
+            self.edit_focus_pending = false;
+        } else {
+            self.clear_selection();
+        }
+    }
+
+    fn select_all_cells(&mut self) {
+        if self.y_values.is_empty() || self.x_values.is_empty() {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (0, 0),
+            cursor: (self.y_values.len() - 1, self.x_values.len() - 1),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn push_undo_state(&mut self, previous: Vec<i16>) {
+        if previous == self.data_modify {
+            return;
+        }
+        if self.undo_stack.last() != Some(&previous) {
+            self.undo_stack.push(previous);
+            if self.undo_stack.len() > MAP_EDIT_HISTORY_LIMIT {
+                self.undo_stack.remove(0);
+            }
+        }
+        self.redo_stack.clear();
+    }
+
+    fn apply_modified_data_change(&mut self, next: Vec<i16>) {
+        if next == self.data_modify {
+            return;
+        }
+        let previous = std::mem::replace(&mut self.data_modify, next);
+        self.push_undo_state(previous);
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn apply_undo_edit(&mut self) {
+        let Some(previous) = self.undo_stack.pop() else {
+            return;
+        };
+        let current = std::mem::replace(&mut self.data_modify, previous);
+        self.redo_stack.push(current);
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn apply_redo_edit(&mut self) {
+        let Some(next) = self.redo_stack.pop() else {
+            return;
+        };
+        let current = std::mem::replace(&mut self.data_modify, next);
+        self.undo_stack.push(current);
+        if self.undo_stack.len() > MAP_EDIT_HISTORY_LIMIT {
+            self.undo_stack.remove(0);
+        }
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn apply_selection_delta(&mut self, delta: i16) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let previous = self.data_modify.clone();
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+        let x_len = self.x_values.len();
+        for row in min_row..=max_row {
+            for col in min_col..=max_col {
+                let idx = (row * x_len) + col;
+                self.data_modify[idx] = self.data_modify[idx].saturating_add(delta);
+            }
+        }
+        self.push_undo_state(previous);
+    }
+
+    fn resize_selection(&mut self, row_delta: isize, col_delta: isize) {
+        if self.selection.is_none() {
+            self.select_first_cell();
+        }
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+        let limit_row = self.y_values.len().saturating_sub(1);
+        let limit_col = self.x_values.len().saturating_sub(1);
+        let next_max_row = max_row
+            .saturating_add_signed(row_delta)
+            .clamp(min_row, limit_row);
+        let next_max_col = max_col
+            .saturating_add_signed(col_delta)
+            .clamp(min_col, limit_col);
+        if next_max_row == max_row && next_max_col == max_col {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (min_row, min_col),
+            cursor: (next_max_row, next_max_col),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn handle_selection_navigation(&mut self, ui: &mut egui::Ui) -> bool {
+        if self.editing_cell.is_some() {
+            return false;
+        }
+
+        let shortcut = |modifiers, key| egui::KeyboardShortcut::new(modifiers, key);
+        let action = ui.input_mut(|input| {
+            let is_ctrl_only = input.modifiers.ctrl
+                && !input.modifiers.alt
+                && !input.modifiers.shift
+                && !input.modifiers.mac_cmd;
+            if input.consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::Home)) {
+                Some((true, 0, 0, false))
+            } else if is_ctrl_only {
+                if input.consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowUp)) {
+                    Some((false, -1, 0, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowDown))
+                {
+                    Some((false, 1, 0, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowLeft))
+                {
+                    Some((false, 0, -1, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowRight))
+                {
+                    Some((false, 0, 1, true))
+                } else {
+                    None
+                }
+            } else if input.modifiers == egui::Modifiers::NONE {
+                if input.consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+                    Some((false, -1, 0, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowDown))
+                {
+                    Some((false, 1, 0, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowLeft))
+                {
+                    Some((false, 0, -1, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowRight))
+                {
+                    Some((false, 0, 1, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::Enter))
+                {
+                    Some((false, 0, 0, false))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+        match action {
+            Some((true, _, _, _)) => {
+                self.select_first_cell();
+                true
+            }
+            Some((false, 0, 0, _)) => {
+                if self.selection.is_none() {
+                    self.select_first_cell();
+                }
+                self.edit_selection_start();
+                true
+            }
+            Some((false, row_delta, col_delta, true)) => {
+                self.resize_selection(row_delta, col_delta);
+                true
+            }
+            Some((false, row_delta, col_delta, false)) => {
+                if self.selection.is_none() {
+                    self.select_first_cell();
+                } else {
+                    self.move_selection(row_delta, col_delta);
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn can_write_to_ram(&self) -> bool {
+        self.data_modify != self.data_eeprom
+    }
+
+    fn can_write_to_eeprom(&self) -> bool {
+        self.data_memory != self.data_eeprom
+    }
+
+    fn load_from_file_action(&mut self) -> Option<PageAction> {
+        let previous = self.data_modify.clone();
+        let res = load_map(self)?;
+        Some(match res {
+            Ok(_) => {
+                if self.data_modify != previous {
+                    self.push_undo_state(previous);
+                }
+                PageAction::SendNotification {
+                    text: "Map loading OK!".into(),
+                    kind: egui_notify::ToastLevel::Success,
+                }
+            }
+            Err(e) => PageAction::SendNotification {
+                text: format!("Map loading failed: {e}"),
+                kind: egui_notify::ToastLevel::Error,
+            },
+        })
+    }
+
+    fn save_to_file_action(&self) -> Option<PageAction> {
+        if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
+            Some(PageAction::SendNotification {
+                text: "You have unsaved data in the map. Please write to EEPROM before saving"
+                    .into(),
+                kind: egui_notify::ToastLevel::Warning,
+            })
+        } else {
+            save_map(self);
+            None
+        }
+    }
+
+    fn handle_file_shortcuts(&mut self, ui: &mut egui::Ui) -> Option<PageAction> {
+        if ui.memory(|mem| mem.top_modal_layer().is_some() || mem.focused().is_some()) {
+            return None;
+        }
+
+        let action = ui.input_mut(|input| {
+            keyboard_control_action(input, |action| {
+                matches!(
+                    action,
+                    MapControlAction::LoadFromFile | MapControlAction::SaveToFile
+                )
+            })
+        });
+
+        match action {
+            Some(MapControlAction::LoadFromFile) => self.load_from_file_action(),
+            Some(MapControlAction::SaveToFile) => self.save_to_file_action(),
+            _ => None,
+        }
+    }
+
+    fn handle_write_shortcuts(&mut self, ui: &mut egui::Ui) -> Option<PageAction> {
+        if ui.memory(|mem| mem.top_modal_layer().is_some() || mem.focused().is_some()) {
+            return None;
+        }
+
+        let action = ui.input_mut(|input| {
+            keyboard_control_action(input, |action| {
+                matches!(
+                    action,
+                    MapControlAction::WriteToRam | MapControlAction::WriteToEeprom
+                )
+            })
+        });
+
+        match action {
+            Some(MapControlAction::WriteToRam) if self.can_write_to_ram() => {
+                Some(self.request_map_write(PendingMapWrite::Ram))
+            }
+            Some(MapControlAction::WriteToEeprom) if self.can_write_to_eeprom() => {
+                Some(self.request_map_write(PendingMapWrite::Eeprom))
+            }
+            _ => None,
+        }
+    }
+
+    fn handle_edit_shortcuts(&mut self, ui: &mut egui::Ui) {
+        if ui.memory(|mem| mem.top_modal_layer().is_some()) {
+            return;
+        }
+        let has_selection_state = self.selection.is_some() || self.editing_cell.is_some();
+        let clear_selection = ui.input_mut(|input| {
+            keyboard_control_action(input, |action| action == MapControlAction::ClearSelection)
+        });
+        if has_selection_state && matches!(clear_selection, Some(MapControlAction::ClearSelection))
+        {
+            self.collapse_or_clear_selection();
+            return;
+        }
+        if self.view_type != MapViewType::Modify {
+            return;
+        }
+        if ui.memory(|mem| mem.focused().is_some()) {
+            return;
+        }
+
+        if self.handle_selection_navigation(ui) {
+            return;
+        }
+
+        let action = ui.input_mut(|input| {
+            keyboard_control_action(input, |action| {
+                matches!(
+                    action,
+                    MapControlAction::AdjustSelection(_)
+                        | MapControlAction::SelectAll
+                        | MapControlAction::UndoEdit
+                        | MapControlAction::RedoEdit
+                )
+            })
+        });
+
+        match action {
+            Some(MapControlAction::AdjustSelection(delta)) => self.apply_selection_delta(delta),
+            Some(MapControlAction::SelectAll) => self.select_all_cells(),
+            Some(MapControlAction::UndoEdit) => self.apply_undo_edit(),
+            Some(MapControlAction::RedoEdit) => self.apply_redo_edit(),
+            _ => {}
+        }
+    }
+
     fn get_x_label(&self, idx: usize) -> String {
         if let Some(replace) = self.meta.x_replace {
             format!("{}", replace.get(idx).unwrap_or(&"ERROR"))
@@ -1149,19 +2026,91 @@ impl Map {
         }
     }
 
-    fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui, active_lookup_points: &[ActiveLookupCachePoint]) {
-        let hash = match self.view_type {
-            MapViewType::EEPROM => &self.data_eeprom,
-            MapViewType::Default => &self.data_program,
-            MapViewType::Modify => &self.data_modify,
+    fn readonly_cell(
+        &self,
+        cell: &mut egui::Ui,
+        row_id: usize,
+        x_pos: usize,
+        data: &[i16],
+        dark_mode: bool,
+        lookup_cache_alpha: u8,
+        lookup_cache_tooltip: Option<&String>,
+    ) {
+        if lookup_cache_alpha > 0 {
+            cell.painter().rect_filled(
+                cell.max_rect().shrink(1.0),
+                2.0,
+                Self::lookup_cache_fill_color(dark_mode, lookup_cache_alpha),
+            );
         }
-        .clone();
+        let response = cell.label(format!("{}", data[(row_id * self.x_values.len()) + x_pos]));
+        Self::decorate_lookup_cache_cell(
+            cell,
+            response,
+            dark_mode,
+            lookup_cache_alpha,
+            lookup_cache_tooltip,
+        );
+    }
+
+    fn gen_edit_table(
+        &mut self,
+        raw_ui: &mut egui::Ui,
+        active_lookup_points: &[ActiveLookupCachePoint],
+    ) {
+        let table_id = (self.meta.id as u8, self.view_type);
         let dark_mode = raw_ui.visuals().dark_mode;
         let header_color = raw_ui.visuals().warn_fg_color;
         let cell_edit_color = raw_ui.visuals().error_fg_color;
+        let max_delta = self
+            .data_modify
+            .iter()
+            .zip(self.data_eeprom.iter())
+            .map(|(modified, eeprom)| (*modified as i32 - *eeprom as i32).abs())
+            .max()
+            .unwrap_or(0);
+        let value_font_id = egui::TextStyle::Button.resolve(raw_ui.style());
+        let value_cell_width = self
+            .data_modify
+            .iter()
+            .chain(self.data_eeprom.iter())
+            .chain(self.data_program.iter())
+            .map(|value| format!("{}{}", value, self.meta.value_unit))
+            .chain(
+                self.data_memory
+                    .iter()
+                    .zip(self.data_eeprom.iter())
+                    .map(|(ram, eeprom)| {
+                        format!("{:+}{}", *ram as i32 - *eeprom as i32, self.meta.value_unit)
+                    }),
+            )
+            .map(|text| {
+                raw_ui
+                    .painter()
+                    .layout_no_wrap(text, value_font_id.clone(), Color32::WHITE)
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, f32::max)
+            + (raw_ui.spacing().button_padding.x * 2.0)
+            + 8.0;
+        let value_cell_width = value_cell_width
+            .max(raw_ui.spacing().interact_size.x)
+            .ceil();
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
+        if self.view_type != MapViewType::Modify {
+            self.clear_selection();
+        }
+        if !raw_ui.input(|input| input.pointer.primary_down()) {
+            self.selection_dragging = false;
+        }
+        let show_ram_eeprom_delta = self.view_type == MapViewType::Modify
+            && self.editing_cell.is_none()
+            && raw_ui.memory(|mem| mem.focused().is_none())
+            && raw_ui
+                .input(|input| hold_control_active(input, MapControlAction::ShowRamEepromDelta));
         if let Some(h) = self.meta.help {
             raw_ui.label(h);
         }
@@ -1174,7 +2123,8 @@ impl Map {
         if !self.meta.v_desc.is_empty() {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
-        raw_ui.push_id(&hash, |ui| {
+        let mut pointer_over_cell = false;
+        raw_ui.push_id(table_id, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
                 .cell_layout(
@@ -1183,7 +2133,7 @@ impl Map {
                 )
                 .column(Column::initial(60.0).at_least(60.0));
             for _ in 0..self.x_values.len() {
-                table_builder = table_builder.column(Column::auto().at_least(80.0));
+                table_builder = table_builder.column(Column::auto().at_least(value_cell_width));
             }
             table_builder
                 .header(15.0, |mut header| {
@@ -1206,71 +2156,250 @@ impl Map {
                         let row_id = row.index();
                         // Header column
                         row.col(|c| {
-                            c.label(
-                                RichText::new(format!("{}", self.get_y_label(row_id)))
-                                    .color(header_color),
-                            );
+                            let row_color = plot_auto_color(row_id);
+                            egui::Frame::new()
+                                .fill(row_color)
+                                .corner_radius(egui::CornerRadius::same(2))
+                                .inner_margin(egui::Margin::symmetric(4, 0))
+                                .show(c, |c| {
+                                    c.label(
+                                        RichText::new(format!("{}", self.get_y_label(row_id)))
+                                            .color(readable_text_color(row_color)),
+                                    );
+                                });
                         });
 
                         // Data columns
                         for x_pos in 0..self.x_values.len() {
                             let (lookup_cache_alpha, lookup_cache_tooltip) =
                                 self.lookup_cache_cell_info(active_lookup_points, x_pos, row_id);
-                            row.col(|cell| {
-                                if lookup_cache_alpha > 0 {
-                                    cell.painter().rect_filled(
-                                        cell.max_rect().shrink(1.0),
-                                        2.0,
-                                        Self::lookup_cache_fill_color(dark_mode, lookup_cache_alpha),
+                            row.col(|cell| match self.view_type {
+                                MapViewType::EEPROM => {
+                                    self.readonly_cell(
+                                        cell,
+                                        row_id,
+                                        x_pos,
+                                        &self.data_eeprom,
+                                        dark_mode,
+                                        lookup_cache_alpha,
+                                        lookup_cache_tooltip.as_ref(),
                                     );
                                 }
-                                match self.view_type {
-                                    MapViewType::EEPROM => {
-                                        let response = cell.label(format!(
-                                            "{}",
-                                            self.data_eeprom
-                                                [(row_id * self.x_values.len()) + x_pos]
-                                        ));
-                                        Self::decorate_lookup_cache_cell(
-                                            cell,
-                                            response,
-                                            dark_mode,
-                                            lookup_cache_alpha,
-                                            lookup_cache_tooltip.as_ref(),
-                                        );
+                                MapViewType::Default => {
+                                    self.readonly_cell(
+                                        cell,
+                                        row_id,
+                                        x_pos,
+                                        &self.data_program,
+                                        dark_mode,
+                                        lookup_cache_alpha,
+                                        lookup_cache_tooltip.as_ref(),
+                                    );
+                                }
+                                MapViewType::Modify => {
+                                    let cell_rect = cell.max_rect();
+                                    let map_idx = (row_id * self.x_values.len()) + x_pos;
+                                    let modified_value = self.data_modify[map_idx];
+                                    let eeprom_value = self.data_eeprom[map_idx];
+                                    let delta = modified_value as i32 - eeprom_value as i32;
+                                    if delta != 0 {
+                                        cell.style_mut().visuals.override_text_color =
+                                            Some(cell_edit_color)
                                     }
-                                    MapViewType::Default => {
-                                        let response = cell.label(format!(
-                                            "{}",
-                                            self.data_program
-                                                [(row_id * self.x_values.len()) + x_pos]
-                                        ));
-                                        Self::decorate_lookup_cache_cell(
-                                            cell,
-                                            response,
-                                            dark_mode,
-                                            lookup_cache_alpha,
-                                            lookup_cache_tooltip.as_ref(),
-                                        );
-                                    }
-                                    MapViewType::Modify => {
-                                        let map_idx = (row_id * self.x_values.len()) + x_pos;
-                                        if self.data_modify[map_idx] != self.data_eeprom[map_idx] {
-                                            cell.style_mut().visuals.override_text_color =
-                                                Some(cell_edit_color)
-                                        }
+                                    let selected = self
+                                        .selection
+                                        .map(|selection| selection.contains(row_id, x_pos))
+                                        .unwrap_or(false);
+                                    let is_editing = self.editing_cell == Some((row_id, x_pos));
+                                    let pre_edit_state =
+                                        is_editing.then(|| self.data_modify.clone());
+                                    let response = if is_editing {
                                         let edit = DragValue::new(&mut self.data_modify[map_idx])
                                             .suffix(self.meta.value_unit)
                                             .update_while_editing(false)
                                             .speed(0);
-                                        let response = cell.add(edit);
-                                        Self::decorate_lookup_cache_cell(
-                                            cell,
-                                            response,
-                                            dark_mode,
-                                            lookup_cache_alpha,
-                                            lookup_cache_tooltip.as_ref(),
+                                        let mut response = cell
+                                            .with_layout(
+                                                Layout::right_to_left(egui::Align::Center),
+                                                |cell| {
+                                                    cell.spacing_mut().interact_size.x =
+                                                        value_cell_width;
+                                                    cell.add(edit)
+                                                },
+                                            )
+                                            .inner;
+                                        if delta != 0 {
+                                            response = response.on_hover_text(format!(
+                                                "EEPROM: {}{}\nCurrent: {}{}\nDelta: {:+}{}",
+                                                eeprom_value,
+                                                self.meta.value_unit,
+                                                modified_value,
+                                                self.meta.value_unit,
+                                                delta,
+                                                self.meta.value_unit,
+                                            ));
+                                        }
+                                        if self.edit_focus_pending {
+                                            response.request_focus();
+                                            select_all_value_text(
+                                                &response,
+                                                self.data_modify[map_idx],
+                                            );
+                                            self.edit_focus_pending = false;
+                                        } else if response.gained_focus() {
+                                            select_all_value_text(
+                                                &response,
+                                                self.data_modify[map_idx],
+                                            );
+                                        }
+                                        response
+                                    } else {
+                                        let mut button_fill = None;
+                                        let mut text_color = None;
+                                        if delta != 0 && max_delta > 0 {
+                                            let intensity = (delta.abs() as f32 / max_delta as f32)
+                                                .clamp(0.25, 1.0);
+                                            let base_fill = cell.visuals().widgets.inactive.bg_fill;
+                                            let delta_fill = if delta > 0 {
+                                                blend_color(
+                                                    base_fill,
+                                                    Color32::from_rgb(34, 197, 94),
+                                                    intensity,
+                                                )
+                                            } else {
+                                                blend_color(
+                                                    base_fill,
+                                                    Color32::from_rgb(239, 68, 68),
+                                                    intensity,
+                                                )
+                                            };
+                                            text_color = Some(readable_text_color(delta_fill));
+                                            button_fill = Some(delta_fill);
+                                        }
+                                        if selected {
+                                            let visuals = cell.visuals().selection;
+                                            text_color = Some(readable_text_color(visuals.bg_fill));
+                                            button_fill = Some(visuals.bg_fill);
+                                        } else if lookup_cache_alpha > 0 {
+                                            button_fill = Some(Self::lookup_cache_fill_color(
+                                                dark_mode,
+                                                lookup_cache_alpha,
+                                            ));
+                                        }
+                                        let display_value = if show_ram_eeprom_delta {
+                                            format!(
+                                                "{:+}{}",
+                                                self.data_memory[map_idx] as i32
+                                                    - self.data_eeprom[map_idx] as i32,
+                                                self.meta.value_unit
+                                            )
+                                        } else {
+                                            format!(
+                                                "{}{}",
+                                                self.data_modify[map_idx], self.meta.value_unit
+                                            )
+                                        };
+                                        let mut text = RichText::new(display_value);
+                                        if let Some(text_color) = text_color {
+                                            text = text.color(text_color);
+                                        }
+                                        let mut button = egui::Button::new(())
+                                            .right_text(text)
+                                            .sense(egui::Sense::click_and_drag())
+                                            .min_size(egui::vec2(
+                                                value_cell_width,
+                                                cell.spacing().interact_size.y,
+                                            ));
+                                        if let Some(fill) = button_fill {
+                                            button = button.fill(fill);
+                                        }
+                                        if selected {
+                                            let visuals = cell.visuals().selection;
+                                            button = button.stroke(visuals.stroke);
+                                        }
+                                        cell.add(button)
+                                    };
+                                    if let Some(previous) = pre_edit_state {
+                                        if response.changed() {
+                                            self.push_undo_state(previous);
+                                        }
+                                    }
+                                    let pointer_over_response = response
+                                        .ctx
+                                        .input(|input| input.pointer.interact_pos())
+                                        .map(|pos| cell_rect.contains(pos))
+                                        .unwrap_or(false);
+                                    pointer_over_cell |=
+                                        response.hovered() || pointer_over_response;
+                                    Self::decorate_lookup_cache_cell(
+                                        cell,
+                                        response.clone(),
+                                        dark_mode,
+                                        lookup_cache_alpha,
+                                        lookup_cache_tooltip.as_ref(),
+                                    );
+                                    if selected {
+                                        let visuals = cell.visuals().selection;
+                                        cell.painter().rect_stroke(
+                                            response.rect.expand(1.0),
+                                            egui::CornerRadius::same(2),
+                                            egui::Stroke::new(1.0, visuals.stroke.color),
+                                            egui::StrokeKind::Outside,
                                         );
+                                    }
+                                    if is_editing {
+                                        let (enter_pressed, escape_pressed) =
+                                            response.ctx.input(|input| {
+                                                (
+                                                    input.key_pressed(egui::Key::Enter),
+                                                    input.key_pressed(egui::Key::Escape),
+                                                )
+                                            });
+                                        if enter_pressed {
+                                            response.surrender_focus();
+                                            response.ctx.input_mut(|input| {
+                                                input.consume_key(
+                                                    egui::Modifiers::NONE,
+                                                    egui::Key::Enter,
+                                                );
+                                            });
+                                        }
+                                        if response.lost_focus() || escape_pressed {
+                                            self.editing_cell = None;
+                                            self.edit_focus_pending = false;
+                                        }
+                                    }
+                                    if response.double_clicked() {
+                                        self.set_selection(row_id, x_pos, false);
+                                        self.editing_cell = Some((row_id, x_pos));
+                                        self.edit_focus_pending = true;
+                                    } else if response.clicked() {
+                                        let extend =
+                                            response.ctx.input(|input| input.modifiers.shift);
+                                        let enter_activated = response.has_focus()
+                                            && response
+                                                .ctx
+                                                .input(|input| input.key_pressed(egui::Key::Enter));
+                                        if enter_activated && selected {
+                                            self.editing_cell = Some((row_id, x_pos));
+                                            self.edit_focus_pending = true;
+                                        } else {
+                                            self.set_selection(row_id, x_pos, extend);
+                                            self.editing_cell = None;
+                                            self.edit_focus_pending = false;
+                                        }
+                                    }
+                                    if response.drag_started() {
+                                        self.set_selection(row_id, x_pos, false);
+                                        self.selection_dragging = true;
+                                        self.editing_cell = None;
+                                        self.edit_focus_pending = false;
+                                    }
+                                    if self.selection_dragging
+                                        && pointer_over_response
+                                        && response.ctx.input(|input| input.pointer.primary_down())
+                                    {
+                                        self.update_selection_cursor(row_id, x_pos);
                                     }
                                 }
                             });
@@ -1278,6 +2407,14 @@ impl Map {
                     })
                 });
         });
+        if raw_ui.input(|input| input.pointer.primary_clicked())
+            && !pointer_over_cell
+            && !self.suppress_outside_click_clear
+        {
+            self.clear_selection();
+        }
+        self.suppress_outside_click_clear = false;
+        self.handle_edit_shortcuts(raw_ui);
     }
 
     fn generate_window_ui(&mut self, raw_ui: &mut egui::Ui) -> Option<PageAction> {
@@ -1285,36 +2422,10 @@ impl Map {
         let dark_mode = raw_ui.visuals().dark_mode;
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
-                let mut copy = self.clone();
-                if let Some(res) = load_map(&mut copy) {
-                    match res {
-                        Ok(_) => {
-                            *self = copy;
-                            action = Some(PageAction::SendNotification {
-                                text: format!("Map loading OK!"),
-                                kind: egui_notify::ToastLevel::Success,
-                            });
-                        }
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification {
-                                text: format!("Map loading failed: {e}"),
-                                kind: egui_notify::ToastLevel::Error,
-                            });
-                        }
-                    }
-                }
+                action = self.load_from_file_action();
             }
             if ui.button("Save to file").clicked() {
-                if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
-                    action = Some(PageAction::SendNotification {
-                        text:
-                            "You have unsaved data in the map. Please write to EEPROM before saving"
-                                .into(),
-                        kind: egui_notify::ToastLevel::Warning,
-                    });
-                } else {
-                    save_map(&self);
-                }
+                action = self.save_to_file_action();
             }
         });
         raw_ui.horizontal(|row| {
@@ -1326,14 +2437,14 @@ impl Map {
         raw_ui.horizontal(|raw_ui| {
             raw_ui.add_enabled_ui(self.data_modify != self.data_program, |ui| {
                 if ui.button("Reset to flash defaults").clicked() {
-                    self.data_modify = self.data_program.clone();
+                    self.apply_modified_data_change(self.data_program.clone());
                 }
             });
-            raw_ui.add_enabled_ui(self.data_modify != self.data_eeprom, |ui| {
+            raw_ui.add_enabled_ui(self.can_write_to_ram(), |ui| {
                 if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
-                            self.data_modify = self.data_eeprom.clone();
+                            self.apply_modified_data_change(self.data_eeprom.clone());
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
                                 kind: egui_notify::ToastLevel::Success,
@@ -1349,12 +2460,18 @@ impl Map {
                     action = Some(self.request_map_write(PendingMapWrite::Ram));
                 }
             });
-            raw_ui.add_enabled_ui(self.data_memory != self.data_eeprom, |ui| {
+            raw_ui.add_enabled_ui(self.can_write_to_eeprom(), |ui| {
                 if ui.button("Write changes (To EEPROM)").clicked() {
                     action = Some(self.request_map_write(PendingMapWrite::Eeprom));
                 }
             });
         });
+        if action.is_none() {
+            action = self.handle_file_shortcuts(raw_ui);
+        }
+        if action.is_none() {
+            action = self.handle_write_shortcuts(raw_ui);
+        }
         self.update_lookup_cache_poll(raw_ui.ctx(), action.is_some());
         if action.is_none() {
             action = self.execute_pending_write();
@@ -1390,10 +2507,11 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
-                                    &active_lookup_points,
-                                    slot,
-                                )
+                                let points: Vec<([f64; 2], u8)> =
+                                    Self::active_lookup_cache_points_for_slot(
+                                        &active_lookup_points,
+                                        slot,
+                                    )
                                     .into_iter()
                                     .filter_map(|point| {
                                         let x = axis_position(&self.y_values, point.y)
@@ -1405,7 +2523,8 @@ impl Map {
                                     })
                                     .collect();
                                 for segment in points.windows(2) {
-                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    let alpha =
+                                        ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
                                     plot_ui.line(
                                         Line::new(
                                             format!("Live cursor trace slot {}", slot),
@@ -1459,21 +2578,25 @@ impl Map {
                                 plot_ui.line(l);
                             }
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
-                                    &active_lookup_points,
-                                    slot,
-                                )
+                                let points: Vec<([f64; 2], u8)> =
+                                    Self::active_lookup_cache_points_for_slot(
+                                        &active_lookup_points,
+                                        slot,
+                                    )
                                     .into_iter()
                                     .map(|point| {
                                         let x = point.x as f64;
                                         let value = self
                                             .interpolated_data_value_for(src, point.x, point.y)
-                                            .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                            .unwrap_or_else(|| {
+                                                self.data_value_for(src, point.x_idx, point.y_idx)
+                                            });
                                         ([x, value], point.alpha)
                                     })
                                     .collect();
                                 for segment in points.windows(2) {
-                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    let alpha =
+                                        ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
                                     plot_ui.line(
                                         Line::new(
                                             format!("Live cursor trace slot {}", slot),
@@ -1488,7 +2611,9 @@ impl Map {
                                 let x = point.x as f64;
                                 let value = self
                                     .interpolated_data_value_for(src, point.x, point.y)
-                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                    .unwrap_or_else(|| {
+                                        self.data_value_for(src, point.x_idx, point.y_idx)
+                                    });
                                 let color = Self::lookup_cache_marker_color(dark_mode, point.alpha);
                                 plot_ui.vline(
                                     VLine::new(format!("Live cursor X slot {}", point.slot), x)
@@ -1579,25 +2704,27 @@ impl Map {
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
                     let z_step = ((z_max - z_min) * 0.015).max(1.0);
                     for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                        let points: Vec<((f64, f64, f64), u8)> = Self::active_lookup_cache_points_for_slot(
-                            &active_lookup_points,
-                            slot,
-                        )
-                            .into_iter()
-                            .map(|point| {
-                                let x = point.x as f64;
-                                let z = point.y as f64;
-                                let y = self
-                                    .interpolated_data_value_for(src, point.x, point.y)
-                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
-                                ((x, y, z), point.alpha)
-                            })
-                            .collect();
+                        let points: Vec<((f64, f64, f64), u8)> =
+                            Self::active_lookup_cache_points_for_slot(&active_lookup_points, slot)
+                                .into_iter()
+                                .map(|point| {
+                                    let x = point.x as f64;
+                                    let z = point.y as f64;
+                                    let y = self
+                                        .interpolated_data_value_for(src, point.x, point.y)
+                                        .unwrap_or_else(|| {
+                                            self.data_value_for(src, point.x_idx, point.y_idx)
+                                        });
+                                    ((x, y, z), point.alpha)
+                                })
+                                .collect();
                         for segment in points.windows(2) {
-                            let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
+                            let alpha =
+                                ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
                             let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
                             let color = RGBColor(r, g, b).mix(alpha);
-                            let style = ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
+                            let style =
+                                ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
                             let _ = chart.draw_series(LineSeries::new(
                                 vec![segment[0].0, segment[1].0],
                                 style,
@@ -1612,10 +2739,8 @@ impl Map {
                             .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
                         let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
                         let color = RGBColor(r, g, b).mix(point.alpha as f64 / 255.0);
-                        let _ = chart.draw_series(LineSeries::new(
-                            vec![(x, y_min, z), (x, y, z)],
-                            &color,
-                        ));
+                        let _ = chart
+                            .draw_series(LineSeries::new(vec![(x, y_min, z), (x, y, z)], &color));
                         let _ = chart.draw_series(LineSeries::new(
                             vec![(x - x_step, y, z), (x + x_step, y, z)],
                             &color,
@@ -1647,7 +2772,11 @@ pub fn save_map(map: &Map) {
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
     };
-    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
+    if let Some(picked) = rfd::FileDialog::new()
+        .set_title(format!("Save map {}", map.meta.name))
+        .set_file_name(format!("map_{}.mapbin", map.eeprom_key))
+        .save_file()
+    {
         let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
         let _ = f.write_all(&bin);
@@ -1655,32 +2784,44 @@ pub fn save_map(map: &Map) {
 }
 
 pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
-    let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
+    let path = rfd::FileDialog::new()
+        .add_filter("mapbin", &["mapbin"])
+        .set_title(format!("Pick map file for {}", map.meta.name))
+        .pick_file()?;
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
+    let save_data =
+        bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy())
+            .map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
             if data.id != map.meta.id as u8 {
-                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id as u8, data.id)));
+                return Some(Err(format!(
+                    "Map key is different. Expected {}, got {}",
+                    map.meta.id as u8, data.id
+                )));
             }
             if data.x_values != map.x_values {
-                return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "X sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.y_values != map.y_values {
-                return Some(Err(format!("Y sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Y sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.state.len() != map.data_eeprom.len() {
-                return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Z sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             // All OK!
             map.data_modify = data.state;
-            return Some(Ok(()))
-        },
-        Err(e) => {
-            return Some(Err(e))
+            return Some(Ok(()));
         }
+        Err(e) => return Some(Err(e)),
     }
 }
 
@@ -1697,7 +2838,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     help: Option<&'static str>,
-    reset_adaptation: bool
+    reset_adaptation: bool,
 }
 
 impl MapData {
@@ -1726,7 +2867,7 @@ impl MapData {
             x_replace,
             y_replace,
             help: None,
-            reset_adaptation
+            reset_adaptation,
         }
     }
 
@@ -1740,6 +2881,8 @@ pub struct MapEditor {
     nag: Nag52Diag,
     loaded_map: Option<Map>,
     error: Option<String>,
+    show_shortcuts: bool,
+    show_edit_pad: bool,
 }
 
 impl MapEditor {
@@ -1749,19 +2892,211 @@ impl MapEditor {
             nag,
             loaded_map: None,
             error: None,
+            show_shortcuts: false,
+            show_edit_pad: false,
+        }
+    }
+
+    fn show_shortcuts_modal(&mut self, ctx: &egui::Context) {
+        if !self.show_shortcuts {
+            return;
+        }
+
+        let mut keyboard_rows: Vec<(String, &'static str)> = Vec::new();
+        let mut mouse_rows: Vec<(String, &'static str)> = Vec::new();
+        for entry in MAP_CONTROL_ENTRIES {
+            match entry.binding {
+                MapControlBinding::Keyboard(shortcut) | MapControlBinding::Hold(shortcut) => {
+                    let shortcut = ctx.format_shortcut(&shortcut);
+                    if let Some((shortcuts, _)) = keyboard_rows
+                        .iter_mut()
+                        .find(|(_, description)| *description == entry.description)
+                    {
+                        shortcuts.push_str(", ");
+                        shortcuts.push_str(&shortcut);
+                    } else {
+                        keyboard_rows.push((shortcut, entry.description));
+                    }
+                }
+                MapControlBinding::Mouse(input) => {
+                    if let Some((inputs, _)) = mouse_rows
+                        .iter_mut()
+                        .find(|(_, description)| *description == entry.description)
+                    {
+                        inputs.push_str(", ");
+                        inputs.push_str(input);
+                    } else {
+                        mouse_rows.push((input.to_owned(), entry.description));
+                    }
+                }
+            }
+        }
+
+        let mut close_requested = false;
+        let response =
+            egui::Modal::new(egui::Id::new("map_editor_shortcuts_modal")).show(ctx, |ui| {
+                ui.set_min_width(760.0);
+                ui.heading("Map tuner controls");
+                ui.separator();
+                ui.columns(2, |columns| {
+                    columns[0].strong("Keyboard");
+                    egui::Grid::new("map_editor_shortcuts_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([16.0, 6.0])
+                        .show(&mut columns[0], |ui| {
+                            ui.strong("Shortcut");
+                            ui.strong("Action");
+                            ui.end_row();
+                            for (shortcut, description) in &keyboard_rows {
+                                ui.label(shortcut);
+                                ui.label(*description);
+                                ui.end_row();
+                            }
+                        });
+
+                    columns[1].strong("Mouse");
+                    egui::Grid::new("map_editor_mouse_actions_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([16.0, 6.0])
+                        .show(&mut columns[1], |ui| {
+                            ui.strong("Input");
+                            ui.strong("Action");
+                            ui.end_row();
+                            for (input, description) in &mouse_rows {
+                                ui.label(input);
+                                ui.label(*description);
+                                ui.end_row();
+                            }
+                        });
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            close_requested = true;
+                        }
+                    });
+                });
+            });
+        if response.should_close() || close_requested {
+            self.show_shortcuts = false;
+        }
+    }
+
+    fn show_edit_pad_window(&mut self, ctx: &egui::Context) {
+        if !self.show_edit_pad {
+            return;
+        }
+
+        let window = egui::Window::new("Map edit pad")
+            .open(&mut self.show_edit_pad)
+            .resizable(false)
+            .default_width(320.0)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(
+                        ctx.style()
+                            .visuals
+                            .window_fill()
+                            .gamma_multiply(0.82),
+                    )
+                    .shadow(ctx.style().visuals.window_shadow),
+            )
+            .show(ctx, |ui| {
+                ui.spacing_mut().interact_size = egui::vec2(72.0, 46.0);
+                ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+                ui.visuals_mut().widgets.inactive.bg_fill =
+                    ui.visuals().widgets.inactive.bg_fill.gamma_multiply(0.88);
+                ui.visuals_mut().widgets.hovered.bg_fill =
+                    ui.visuals().widgets.hovered.bg_fill.gamma_multiply(0.9);
+                ui.visuals_mut().widgets.active.bg_fill =
+                    ui.visuals().widgets.active.bg_fill.gamma_multiply(0.92);
+
+                let Some(current_map) = self.loaded_map.as_mut() else {
+                    ui.label("Open a map to use the edit pad.");
+                    return;
+                };
+
+                let editable = current_map.view_type == MapViewType::Modify;
+                let has_selection = current_map.selection.is_some();
+
+                if !editable {
+                    ui.label("Switch to User changes to edit this map.");
+                }
+
+                ui.strong("Selection");
+                ui.add_enabled_ui(editable, |ui| {
+                    ui.columns(3, |columns| {
+                        if columns[0].button("Select first").clicked() {
+                            current_map.select_first_cell();
+                        }
+                        if columns[1].button("Clear").clicked() {
+                            current_map.clear_selection();
+                        }
+                        if columns[2].button("Select all").clicked() {
+                            current_map.select_all_cells();
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.strong("Adjust");
+                ui.add_enabled_ui(editable && has_selection, |ui| {
+                    ui.columns(3, |columns| {
+                        if columns[0].button("-100").clicked() {
+                            current_map.apply_selection_delta(-100);
+                        }
+                        if columns[1].button("-10").clicked() {
+                            current_map.apply_selection_delta(-10);
+                        }
+                        if columns[2].button("-1").clicked() {
+                            current_map.apply_selection_delta(-1);
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.columns(3, |columns| {
+                        if columns[0].button("+1").clicked() {
+                            current_map.apply_selection_delta(1);
+                        }
+                        if columns[1].button("+10").clicked() {
+                            current_map.apply_selection_delta(10);
+                        }
+                        if columns[2].button("+100").clicked() {
+                            current_map.apply_selection_delta(100);
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.strong("History");
+                ui.columns(2, |columns| {
+                    columns[0].add_enabled_ui(!current_map.undo_stack.is_empty(), |ui| {
+                        if ui.button("Undo").clicked() {
+                            current_map.apply_undo_edit();
+                        }
+                    });
+                    columns[1].add_enabled_ui(!current_map.redo_stack.is_empty(), |ui| {
+                        if ui.button("Redo").clicked() {
+                            current_map.apply_redo_edit();
+                        }
+                    });
+                });
+            });
+        if let (Some(window), Some(current_map)) = (window, self.loaded_map.as_mut()) {
+            if window.response.contains_pointer() {
+                current_map.suppress_outside_click_clear = true;
+            }
         }
     }
 }
 
 impl super::InterfacePage for MapEditor {
-    fn make_ui(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-    ) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let mut action = None;
         let mut map_to_switch = None;
-        MenuBar::new()
-        .ui(ui, |ui| {
+        MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Select map", |ui| {
                 ui.menu_button("Shift points", |ui| {
                     ui.label("(S)tandard mode");
@@ -1787,7 +3122,6 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftA);
                     }
-
                 });
                 ui.menu_button("Shift speed", |ui| {
                     ui.label("(S)tandard mode");
@@ -1878,7 +3212,74 @@ impl super::InterfacePage for MapEditor {
                     }
                 });
             });
+            ui.menu_button("Edit", |ui| {
+                if let Some(current_map) = self.loaded_map.as_mut() {
+                    if ui
+                        .add(egui::Button::new("Load from file").shortcut_text("Ctrl+O"))
+                        .clicked()
+                    {
+                        action = current_map.load_from_file_action();
+                        ui.close();
+                    }
+                    if ui
+                        .add(egui::Button::new("Save to file").shortcut_text("Ctrl+S"))
+                        .clicked()
+                    {
+                        action = current_map.save_to_file_action();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.add_enabled_ui(!current_map.undo_stack.is_empty(), |ui| {
+                        if ui
+                            .add(egui::Button::new("Undo").shortcut_text("Ctrl+Z"))
+                            .clicked()
+                        {
+                            current_map.apply_undo_edit();
+                            ui.close();
+                        }
+                    });
+                    ui.add_enabled_ui(!current_map.redo_stack.is_empty(), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new("Redo")
+                                    .shortcut_text("Ctrl+Y / Ctrl+Shift+Z"),
+                            )
+                            .clicked()
+                        {
+                            current_map.apply_redo_edit();
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui.button("Show edit pad").clicked() {
+                        self.show_edit_pad = true;
+                        ui.close();
+                    }
+                } else {
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Load from file").shortcut_text("Ctrl+O"),
+                    );
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Save to file").shortcut_text("Ctrl+S"),
+                    );
+                    ui.separator();
+                    ui.add_enabled(false, egui::Button::new("Undo").shortcut_text("Ctrl+Z"));
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Redo").shortcut_text("Ctrl+Y / Ctrl+Shift+Z"),
+                    );
+                    ui.separator();
+                    ui.add_enabled(false, egui::Button::new("Show edit pad"));
+                }
+            });
+            if ui.button("Map controls").clicked() {
+                self.show_shortcuts = true;
+            }
         });
+        self.show_shortcuts_modal(ui.ctx());
+        self.show_edit_pad_window(ui.ctx());
         if let Some(selected) = map_to_switch {
             // Stop user changing maps if they have unsaved changes
             let mut allowed_to_swtich = true;
@@ -1890,27 +3291,28 @@ impl super::InterfacePage for MapEditor {
             if !allowed_to_swtich {
                 action = Some(PageAction::SendNotification {
                     text: "You have uncommited changes, please reset or write to EEPROM".into(),
-                    kind: egui_notify::ToastLevel::Warning
+                    kind: egui_notify::ToastLevel::Warning,
                 })
             } else {
                 if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
                     self.error = None;
                     match Map::new(selected, self.nag.clone(), found_map_info.clone()) {
-                        Ok(m) => {
-                            self.loaded_map = Some(m)
-                        }
+                        Ok(m) => self.loaded_map = Some(m),
                         Err(e) => {
                             action = Some(PageAction::SendNotification {
                                 text: format!("Failed to read map {:?}. {}", selected, e),
-                                kind: egui_notify::ToastLevel::Error
+                                kind: egui_notify::ToastLevel::Error,
                             })
-                        },
+                        }
                     }
                 } else {
                     //Error toast
                     action = Some(PageAction::SendNotification {
-                        text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8),
-                        kind: egui_notify::ToastLevel::Error
+                        text: format!(
+                            "Failed to find map {:?} (0x{:02X}). This is a bug!",
+                            selected, selected as u8
+                        ),
+                        kind: egui_notify::ToastLevel::Error,
                     })
                 }
             }
@@ -1918,7 +3320,9 @@ impl super::InterfacePage for MapEditor {
         ui.separator();
         if let Some(loaded_map) = self.loaded_map.as_mut() {
             if let Some(err) = &self.error {
-                ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
+                ui.centered_and_justified(|ui| {
+                    ui.colored_label(Color32::RED, format!("Map failed to load: {err}"))
+                });
             } else {
                 if action.is_none() {
                     action = loaded_map.generate_window_ui(ui);
