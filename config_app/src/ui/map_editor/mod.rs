@@ -2038,7 +2038,7 @@ impl Map {
 
     fn value_cell_width(&self, ui: &egui::Ui) -> f32 {
         let value_font_id = egui::TextStyle::Button.resolve(ui.style());
-        let width = self
+        let intrinsic_width = self
             .data_modify
             .iter()
             .chain(self.data_eeprom.iter())
@@ -2061,7 +2061,17 @@ impl Map {
             .fold(0.0_f32, f32::max)
             + (ui.spacing().button_padding.x * 2.0)
             + 8.0;
-        width.max(ui.spacing().interact_size.x).ceil()
+        let intrinsic_width = intrinsic_width.max(ui.spacing().interact_size.x).ceil();
+        if self.x_values.len() <= 1 {
+            return intrinsic_width;
+        }
+        let column_count = self.x_values.len().max(1) as f32;
+        let spacing_x = ui.spacing().item_spacing.x;
+        let total_column_spacing = spacing_x * self.x_values.len() as f32;
+        let data_available_width =
+            (ui.available_width() - MAP_EDITOR_ROW_HEADER_WIDTH - total_column_spacing).max(0.0);
+        let responsive_width = (data_available_width / column_count).floor();
+        intrinsic_width.max(responsive_width)
     }
 
     fn plot_y_axis_width(&self, ui: &egui::Ui, data: &[i16]) -> f32 {
