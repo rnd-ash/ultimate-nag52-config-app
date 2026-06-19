@@ -118,6 +118,8 @@ enum MapControlAction {
     SelectAll,
     UndoEdit,
     RedoEdit,
+    LoadFromFile,
+    SaveToFile,
     WriteToRam,
     WriteToEeprom,
     ShowRamEepromDelta,
@@ -308,6 +310,22 @@ const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
         )),
         action: Some(MapControlAction::RedoEdit),
         description: "Redo last undone map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::O,
+        )),
+        action: Some(MapControlAction::LoadFromFile),
+        description: "Load map data from file",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::S,
+        )),
+        action: Some(MapControlAction::SaveToFile),
+        description: "Save map data to file",
     },
     MapControlEntry {
         binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
@@ -1866,6 +1884,67 @@ impl Map {
         self.data_memory != self.data_eeprom
     }
 
+    fn load_from_file_action(&mut self) -> Option<PageAction> {
+        let previous = self.data_modify.clone();
+        let mut copy = self.clone();
+        let res = load_map(&mut copy)?;
+        Some(match res {
+            Ok(_) => {
+                if copy.data_modify != previous {
+                    copy.undo_stack = self.undo_stack.clone();
+                    copy.redo_stack.clear();
+                    copy.push_undo_state(previous);
+                } else {
+                    copy.undo_stack = self.undo_stack.clone();
+                    copy.redo_stack = self.redo_stack.clone();
+                }
+                *self = copy;
+                PageAction::SendNotification {
+                    text: "Map loading OK!".into(),
+                    kind: egui_notify::ToastLevel::Success,
+                }
+            }
+            Err(e) => PageAction::SendNotification {
+                text: format!("Map loading failed: {e}"),
+                kind: egui_notify::ToastLevel::Error,
+            },
+        })
+    }
+
+    fn save_to_file_action(&self) -> Option<PageAction> {
+        if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
+            Some(PageAction::SendNotification {
+                text: "You have unsaved data in the map. Please write to EEPROM before saving"
+                    .into(),
+                kind: egui_notify::ToastLevel::Warning,
+            })
+        } else {
+            save_map(self);
+            None
+        }
+    }
+
+    fn handle_file_shortcuts(&mut self, ui: &mut egui::Ui) -> Option<PageAction> {
+        if ui.memory(|mem| mem.top_modal_layer().is_some() || mem.focused().is_some()) {
+            return None;
+        }
+
+        let action = ui.input_mut(|input| {
+            keyboard_control_action(input, |action| {
+                matches!(
+                    action,
+                    MapControlAction::LoadFromFile | MapControlAction::SaveToFile
+                )
+            })
+        });
+
+        match action {
+            Some(MapControlAction::LoadFromFile) => self.load_from_file_action(),
+            Some(MapControlAction::SaveToFile) => self.save_to_file_action(),
+            _ => None,
+        }
+    }
+
     fn handle_write_shortcuts(&mut self, ui: &mut egui::Ui) -> Option<PageAction> {
         if ui.memory(|mem| mem.top_modal_layer().is_some() || mem.focused().is_some()) {
             return None;
@@ -2344,45 +2423,10 @@ impl Map {
         let dark_mode = raw_ui.visuals().dark_mode;
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
-                let previous = self.data_modify.clone();
-                let mut copy = self.clone();
-                if let Some(res) = load_map(&mut copy) {
-                    match res {
-                        Ok(_) => {
-                            if copy.data_modify != previous {
-                                copy.undo_stack = self.undo_stack.clone();
-                                copy.redo_stack.clear();
-                                copy.push_undo_state(previous);
-                            } else {
-                                copy.undo_stack = self.undo_stack.clone();
-                                copy.redo_stack = self.redo_stack.clone();
-                            }
-                            *self = copy;
-                            action = Some(PageAction::SendNotification {
-                                text: format!("Map loading OK!"),
-                                kind: egui_notify::ToastLevel::Success,
-                            });
-                        }
-                        Err(e) => {
-                            action = Some(PageAction::SendNotification {
-                                text: format!("Map loading failed: {e}"),
-                                kind: egui_notify::ToastLevel::Error,
-                            });
-                        }
-                    }
-                }
+                action = self.load_from_file_action();
             }
             if ui.button("Save to file").clicked() {
-                if self.data_eeprom != self.data_modify || self.data_memory != self.data_eeprom {
-                    action = Some(PageAction::SendNotification {
-                        text:
-                            "You have unsaved data in the map. Please write to EEPROM before saving"
-                                .into(),
-                        kind: egui_notify::ToastLevel::Warning,
-                    });
-                } else {
-                    save_map(&self);
-                }
+                action = self.save_to_file_action();
             }
         });
         raw_ui.horizontal(|row| {
@@ -2423,6 +2467,9 @@ impl Map {
                 }
             });
         });
+        if action.is_none() {
+            action = self.handle_file_shortcuts(raw_ui);
+        }
         if action.is_none() {
             action = self.handle_write_shortcuts(raw_ui);
         }
