@@ -2239,6 +2239,8 @@ impl Map {
         let mut first_data_cell_rect = None;
         let mut last_data_cell_rect = None;
         raw_ui.push_id(table_id, |ui| {
+            let spacing = ui.spacing().item_spacing;
+            ui.spacing_mut().item_spacing = egui::vec2(spacing.x, spacing.x);
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
                 .cell_layout(
@@ -2621,6 +2623,7 @@ impl Map {
         let active_lookup_points = self.active_lookup_cache_points();
         self.show_lookup_cache_controls(raw_ui, &active_lookup_points);
         self.gen_edit_table(raw_ui, &active_lookup_points);
+        raw_ui.add_space(raw_ui.spacing().item_spacing.x);
         ScrollArea::new([true, true])
             .max_height(raw_ui.available_height())
             .show(raw_ui, |raw_ui| {
