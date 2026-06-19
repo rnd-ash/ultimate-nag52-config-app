@@ -1886,19 +1886,12 @@ impl Map {
 
     fn load_from_file_action(&mut self) -> Option<PageAction> {
         let previous = self.data_modify.clone();
-        let mut copy = self.clone();
-        let res = load_map(&mut copy)?;
+        let res = load_map(self)?;
         Some(match res {
             Ok(_) => {
-                if copy.data_modify != previous {
-                    copy.undo_stack = self.undo_stack.clone();
-                    copy.redo_stack.clear();
-                    copy.push_undo_state(previous);
-                } else {
-                    copy.undo_stack = self.undo_stack.clone();
-                    copy.redo_stack = self.redo_stack.clone();
+                if self.data_modify != previous {
+                    self.push_undo_state(previous);
                 }
-                *self = copy;
                 PageAction::SendNotification {
                     text: "Map loading OK!".into(),
                     kind: egui_notify::ToastLevel::Success,
@@ -2901,6 +2894,36 @@ impl MapEditor {
             return;
         }
 
+        let mut keyboard_rows: Vec<(String, &'static str)> = Vec::new();
+        let mut mouse_rows: Vec<(String, &'static str)> = Vec::new();
+        for entry in MAP_CONTROL_ENTRIES {
+            match entry.binding {
+                MapControlBinding::Keyboard(shortcut) | MapControlBinding::Hold(shortcut) => {
+                    let shortcut = ctx.format_shortcut(&shortcut);
+                    if let Some((shortcuts, _)) = keyboard_rows
+                        .iter_mut()
+                        .find(|(_, description)| *description == entry.description)
+                    {
+                        shortcuts.push_str(", ");
+                        shortcuts.push_str(&shortcut);
+                    } else {
+                        keyboard_rows.push((shortcut, entry.description));
+                    }
+                }
+                MapControlBinding::Mouse(input) => {
+                    if let Some((inputs, _)) = mouse_rows
+                        .iter_mut()
+                        .find(|(_, description)| *description == entry.description)
+                    {
+                        inputs.push_str(", ");
+                        inputs.push_str(input);
+                    } else {
+                        mouse_rows.push((input.to_owned(), entry.description));
+                    }
+                }
+            }
+        }
+
         let mut close_requested = false;
         let response =
             egui::Modal::new(egui::Id::new("map_editor_shortcuts_modal")).show(ctx, |ui| {
@@ -2917,21 +2940,9 @@ impl MapEditor {
                             ui.strong("Shortcut");
                             ui.strong("Action");
                             ui.end_row();
-                            for entry in MAP_CONTROL_ENTRIES.iter().filter(|entry| {
-                                matches!(
-                                    entry.binding,
-                                    MapControlBinding::Keyboard(_) | MapControlBinding::Hold(_)
-                                )
-                            }) {
-                                let shortcut = match entry.binding {
-                                    MapControlBinding::Keyboard(shortcut)
-                                    | MapControlBinding::Hold(shortcut) => {
-                                        ctx.format_shortcut(&shortcut)
-                                    }
-                                    MapControlBinding::Mouse(_) => continue,
-                                };
+                            for (shortcut, description) in &keyboard_rows {
                                 ui.label(shortcut);
-                                ui.label(entry.description);
+                                ui.label(*description);
                                 ui.end_row();
                             }
                         });
@@ -2945,14 +2956,9 @@ impl MapEditor {
                             ui.strong("Input");
                             ui.strong("Action");
                             ui.end_row();
-                            for entry in MAP_CONTROL_ENTRIES.iter().filter(|entry| {
-                                matches!(entry.binding, MapControlBinding::Mouse(_))
-                            }) {
-                                let MapControlBinding::Mouse(input) = entry.binding else {
-                                    continue;
-                                };
+                            for (input, description) in &mouse_rows {
                                 ui.label(input);
-                                ui.label(entry.description);
+                                ui.label(*description);
                                 ui.end_row();
                             }
                         });
@@ -3091,6 +3097,61 @@ impl super::InterfacePage for MapEditor {
                         map_to_switch = Some(MapType::TccPwm);
                     }
                 });
+            });
+            ui.menu_button("Edit", |ui| {
+                if let Some(current_map) = self.loaded_map.as_mut() {
+                    if ui
+                        .add(egui::Button::new("Load from file").shortcut_text("Ctrl+O"))
+                        .clicked()
+                    {
+                        action = current_map.load_from_file_action();
+                        ui.close();
+                    }
+                    if ui
+                        .add(egui::Button::new("Save to file").shortcut_text("Ctrl+S"))
+                        .clicked()
+                    {
+                        action = current_map.save_to_file_action();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.add_enabled_ui(!current_map.undo_stack.is_empty(), |ui| {
+                        if ui
+                            .add(egui::Button::new("Undo").shortcut_text("Ctrl+Z"))
+                            .clicked()
+                        {
+                            current_map.apply_undo_edit();
+                            ui.close();
+                        }
+                    });
+                    ui.add_enabled_ui(!current_map.redo_stack.is_empty(), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new("Redo")
+                                    .shortcut_text("Ctrl+Y / Ctrl+Shift+Z"),
+                            )
+                            .clicked()
+                        {
+                            current_map.apply_redo_edit();
+                            ui.close();
+                        }
+                    });
+                } else {
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Load from file").shortcut_text("Ctrl+O"),
+                    );
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Save to file").shortcut_text("Ctrl+S"),
+                    );
+                    ui.separator();
+                    ui.add_enabled(false, egui::Button::new("Undo").shortcut_text("Ctrl+Z"));
+                    ui.add_enabled(
+                        false,
+                        egui::Button::new("Redo").shortcut_text("Ctrl+Y / Ctrl+Shift+Z"),
+                    );
+                }
             });
             if ui.button("Map controls").clicked() {
                 self.show_shortcuts = true;
