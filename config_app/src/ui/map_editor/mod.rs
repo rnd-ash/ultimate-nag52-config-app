@@ -2177,7 +2177,12 @@ impl Map {
                 Self::lookup_cache_fill_color(dark_mode, lookup_cache_alpha),
             );
         }
-        let response = cell.label(format!("{}", data[(row_id * self.x_values.len()) + x_pos]));
+        let response = cell
+            .with_layout(
+                Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |cell| cell.label(format!("{}", data[(row_id * self.x_values.len()) + x_pos])),
+            )
+            .inner;
         Self::decorate_lookup_cache_cell(
             cell,
             response,
@@ -2255,9 +2260,14 @@ impl Map {
                     } else {
                         for v in 0..self.x_values.len() {
                             header.col(|u| {
-                                u.label(
-                                    RichText::new(format!("{}", self.get_x_label(v)))
-                                        .color(header_color),
+                                u.with_layout(
+                                    Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                    |u| {
+                                        u.label(
+                                            RichText::new(format!("{}", self.get_x_label(v)))
+                                                .color(header_color),
+                                        );
+                                    },
                                 );
                             });
                         }
@@ -2350,7 +2360,9 @@ impl Map {
                                             .speed(0);
                                         let mut response = cell
                                             .with_layout(
-                                                Layout::right_to_left(egui::Align::Center),
+                                                Layout::centered_and_justified(
+                                                    egui::Direction::LeftToRight,
+                                                ),
                                                 |cell| {
                                                     cell.spacing_mut().interact_size.x =
                                                         value_cell_width;
@@ -2433,8 +2445,7 @@ impl Map {
                                         if let Some(text_color) = text_color {
                                             text = text.color(text_color);
                                         }
-                                        let mut button = egui::Button::new(())
-                                            .right_text(text)
+                                        let mut button = egui::Button::new(text)
                                             .sense(egui::Sense::click_and_drag())
                                             .min_size(egui::vec2(
                                                 value_cell_width,
