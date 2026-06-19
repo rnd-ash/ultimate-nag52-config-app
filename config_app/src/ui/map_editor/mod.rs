@@ -116,6 +116,8 @@ enum MapControlAction {
     AdjustSelection(i16),
     ClearSelection,
     SelectAll,
+    UndoEdit,
+    RedoEdit,
     WriteToRam,
     WriteToEeprom,
     ShowRamEepromDelta,
@@ -136,6 +138,7 @@ struct MapControlEntry {
 }
 
 const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
+const MAP_EDIT_HISTORY_LIMIT: usize = 100;
 
 const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
     MapControlEntry {
@@ -264,7 +267,15 @@ const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
             egui::Key::Escape,
         )),
         action: Some(MapControlAction::ClearSelection),
-        description: "Clear selected cells",
+        description: "Collapse selection, then clear",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::NONE,
+            egui::Key::Home,
+        )),
+        action: None,
+        description: "Select the first map cell",
     },
     MapControlEntry {
         binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
@@ -273,6 +284,30 @@ const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
         )),
         action: Some(MapControlAction::SelectAll),
         description: "Select all cells in current map",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT),
+            egui::Key::Z,
+        )),
+        action: Some(MapControlAction::RedoEdit),
+        description: "Redo last undone map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Z,
+        )),
+        action: Some(MapControlAction::UndoEdit),
+        description: "Undo last map edit",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Y,
+        )),
+        action: Some(MapControlAction::RedoEdit),
+        description: "Redo last undone map edit",
     },
     MapControlEntry {
         binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
@@ -297,6 +332,38 @@ const MAP_CONTROL_ENTRIES: &[MapControlEntry] = &[
         )),
         action: Some(MapControlAction::ShowRamEepromDelta),
         description: "Hold to show RAM - EEPROM deltas",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowUp,
+        )),
+        action: None,
+        description: "Resize selection upward from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowDown,
+        )),
+        action: None,
+        description: "Resize selection downward from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowLeft,
+        )),
+        action: None,
+        description: "Resize selection left from anchor",
+    },
+    MapControlEntry {
+        binding: MapControlBinding::Keyboard(egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::ArrowRight,
+        )),
+        action: None,
+        description: "Resize selection right from anchor",
     },
     MapControlEntry {
         binding: MapControlBinding::Mouse("Click"),
@@ -342,6 +409,8 @@ pub struct Map {
     selection_dragging: bool,
     editing_cell: Option<(usize, usize)>,
     edit_focus_pending: bool,
+    undo_stack: Vec<Vec<i16>>,
+    redo_stack: Vec<Vec<i16>>,
     lookup_cache: LookupCacheState,
     pending_write: Option<PendingMapWrite>,
 }
@@ -828,6 +897,8 @@ impl Map {
             selection_dragging: false,
             editing_cell: None,
             edit_focus_pending: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             lookup_cache: LookupCacheState {
                 time_sync,
                 ..LookupCacheState::default()
@@ -1567,6 +1638,37 @@ impl Map {
         self.edit_focus_pending = false;
     }
 
+    fn select_first_cell(&mut self) {
+        if self.y_values.is_empty() || self.x_values.is_empty() {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (0, 0),
+            cursor: (0, 0),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn collapse_or_clear_selection(&mut self) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        if selection.anchor != selection.cursor {
+            let (min_row, min_col, _, _) = selection.bounds();
+            self.selection = Some(MapSelection {
+                anchor: (min_row, min_col),
+                cursor: (min_row, min_col),
+            });
+            self.selection_dragging = false;
+            self.editing_cell = None;
+            self.edit_focus_pending = false;
+        } else {
+            self.clear_selection();
+        }
+    }
+
     fn select_all_cells(&mut self) {
         if self.y_values.is_empty() || self.x_values.is_empty() {
             return;
@@ -1580,10 +1682,57 @@ impl Map {
         self.edit_focus_pending = false;
     }
 
+    fn push_undo_state(&mut self, previous: Vec<i16>) {
+        if previous == self.data_modify {
+            return;
+        }
+        if self.undo_stack.last() != Some(&previous) {
+            self.undo_stack.push(previous);
+            if self.undo_stack.len() > MAP_EDIT_HISTORY_LIMIT {
+                self.undo_stack.remove(0);
+            }
+        }
+        self.redo_stack.clear();
+    }
+
+    fn apply_modified_data_change(&mut self, next: Vec<i16>) {
+        if next == self.data_modify {
+            return;
+        }
+        let previous = std::mem::replace(&mut self.data_modify, next);
+        self.push_undo_state(previous);
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn apply_undo_edit(&mut self) {
+        let Some(previous) = self.undo_stack.pop() else {
+            return;
+        };
+        let current = std::mem::replace(&mut self.data_modify, previous);
+        self.redo_stack.push(current);
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
+    fn apply_redo_edit(&mut self) {
+        let Some(next) = self.redo_stack.pop() else {
+            return;
+        };
+        let current = std::mem::replace(&mut self.data_modify, next);
+        self.undo_stack.push(current);
+        if self.undo_stack.len() > MAP_EDIT_HISTORY_LIMIT {
+            self.undo_stack.remove(0);
+        }
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
+    }
+
     fn apply_selection_delta(&mut self, delta: i16) {
         let Some(selection) = self.selection else {
             return;
         };
+        let previous = self.data_modify.clone();
         let (min_row, min_col, max_row, max_col) = selection.bounds();
         let x_len = self.x_values.len();
         for row in min_row..=max_row {
@@ -1592,6 +1741,35 @@ impl Map {
                 self.data_modify[idx] = self.data_modify[idx].saturating_add(delta);
             }
         }
+        self.push_undo_state(previous);
+    }
+
+    fn resize_selection(&mut self, row_delta: isize, col_delta: isize) {
+        if self.selection.is_none() {
+            self.select_first_cell();
+        }
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let (min_row, min_col, max_row, max_col) = selection.bounds();
+        let limit_row = self.y_values.len().saturating_sub(1);
+        let limit_col = self.x_values.len().saturating_sub(1);
+        let next_max_row = max_row
+            .saturating_add_signed(row_delta)
+            .clamp(min_row, limit_row);
+        let next_max_col = max_col
+            .saturating_add_signed(col_delta)
+            .clamp(min_col, limit_col);
+        if next_max_row == max_row && next_max_col == max_col {
+            return;
+        }
+        self.selection = Some(MapSelection {
+            anchor: (min_row, min_col),
+            cursor: (next_max_row, next_max_col),
+        });
+        self.selection_dragging = false;
+        self.editing_cell = None;
+        self.edit_focus_pending = false;
     }
 
     fn handle_selection_navigation(&mut self, ui: &mut egui::Ui) -> bool {
@@ -1599,32 +1777,81 @@ impl Map {
             return false;
         }
 
+        let shortcut = |modifiers, key| egui::KeyboardShortcut::new(modifiers, key);
         let action = ui.input_mut(|input| {
-            if input.modifiers != egui::Modifiers::NONE {
-                return None;
-            }
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
-                Some((-1, 0))
-            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
-                Some((1, 0))
-            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) {
-                Some((0, -1))
-            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) {
-                Some((0, 1))
-            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
-                Some((0, 0))
+            let is_ctrl_only = input.modifiers.ctrl
+                && !input.modifiers.alt
+                && !input.modifiers.shift
+                && !input.modifiers.mac_cmd;
+            if input.consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::Home)) {
+                Some((true, 0, 0, false))
+            } else if is_ctrl_only {
+                if input.consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowUp)) {
+                    Some((false, -1, 0, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowDown))
+                {
+                    Some((false, 1, 0, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowLeft))
+                {
+                    Some((false, 0, -1, true))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::CTRL, egui::Key::ArrowRight))
+                {
+                    Some((false, 0, 1, true))
+                } else {
+                    None
+                }
+            } else if input.modifiers == egui::Modifiers::NONE {
+                if input.consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+                    Some((false, -1, 0, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowDown))
+                {
+                    Some((false, 1, 0, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowLeft))
+                {
+                    Some((false, 0, -1, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::ArrowRight))
+                {
+                    Some((false, 0, 1, false))
+                } else if input
+                    .consume_shortcut(&shortcut(egui::Modifiers::NONE, egui::Key::Enter))
+                {
+                    Some((false, 0, 0, false))
+                } else {
+                    None
+                }
             } else {
                 None
             }
         });
 
         match action {
-            Some((0, 0)) => {
+            Some((true, _, _, _)) => {
+                self.select_first_cell();
+                true
+            }
+            Some((false, 0, 0, _)) => {
+                if self.selection.is_none() {
+                    self.select_first_cell();
+                }
                 self.edit_selection_start();
                 true
             }
-            Some((row_delta, col_delta)) => {
-                self.move_selection(row_delta, col_delta);
+            Some((false, row_delta, col_delta, true)) => {
+                self.resize_selection(row_delta, col_delta);
+                true
+            }
+            Some((false, row_delta, col_delta, false)) => {
+                if self.selection.is_none() {
+                    self.select_first_cell();
+                } else {
+                    self.move_selection(row_delta, col_delta);
+                }
                 true
             }
             None => false,
@@ -1674,10 +1901,10 @@ impl Map {
         });
         if has_selection_state && matches!(clear_selection, Some(MapControlAction::ClearSelection))
         {
-            self.clear_selection();
+            self.collapse_or_clear_selection();
             return;
         }
-        if self.view_type != MapViewType::Modify || self.selection.is_none() {
+        if self.view_type != MapViewType::Modify {
             return;
         }
         if ui.memory(|mem| mem.focused().is_some()) {
@@ -1692,7 +1919,10 @@ impl Map {
             keyboard_control_action(input, |action| {
                 matches!(
                     action,
-                    MapControlAction::AdjustSelection(_) | MapControlAction::SelectAll
+                    MapControlAction::AdjustSelection(_)
+                        | MapControlAction::SelectAll
+                        | MapControlAction::UndoEdit
+                        | MapControlAction::RedoEdit
                 )
             })
         });
@@ -1700,6 +1930,8 @@ impl Map {
         match action {
             Some(MapControlAction::AdjustSelection(delta)) => self.apply_selection_delta(delta),
             Some(MapControlAction::SelectAll) => self.select_all_cells(),
+            Some(MapControlAction::UndoEdit) => self.apply_undo_edit(),
+            Some(MapControlAction::RedoEdit) => self.apply_redo_edit(),
             _ => {}
         }
     }
@@ -1905,6 +2137,8 @@ impl Map {
                                         .map(|selection| selection.contains(row_id, x_pos))
                                         .unwrap_or(false);
                                     let is_editing = self.editing_cell == Some((row_id, x_pos));
+                                    let pre_edit_state =
+                                        is_editing.then(|| self.data_modify.clone());
                                     let response = if is_editing {
                                         let edit = DragValue::new(&mut self.data_modify[map_idx])
                                             .suffix(self.meta.value_unit)
@@ -2011,6 +2245,11 @@ impl Map {
                                         }
                                         cell.add(button)
                                     };
+                                    if let Some(previous) = pre_edit_state {
+                                        if response.changed() {
+                                            self.push_undo_state(previous);
+                                        }
+                                    }
                                     let pointer_over_response = response
                                         .ctx
                                         .input(|input| input.pointer.interact_pos())
@@ -2105,10 +2344,19 @@ impl Map {
         let dark_mode = raw_ui.visuals().dark_mode;
         raw_ui.horizontal(|ui| {
             if ui.button("Load from file").clicked() {
+                let previous = self.data_modify.clone();
                 let mut copy = self.clone();
                 if let Some(res) = load_map(&mut copy) {
                     match res {
                         Ok(_) => {
+                            if copy.data_modify != previous {
+                                copy.undo_stack = self.undo_stack.clone();
+                                copy.redo_stack.clear();
+                                copy.push_undo_state(previous);
+                            } else {
+                                copy.undo_stack = self.undo_stack.clone();
+                                copy.redo_stack = self.redo_stack.clone();
+                            }
                             *self = copy;
                             action = Some(PageAction::SendNotification {
                                 text: format!("Map loading OK!"),
@@ -2146,14 +2394,14 @@ impl Map {
         raw_ui.horizontal(|raw_ui| {
             raw_ui.add_enabled_ui(self.data_modify != self.data_program, |ui| {
                 if ui.button("Reset to flash defaults").clicked() {
-                    self.data_modify = self.data_program.clone();
+                    self.apply_modified_data_change(self.data_program.clone());
                 }
             });
             raw_ui.add_enabled_ui(self.can_write_to_ram(), |ui| {
                 if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
-                            self.data_modify = self.data_eeprom.clone();
+                            self.apply_modified_data_change(self.data_eeprom.clone());
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
                                 kind: egui_notify::ToastLevel::Success,
