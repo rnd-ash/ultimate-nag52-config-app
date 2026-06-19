@@ -144,7 +144,6 @@ struct MapControlEntry {
 struct LineChartAlignmentState {
     column_count: usize,
     table_data_rect: Option<egui::Rect>,
-    plot_frame_rect: Option<egui::Rect>,
     outer_left_margin_px: Option<i32>,
     plot_total_width_px: Option<i32>,
 }
@@ -2150,7 +2149,6 @@ impl Map {
         let next_plot_total_width =
             ((current_plot_total_width as f32) + width_delta).round().max(1.0) as i32;
 
-        self.line_chart_alignment.plot_frame_rect = Some(plot_frame_rect);
         let layout_changed = self.line_chart_alignment.outer_left_margin_px
             != Some(next_outer_left_margin)
             || self.line_chart_alignment.plot_total_width_px != Some(next_plot_total_width);
@@ -2698,9 +2696,21 @@ impl Map {
                     let x_plot_min = -0.5;
                     let x_plot_max = x_max_idx + 0.5;
                     let plot_data_width = self.x_values.len() as f32 * value_cell_width;
-                    let default_plot_outer_left_margin =
-                        (MAP_EDITOR_ROW_HEADER_WIDTH - plot_y_axis_width).max(0.0);
-                    let default_plot_total_width = plot_y_axis_width + plot_data_width;
+                    let plot_widget_left = raw_ui.next_widget_position().x;
+                    let (default_plot_outer_left_margin, default_plot_total_width) = self
+                        .line_chart_alignment
+                        .table_data_rect
+                        .map(|target_rect| {
+                            (
+                                (target_rect.left() - plot_widget_left - plot_y_axis_width)
+                                    .max(0.0),
+                                (plot_y_axis_width + target_rect.width()).max(1.0),
+                            )
+                        })
+                        .unwrap_or((
+                            (MAP_EDITOR_ROW_HEADER_WIDTH - plot_y_axis_width).max(0.0),
+                            plot_y_axis_width + plot_data_width,
+                        ));
                     let (plot_outer_left_margin, plot_total_width) =
                         self.line_chart_layout(
                             default_plot_outer_left_margin,
