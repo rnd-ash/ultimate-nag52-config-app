@@ -19,7 +19,7 @@ use eframe::{
     epaint::Color32,
 };
 use egui_extras::Column;
-use egui_plot::{Bar, BarChart, Line, MarkerShape, Points, VLine};
+use egui_plot::{Bar, BarChart, GridMark, Line, MarkerShape, Points, VLine};
 use plotters::{
     prelude::{ChartBuilder, IntoDrawingArea},
     series::SurfaceSeries,
@@ -73,6 +73,7 @@ const RLI_TCU_TIME: u8 = 0x26;
 const KWP_POSITIVE_READ_DATA_BY_LOCAL_IDENTIFIER: u8 = 0x61;
 const KWP_NRC_SUB_FUNC_NOT_SUPPORTED_INVALID_FORMAT: u8 = 0x12;
 const KWP_NRC_REQUEST_OUT_OF_RANGE: u8 = 0x31;
+const MAP_EDITOR_ROW_HEADER_WIDTH: f32 = 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MapViewType {
@@ -137,6 +138,15 @@ struct MapControlEntry {
     binding: MapControlBinding,
     action: Option<MapControlAction>,
     description: &'static str,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LineChartAlignmentState {
+    column_count: usize,
+    table_data_rect: Option<egui::Rect>,
+    plot_frame_rect: Option<egui::Rect>,
+    outer_left_margin: Option<f32>,
+    plot_total_width: Option<f32>,
 }
 
 const ALT_SHIFT: egui::Modifiers = egui::Modifiers::ALT.plus(egui::Modifiers::SHIFT);
@@ -429,6 +439,7 @@ pub struct Map {
     edit_focus_pending: bool,
     undo_stack: Vec<Vec<i16>>,
     redo_stack: Vec<Vec<i16>>,
+    line_chart_alignment: LineChartAlignmentState,
     lookup_cache: LookupCacheState,
     pending_write: Option<PendingMapWrite>,
 }
@@ -917,6 +928,7 @@ impl Map {
             edit_focus_pending: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            line_chart_alignment: LineChartAlignmentState::default(),
             lookup_cache: LookupCacheState {
                 time_sync,
                 ..LookupCacheState::default()
@@ -2024,6 +2036,113 @@ impl Map {
         }
     }
 
+    fn value_cell_width(&self, ui: &egui::Ui) -> f32 {
+        let value_font_id = egui::TextStyle::Button.resolve(ui.style());
+        let width = self
+            .data_modify
+            .iter()
+            .chain(self.data_eeprom.iter())
+            .chain(self.data_program.iter())
+            .map(|value| format!("{}{}", value, self.meta.value_unit))
+            .chain(
+                self.data_memory
+                    .iter()
+                    .zip(self.data_eeprom.iter())
+                    .map(|(ram, eeprom)| {
+                        format!("{:+}{}", *ram as i32 - *eeprom as i32, self.meta.value_unit)
+                    }),
+            )
+            .map(|text| {
+                ui.painter()
+                    .layout_no_wrap(text, value_font_id.clone(), Color32::WHITE)
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, f32::max)
+            + (ui.spacing().button_padding.x * 2.0)
+            + 8.0;
+        width.max(ui.spacing().interact_size.x).ceil()
+    }
+
+    fn plot_y_axis_width(&self, ui: &egui::Ui, data: &[i16]) -> f32 {
+        let axis_font_id = egui::TextStyle::Body.resolve(ui.style());
+        let max_label_width = data
+            .iter()
+            .map(|value| value.to_string())
+            .map(|text| {
+                ui.painter()
+                    .layout_no_wrap(text, axis_font_id.clone(), ui.visuals().text_color())
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, f32::max);
+        (max_label_width + 8.0).ceil()
+    }
+
+    fn reset_line_chart_alignment(&mut self) {
+        self.line_chart_alignment = LineChartAlignmentState::default();
+    }
+
+    fn set_line_chart_table_rect(&mut self, rect: Option<egui::Rect>) {
+        self.line_chart_alignment.table_data_rect = rect;
+        let column_count = self.x_values.len();
+        if self.line_chart_alignment.column_count != column_count {
+            self.reset_line_chart_alignment();
+            self.line_chart_alignment.column_count = column_count;
+            self.line_chart_alignment.table_data_rect = rect;
+        }
+    }
+
+    fn line_chart_layout(
+        &self,
+        default_outer_left_margin: f32,
+        default_plot_total_width: f32,
+    ) -> (f32, f32) {
+        let outer_left_margin = self
+            .line_chart_alignment
+            .outer_left_margin
+            .unwrap_or(default_outer_left_margin)
+            .max(0.0);
+        let plot_total_width = self
+            .line_chart_alignment
+            .plot_total_width
+            .unwrap_or(default_plot_total_width)
+            .max(1.0);
+        (outer_left_margin, plot_total_width)
+    }
+
+    fn update_line_chart_alignment(
+        &mut self,
+        ctx: &egui::Context,
+        target_rect: egui::Rect,
+        plot_frame_rect: egui::Rect,
+        default_outer_left_margin: f32,
+        default_plot_total_width: f32,
+    ) {
+        let current_outer_left_margin = self
+            .line_chart_alignment
+            .outer_left_margin
+            .unwrap_or(default_outer_left_margin);
+        let current_plot_total_width = self
+            .line_chart_alignment
+            .plot_total_width
+            .unwrap_or(default_plot_total_width);
+
+        let left_delta = target_rect.left() - plot_frame_rect.left();
+        let width_delta = target_rect.width() - plot_frame_rect.width();
+
+        let next_outer_left_margin = (current_outer_left_margin + left_delta).max(0.0);
+        let next_plot_total_width = (current_plot_total_width + width_delta).max(1.0);
+
+        self.line_chart_alignment.plot_frame_rect = Some(plot_frame_rect);
+        self.line_chart_alignment.outer_left_margin = Some(next_outer_left_margin);
+        self.line_chart_alignment.plot_total_width = Some(next_plot_total_width);
+
+        if left_delta.abs() > 0.5 || width_delta.abs() > 0.5 {
+            ctx.request_repaint();
+        }
+    }
+
     fn readonly_cell(
         &self,
         cell: &mut egui::Ui,
@@ -2067,34 +2186,7 @@ impl Map {
             .map(|(modified, eeprom)| (*modified as i32 - *eeprom as i32).abs())
             .max()
             .unwrap_or(0);
-        let value_font_id = egui::TextStyle::Button.resolve(raw_ui.style());
-        let value_cell_width = self
-            .data_modify
-            .iter()
-            .chain(self.data_eeprom.iter())
-            .chain(self.data_program.iter())
-            .map(|value| format!("{}{}", value, self.meta.value_unit))
-            .chain(
-                self.data_memory
-                    .iter()
-                    .zip(self.data_eeprom.iter())
-                    .map(|(ram, eeprom)| {
-                        format!("{:+}{}", *ram as i32 - *eeprom as i32, self.meta.value_unit)
-                    }),
-            )
-            .map(|text| {
-                raw_ui
-                    .painter()
-                    .layout_no_wrap(text, value_font_id.clone(), Color32::WHITE)
-                    .size()
-                    .x
-            })
-            .fold(0.0_f32, f32::max)
-            + (raw_ui.spacing().button_padding.x * 2.0)
-            + 8.0;
-        let value_cell_width = value_cell_width
-            .max(raw_ui.spacing().interact_size.x)
-            .ceil();
+        let value_cell_width = self.value_cell_width(raw_ui);
         if self.meta.reset_adaptation {
             raw_ui.strong("Warning. Modifying this map resets adaptation!");
         }
@@ -2122,6 +2214,8 @@ impl Map {
             raw_ui.label(format!("Values: {}", self.meta.v_desc));
         }
         let mut pointer_over_cell = false;
+        let mut first_data_cell_rect = None;
+        let mut last_data_cell_rect = None;
         raw_ui.push_id(table_id, |ui| {
             let mut table_builder = egui_extras::TableBuilder::new(ui)
                 .striped(true)
@@ -2129,9 +2223,12 @@ impl Map {
                     Layout::left_to_right(egui::Align::Center)
                         .with_cross_align(egui::Align::Center),
                 )
-                .column(Column::initial(60.0).at_least(60.0));
+                .column(
+                    Column::initial(MAP_EDITOR_ROW_HEADER_WIDTH)
+                        .at_least(MAP_EDITOR_ROW_HEADER_WIDTH),
+                );
             for _ in 0..self.x_values.len() {
-                table_builder = table_builder.column(Column::auto().at_least(value_cell_width));
+                table_builder = table_builder.column(Column::exact(value_cell_width));
             }
             table_builder
                 .header(15.0, |mut header| {
@@ -2173,6 +2270,12 @@ impl Map {
                                 self.lookup_cache_cell_info(active_lookup_points, x_pos, row_id);
                             row.col(|cell| match self.view_type {
                                 MapViewType::EEPROM => {
+                                    if row_id == 0 && x_pos == 0 {
+                                        first_data_cell_rect = Some(cell.max_rect());
+                                    }
+                                    if row_id == 0 && x_pos + 1 == self.x_values.len() {
+                                        last_data_cell_rect = Some(cell.max_rect());
+                                    }
                                     self.readonly_cell(
                                         cell,
                                         row_id,
@@ -2184,6 +2287,12 @@ impl Map {
                                     );
                                 }
                                 MapViewType::Default => {
+                                    if row_id == 0 && x_pos == 0 {
+                                        first_data_cell_rect = Some(cell.max_rect());
+                                    }
+                                    if row_id == 0 && x_pos + 1 == self.x_values.len() {
+                                        last_data_cell_rect = Some(cell.max_rect());
+                                    }
                                     self.readonly_cell(
                                         cell,
                                         row_id,
@@ -2196,6 +2305,12 @@ impl Map {
                                 }
                                 MapViewType::Modify => {
                                     let cell_rect = cell.max_rect();
+                                    if row_id == 0 && x_pos == 0 {
+                                        first_data_cell_rect = Some(cell_rect);
+                                    }
+                                    if row_id == 0 && x_pos + 1 == self.x_values.len() {
+                                        last_data_cell_rect = Some(cell_rect);
+                                    }
                                     let map_idx = (row_id * self.x_values.len()) + x_pos;
                                     let modified_value = self.data_modify[map_idx];
                                     let eeprom_value = self.data_eeprom[map_idx];
@@ -2405,6 +2520,11 @@ impl Map {
                     })
                 });
         });
+        self.set_line_chart_table_rect(
+            first_data_cell_rect.zip(last_data_cell_rect).map(|(first, last)| {
+                egui::Rect::from_min_max(first.min, last.max)
+            }),
+        );
         if raw_ui.input(|input| input.pointer.primary_clicked()) && !pointer_over_cell {
             self.clear_selection();
         }
@@ -2549,79 +2669,161 @@ impl Map {
                 } else if self.meta.x_replace.is_some() || self.meta.y_replace.is_some() {
                     // Line chart
                     let src = match self.view_type {
-                        MapViewType::Default => &self.data_program,
-                        MapViewType::EEPROM => &self.data_eeprom,
-                        MapViewType::Modify => &self.data_modify,
+                        MapViewType::Default => self.data_program.clone(),
+                        MapViewType::EEPROM => self.data_eeprom.clone(),
+                        MapViewType::Modify => self.data_modify.clone(),
                     };
+                    let value_cell_width = self.value_cell_width(raw_ui);
+                    let plot_y_axis_width = self.plot_y_axis_width(raw_ui, &src);
+                    let x_max_idx = self.x_values.len().saturating_sub(1) as f64;
+                    let x_plot_min = -0.5;
+                    let x_plot_max = x_max_idx + 0.5;
+                    let plot_data_width = self.x_values.len() as f32 * value_cell_width;
+                    let default_plot_outer_left_margin =
+                        (MAP_EDITOR_ROW_HEADER_WIDTH - plot_y_axis_width).max(0.0);
+                    let default_plot_total_width = plot_y_axis_width + plot_data_width;
+                    let (plot_outer_left_margin, plot_total_width) =
+                        self.line_chart_layout(
+                            default_plot_outer_left_margin,
+                            default_plot_total_width,
+                        );
+                    let x_labels: Vec<String> = (0..self.x_values.len())
+                        .map(|idx| self.get_x_label(idx))
+                        .collect();
                     let mut lines: Vec<Line> = Vec::new();
                     for (y_idx, _key) in self.y_values.iter().enumerate() {
                         let mut points: Vec<[f64; 2]> = Vec::new();
-                        for (x_idx, key) in self.x_values.iter().enumerate() {
-                            let data = self.data_value_for(src, x_idx, y_idx);
-                            points.push([*key as f64, data as f64]);
+                        for x_idx in 0..self.x_values.len() {
+                            let data = self.data_value_for(&src, x_idx, y_idx);
+                            points.push([x_idx as f64, data as f64]);
                         }
                         lines.push(Line::new(self.get_y_label(y_idx), points));
                     }
-                    egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .allow_zoom(false)
-                        .width(raw_ui.available_width())
-                        .show(raw_ui, |plot_ui| {
-                            for l in lines {
-                                plot_ui.line(l);
-                            }
-                            for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> =
-                                    Self::active_lookup_cache_points_for_slot(
-                                        &active_lookup_points,
-                                        slot,
-                                    )
-                                    .into_iter()
-                                    .map(|point| {
-                                        let x = point.x as f64;
+                    let x_axis_labels = x_labels.clone();
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin {
+                            left: plot_outer_left_margin.round() as i8,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                        })
+                        .show(raw_ui, |ui| {
+                            let plot_response =
+                                egui_plot::Plot::new(format!("PLOT-{}", self.eeprom_key))
+                                .allow_drag(false)
+                                .allow_scroll(false)
+                                .allow_zoom(false)
+                                .width(plot_total_width)
+                                .y_axis_min_width(plot_y_axis_width)
+                                .default_x_bounds(x_plot_min, x_plot_max)
+                                .set_margin_fraction(egui::vec2(0.0, 0.05))
+                                .x_grid_spacer(move |input| {
+                                    let min_idx = input.bounds.0.ceil().max(0.0) as usize;
+                                    let max_idx = input.bounds.1.floor().min(x_max_idx) as usize;
+                                    (min_idx..=max_idx)
+                                        .map(|idx| GridMark {
+                                            value: idx as f64,
+                                            step_size: 1.0,
+                                        })
+                                        .collect()
+                                })
+                                .x_axis_formatter(move |mark, _| {
+                                    let idx = mark.value.round();
+                                    if (mark.value - idx).abs() > 0.001 {
+                                        return String::new();
+                                    }
+                                    let idx = idx as isize;
+                                    if idx < 0 || idx as usize >= x_axis_labels.len() {
+                                        return String::new();
+                                    }
+                                    x_axis_labels[idx as usize].clone()
+                                })
+                                .show(ui, |plot_ui| {
+                                    for l in lines {
+                                        plot_ui.line(l);
+                                    }
+                                    for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
+                                        let points: Vec<([f64; 2], u8)> =
+                                            Self::active_lookup_cache_points_for_slot(
+                                                &active_lookup_points,
+                                                slot,
+                                            )
+                                            .into_iter()
+                                            .map(|point| {
+                                                let x = axis_position(&self.x_values, point.x)
+                                                    .unwrap_or(point.x_idx as f64);
+                                                let value = self
+                                                    .interpolated_data_value_for(
+                                                        &src, point.x, point.y,
+                                                    )
+                                                    .unwrap_or_else(|| {
+                                                        self.data_value_for(
+                                                            &src,
+                                                            point.x_idx,
+                                                            point.y_idx,
+                                                        )
+                                                    });
+                                                ([x, value], point.alpha)
+                                            })
+                                            .collect();
+                                        for segment in points.windows(2) {
+                                            let alpha =
+                                                ((segment[0].1 as u16 + segment[1].1 as u16) / 2)
+                                                    as u8;
+                                            plot_ui.line(
+                                                Line::new(
+                                                    format!("Live cursor trace slot {}", slot),
+                                                    vec![segment[0].0, segment[1].0],
+                                                )
+                                                .width(LOOKUP_TRACE_LINE_WIDTH)
+                                                .color(Self::lookup_cache_marker_color(
+                                                    dark_mode, alpha,
+                                                )),
+                                            );
+                                        }
+                                    }
+                                    for point in
+                                        Self::latest_lookup_cache_points(&active_lookup_points)
+                                    {
+                                        let x = axis_position(&self.x_values, point.x)
+                                            .unwrap_or(point.x_idx as f64);
                                         let value = self
-                                            .interpolated_data_value_for(src, point.x, point.y)
+                                            .interpolated_data_value_for(&src, point.x, point.y)
                                             .unwrap_or_else(|| {
-                                                self.data_value_for(src, point.x_idx, point.y_idx)
+                                                self.data_value_for(
+                                                    &src,
+                                                    point.x_idx,
+                                                    point.y_idx,
+                                                )
                                             });
-                                        ([x, value], point.alpha)
-                                    })
-                                    .collect();
-                                for segment in points.windows(2) {
-                                    let alpha =
-                                        ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
-                                    plot_ui.line(
-                                        Line::new(
-                                            format!("Live cursor trace slot {}", slot),
-                                            vec![segment[0].0, segment[1].0],
-                                        )
-                                        .width(LOOKUP_TRACE_LINE_WIDTH)
-                                        .color(Self::lookup_cache_marker_color(dark_mode, alpha)),
-                                    );
-                                }
-                            }
-                            for point in Self::latest_lookup_cache_points(&active_lookup_points) {
-                                let x = point.x as f64;
-                                let value = self
-                                    .interpolated_data_value_for(src, point.x, point.y)
-                                    .unwrap_or_else(|| {
-                                        self.data_value_for(src, point.x_idx, point.y_idx)
-                                    });
-                                let color = Self::lookup_cache_marker_color(dark_mode, point.alpha);
-                                plot_ui.vline(
-                                    VLine::new(format!("Live cursor X slot {}", point.slot), x)
-                                        .width(LOOKUP_CURSOR_VLINE_WIDTH)
-                                        .color(color),
-                                );
-                                plot_ui.points(
-                                    Points::new(
-                                        format!("Live cursor slot {}", point.slot),
-                                        vec![[x, value]],
-                                    )
-                                    .shape(MarkerShape::Cross)
-                                    .radius(LOOKUP_CURSOR_CROSS_RADIUS)
-                                    .color(color),
+                                        let color =
+                                            Self::lookup_cache_marker_color(dark_mode, point.alpha);
+                                        plot_ui.vline(
+                                            VLine::new(
+                                                format!("Live cursor X slot {}", point.slot),
+                                                x,
+                                            )
+                                            .width(LOOKUP_CURSOR_VLINE_WIDTH)
+                                            .color(color),
+                                        );
+                                        plot_ui.points(
+                                            Points::new(
+                                                format!("Live cursor slot {}", point.slot),
+                                                vec![[x, value]],
+                                            )
+                                            .shape(MarkerShape::Cross)
+                                            .radius(LOOKUP_CURSOR_CROSS_RADIUS)
+                                            .color(color),
+                                        );
+                                    }
+                                });
+                            if let Some(target_rect) = self.line_chart_alignment.table_data_rect {
+                                self.update_line_chart_alignment(
+                                    ui.ctx(),
+                                    target_rect,
+                                    *plot_response.transform.frame(),
+                                    default_plot_outer_left_margin,
+                                    default_plot_total_width,
                                 );
                             }
                         });
