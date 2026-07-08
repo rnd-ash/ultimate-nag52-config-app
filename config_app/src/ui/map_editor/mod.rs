@@ -1077,12 +1077,12 @@ impl Map {
                     self.data_memory = self.data_modify.clone();
                     PageAction::SendNotification {
                         text: format!("Map {} RAM write OK!", self.eeprom_key),
-                        kind: egui_notify::ToastLevel::Success,
+                        kind: egui_toast::ToastKind::Success,
                     }
                 }
                 Err(e) => PageAction::SendNotification {
                     text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                    kind: egui_notify::ToastLevel::Error,
+                    kind: egui_toast::ToastKind::Error,
                 },
             },
             PendingMapWrite::Eeprom => match self.save_to_eeprom() {
@@ -1097,12 +1097,12 @@ impl Map {
                     }
                     PageAction::SendNotification {
                         text: format!("Map {} EEPROM save OK!", eeprom_key),
-                        kind: egui_notify::ToastLevel::Success,
+                        kind: egui_toast::ToastKind::Success,
                     }
                 }
                 Err(e) => PageAction::SendNotification {
                     text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                    kind: egui_notify::ToastLevel::Error,
+                    kind: egui_toast::ToastKind::Error,
                 },
             },
         }
@@ -1117,7 +1117,7 @@ impl Map {
                     "Map {} write queued until live cursor request finishes.",
                     self.eeprom_key
                 ),
-                kind: egui_notify::ToastLevel::Info,
+                kind: egui_toast::ToastKind::Info,
             }
         } else {
             self.pending_write = None;
@@ -1292,13 +1292,13 @@ impl Map {
                             *self = copy;
                             action = Some(PageAction::SendNotification {
                                 text: format!("Map loading OK!"),
-                                kind: egui_notify::ToastLevel::Success,
+                                kind: egui_toast::ToastKind::Success,
                             });
                         }
                         Err(e) => {
                             action = Some(PageAction::SendNotification {
                                 text: format!("Map loading failed: {e}"),
-                                kind: egui_notify::ToastLevel::Error,
+                                kind: egui_toast::ToastKind::Error,
                             });
                         }
                     }
@@ -1310,7 +1310,7 @@ impl Map {
                         text:
                             "You have unsaved data in the map. Please write to EEPROM before saving"
                                 .into(),
-                        kind: egui_notify::ToastLevel::Warning,
+                        kind: egui_toast::ToastKind::Warning,
                     });
                 } else {
                     save_map(&self);
@@ -1336,12 +1336,12 @@ impl Map {
                             self.data_modify = self.data_eeprom.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
+                                kind: egui_toast::ToastKind::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} undo failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
+                            kind: egui_toast::ToastKind::Error,
                         }),
                     };
                 }
@@ -1535,7 +1535,7 @@ impl Map {
                     } else if self.pitch > 1.57 {
                         self.pitch = 1.57;
                     }
-                    let vis = &raw_ui.ctx().style().visuals;
+                    let vis = &raw_ui.style().visuals;
                     let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
                     let mut chart = ChartBuilder::on(&area)
                         .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max)
@@ -1890,7 +1890,7 @@ impl super::InterfacePage for MapEditor {
             if !allowed_to_swtich {
                 action = Some(PageAction::SendNotification {
                     text: "You have uncommited changes, please reset or write to EEPROM".into(),
-                    kind: egui_notify::ToastLevel::Warning
+                    kind: egui_toast::ToastKind::Warning
                 })
             } else {
                 if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
@@ -1902,7 +1902,7 @@ impl super::InterfacePage for MapEditor {
                         Err(e) => {
                             action = Some(PageAction::SendNotification {
                                 text: format!("Failed to read map {:?}. {}", selected, e),
-                                kind: egui_notify::ToastLevel::Error
+                                kind: egui_toast::ToastKind::Error
                             })
                         },
                     }
@@ -1910,7 +1910,7 @@ impl super::InterfacePage for MapEditor {
                     //Error toast
                     action = Some(PageAction::SendNotification {
                         text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8),
-                        kind: egui_notify::ToastLevel::Error
+                        kind: egui_toast::ToastKind::Error
                     })
                 }
             }

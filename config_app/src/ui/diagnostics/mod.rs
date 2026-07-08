@@ -3,7 +3,7 @@ use backend::diag::Nag52Diag;
 use backend::ecu_diagnostics::kwp2000::{KwpSessionTypeByte, KwpSessionType};
 use egui_extras::Size;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use eframe::egui::{self, CentralPanel, Color32, RichText, ScrollArea, SidePanel, Slider, Ui};
+use eframe::egui::{self, CentralPanel, Color32, Panel, RichText, ScrollArea, Slider, Ui};
 use eframe::epaint::Stroke;
 use eframe::epaint::mutex::RwLock;
 use strum::VariantArray;
@@ -135,13 +135,10 @@ impl crate::window::InterfacePage for DiagnosticsPage {
         let current_val = self.curr_values.read().clone();
         let chart_data = self.charting_data.read().clone();
 
-        SidePanel::left("Side bar")
-            .show_animated_inside(ui, self.sidebar_shown, |ui| {
+        Panel::left("Side bar")
+            .show_collapsible(ui, &mut self.sidebar_shown, |ui| {
 
                 ui.heading("Data logger");
-                if ui.button("Hide sidepanel").clicked() {
-                    self.sidebar_shown = false;
-                }
                 ui.separator();
                 ui.strong("Graph controls");
                 ui.horizontal(|ui| {
@@ -206,7 +203,7 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                     }
                 });
         });
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             if !self.sidebar_shown {
                 if ui.button("Show sidepanel").clicked() {
                     self.sidebar_shown = true;
@@ -249,6 +246,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                     let mut plot = Plot::new(format!("diagnostics-plot-{idx}-{}", d.group_name))
                                         //.height(space_per_chart)
                                         .allow_drag(false)
+                                        .allow_zoom(false)
+                                        .allow_axis_zoom_drag(false)
                                         .auto_bounds([false, true])
                                         .include_x(x_min)
                                         .include_x(x_max)
@@ -265,7 +264,8 @@ impl crate::window::InterfacePage for DiagnosticsPage {
                                             } else {
                                                 f.value.to_string()
                                             }
-                                        });
+                                        })
+                                        .reset();
                                     if let Some((min, max)) = &d.bounds && self.auto_scale {
                                         plot = plot.include_y(*min);
                                         if *max > 0.1 {

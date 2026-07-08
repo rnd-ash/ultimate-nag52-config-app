@@ -340,6 +340,18 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                                 data.io_0_usage = ss
                             });
                         ui.end_row();
+                        if data.io_0_usage != IOPinConfig::NotConnected && data.io_0_usage != IOPinConfig::TCCMod13 {
+                            ui.strong("Super dirty hack TCC Zener");
+                            let mut b = data.is_large_nag == 0xAA;
+                            if ui.checkbox(&mut b, "").clicked() {
+                                data.is_large_nag = if b {
+                                    0xAA
+                                } else {
+                                    0
+                                };
+                            }
+                            ui.end_row();
+                        }
 
                         if data.io_0_usage == IOPinConfig::Input {
                             ui.strong("Input sensor pulses/rev");

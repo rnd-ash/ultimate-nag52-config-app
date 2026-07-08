@@ -2,11 +2,10 @@ use backend::diag::device_modes::TcuDeviceMode;
 use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
+use backend::ecu_diagnostics::dynamic_diag::DiagSessionMode;
 use config_app_macros::include_base64;
-use eframe::egui;
+use eframe::egui::{self, Panel};
 use eframe::egui::CentralPanel;
-use eframe::egui::RichText;
-use eframe::egui::SidePanel;
 use eframe::epaint::Color32;
 use eframe::epaint::mutex::RwLock;
 use octocrab::Octocrab;
@@ -31,7 +30,7 @@ pub struct MainPage {
     sn: Arc<RwLock<DataState<String>>>,
     first_run: bool,
     tcu_mode: Arc<RwLock<DataState<TcuDeviceMode>>>,
-    octocrab: Arc<Octocrab>
+    octocrab: Arc<Octocrab>,
 }
 
 impl MainPage {
@@ -71,7 +70,7 @@ impl MainPage {
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
             tcu_mode: Arc::new(RwLock::new(DataState::Unint)),
-            octocrab: instance
+            octocrab: instance,
         }
     }
 }
@@ -109,7 +108,7 @@ impl InterfacePage for MainPage {
         let mut efuse_ok = true;
         let mut compatibility_ok = true;
         let mut special_mode = false;
-        let w = SidePanel::left("l-s").resizable(false).show_inside(ui, |ui| {
+        let w = Panel::left("l-s").resizable(false).show(ui, |ui| {
             // Left panel (Status)
             ui.vertical_centered(|ui| {
                 ui.heading("Status");
@@ -203,7 +202,7 @@ impl InterfacePage for MainPage {
                 ui.end_row();
             });
         }).response.rect.width();
-        SidePanel::right("r-s").exact_width(w).resizable(false).show_inside(ui, |ui| {
+        Panel::right("r-s").exact_size(w).resizable(false).show(ui, |ui| {
             // Right panel (links)
             ui.vertical_centered(|ui| {
                 ui.heading("Resources");
@@ -218,7 +217,7 @@ impl InterfacePage for MainPage {
             ui.hyperlink_to(format!(" The configuration app"), include_base64!("aHR0cHM6Ly9naXRodWIuY29tL3JuZC1hc2gvdWx0aW1hdGUtbmFnNTItY29uZmlnLWFwcA"));
             ui.hyperlink_to(format!(" TCU Firmware"), include_base64!("aHR0cDovL2dpdGh1Yi5jb20vcm5kLWFzaC91bHRpbWF0ZS1uYWc1Mi1mdw"));
         });
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             // Action panel
             ui.vertical_centered(|ui| {
                 ui.heading("Tools");

@@ -466,7 +466,7 @@ impl InterfacePage for EgsConfigPage {
                                 };
                                 if let Err(e) = res {
                                     let msg = format!("Failed to load calibrations: {}", e.to_string());
-                                    action = PageAction::SendNotification { text: msg, kind: egui_notify::ToastLevel::Error };
+                                    action = PageAction::SendNotification { text: msg, kind: egui_toast::ToastKind::Error };
                                 } else {
                                     let n = f.file_name().unwrap();
                                     let sl= n.to_string_lossy();

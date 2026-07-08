@@ -36,9 +36,9 @@ impl crate::window::InterfacePage for AdaptResetPage {
         ");
         if ui.button("Reset shift adaptations").clicked() {
             if let Err(e) = reset(self.nag.clone()) {
-                ret = PageAction::SendNotification { text: format!("Reset adaptations failed: {e}"), kind: egui_notify::ToastLevel::Error }
+                ret = PageAction::SendNotification { text: format!("Reset adaptations failed: {e}"), kind: egui_toast::ToastKind::Error }
             } else {
-                ret = PageAction::SendNotification { text: format!("Reset adaptations OK!"), kind: egui_notify::ToastLevel::Success }
+                ret = PageAction::SendNotification { text: format!("Reset adaptations OK!"), kind: egui_toast::ToastKind::Success }
             }
         }
         ret

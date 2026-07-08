@@ -3,12 +3,12 @@ use std::{
     time::{Duration, Instant}, sync::Arc, fs::OpenOptions, io::Write,
 };
 
-use backend::{diag::Nag52Diag, ecu_diagnostics::{dynamic_diag::ServerEvent}, hw::usb::{EspLogMessage, EspLogLevel}};
+use backend::{diag::Nag52Diag, ecu_diagnostics::dynamic_diag::{DiagSessionMode, ServerEvent}, hw::usb::{EspLogLevel, EspLogMessage}};
 use eframe::{
-    egui::{self, Button, CornerRadius, RichText, ScrollArea, Sense}, emath::Align2, epaint::{Color32, FontId, Vec2}
+    CreationContext, egui::{self, Button, CornerRadius, Pos2, RichText, ScrollArea, Sense}, emath::Align2, epaint::{Color32, FontId, Vec2}
 };
 use egui_extras::{TableBuilder, Column};
-use egui_notify::{Toast, ToastLevel, Toasts};
+use egui_toast::{Toast, ToastKind, ToastOptions, Toasts};
 
 #[derive(Debug, Clone)]
 pub enum PageLoadState {
@@ -30,11 +30,13 @@ pub struct MainWindow {
     last_data_query_time: Instant,
     last_tx_rate: u32,
     last_rx_rate: u32,
-    toasts: Toasts
+    toasts: Toasts,
+    last_mode: Option<DiagSessionMode>
 }
 
 impl MainWindow {
-    pub fn new() -> Self {
+    pub fn new(cc: &CreationContext) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         Self {
             pages: VecDeque::new(),
             show_sbar: false,
@@ -49,11 +51,11 @@ impl MainWindow {
             last_tx_rate: 0,
             last_rx_rate: 0,
             toasts: Toasts::new()
-            .with_anchor(
-                egui_notify::Anchor::BottomRight
-            )
-            .with_margin(Vec2::new(0.0, 5.0))
-
+            .anchor(
+                Align2::RIGHT_BOTTOM,
+                Pos2::default()
+            ),
+            last_mode: None
         }
     }
     pub fn add_new_page(&mut self, p: Box<dyn InterfacePage>) {
@@ -77,16 +79,14 @@ impl MainWindow {
 pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
 impl eframe::App for MainWindow {
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
-        egui_extras::install_image_loaders(ctx);
-
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let stack_size = self.pages.len();
         let mut s_bar_height = 0.0;
         if stack_size > 0 {
             let mut pop_page = false;
             if self.show_sbar {
-                ctx.request_repaint_after(Duration::from_millis(100));
-                egui::TopBottomPanel::bottom("NAV").show(ctx, |nav| {
+                //ctx.request_repaint_after(Duration::from_millis(100));
+                egui::Panel::bottom("NAV").show(ui, |nav| {
                     nav.horizontal(|row| {
                         egui::widgets::global_theme_preference_buttons(row);
                         if stack_size > 1 {
@@ -95,17 +95,22 @@ impl eframe::App for MainWindow {
                             }
                         }
                         if let Some(nag) = &self.nag {
-
-                            let _ = nag.with_kwp(|f| {
-                                if f.is_ecu_connected() {
-                                    if let Some(mode) = f.get_current_diag_mode() {
-                                        row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
-                                    } 
+                            if let Ok(Some(mode)) = nag.try_with_kwp(|kwp| {
+                                let r = if kwp.is_ecu_connected() {
+                                    kwp.get_current_diag_mode()
                                 } else {
-                                    row.label(RichText::new("Disconnected").color(Color32::RED));
-                                }
-                                Ok(())
-                            });
+                                    None
+                                };
+                                Ok(r)
+                            }) {
+                                self.last_mode = mode;
+                            }
+
+                            if let Some(mode) = &self.last_mode {
+                                row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
+                            } else {
+                                row.label(RichText::new("Disconnected").color(Color32::RED));
+                            }
 
                             if nag.has_logger() {
                                 while let Some(msg) = nag.read_log_msg() {
@@ -153,9 +158,6 @@ impl eframe::App for MainWindow {
                                 self.trace.push_back(fmt_str);
                                 if self.trace.len() > 100 {
                                     self.trace.pop_front();
-                                }
-                                if self.show_logger {
-                                    ctx.request_repaint();
                                 }
                             }
 
@@ -205,6 +207,8 @@ impl eframe::App for MainWindow {
                             s_rx_resp.on_hover_ui(|h| {
                                 h.label(format!("{} B/s", self.last_rx_rate));
                             });
+                        } else {
+                            self.last_mode = None;
                         }
                         let elapsed = self.last_repaint_time.elapsed().as_micros() as u64;
                         self.last_repaint_time = Instant::now();
@@ -218,7 +222,7 @@ impl eframe::App for MainWindow {
             }
 
             self.show_back = true;
-            egui::CentralPanel::default().show(ctx, |main_win_ui| {
+            egui::CentralPanel::default().show(ui, |main_win_ui| {
                 match self.pages[0].make_ui(main_win_ui) {
                     PageAction::None => {}
                     PageAction::Destroy => {
@@ -239,9 +243,13 @@ impl eframe::App for MainWindow {
                         self.show_back = false;
                     }
                     PageAction::SendNotification { text, kind } => {
-                        let mut t = Toast::custom(text, kind);
-                        t.closable(true);
-                        t.duration(Some(Duration::from_secs(5)));
+                        let mut t = Toast::new()
+                            .kind(kind)
+                            .options(
+                                ToastOptions::default()
+                                .show_progress(true)
+                                .duration_in_seconds(5.0)
+                        );
                         self.toasts.add(t);
                     }
                     PageAction::RegisterNag(n) => {
@@ -249,12 +257,12 @@ impl eframe::App for MainWindow {
                     },
                 }
             });
-            self.toasts.show(&ctx);
+            self.toasts.show(ui);
 
             // Show Log viewer
             if self.show_logger {
-                egui::Window::new("Log view").open(&mut self.show_logger).show(ctx, |ui| {
-                    let is_dark = ctx.style().visuals.dark_mode;
+                egui::Window::new("Log view").open(&mut self.show_logger).show(ui, |ui| {
+                    let is_dark = ui.style().visuals.dark_mode;
                     let table = TableBuilder::new(ui)
                         .striped(false)
                         .resizable(true)
@@ -335,7 +343,7 @@ impl eframe::App for MainWindow {
             }
 
             if self.show_tracer {
-                egui::Window::new("packet trace").open(&mut self.show_tracer).show(ctx, |ui| {
+                egui::Window::new("packet trace").open(&mut self.show_tracer).show(ui, |ui| {
                     ScrollArea::new([true, true]).stick_to_bottom(true).max_height(300.0).max_width(600.0).show(ui, |s| {
                         for x in &self.trace {
                             s.label(x);
@@ -354,7 +362,7 @@ pub enum PageAction {
     Add(Box<dyn InterfacePage>),
     DisableBackBtn,
     Overwrite(Box<dyn InterfacePage>),
-    SendNotification { text: String, kind: ToastLevel },
+    SendNotification { text: String, kind: ToastKind },
 }
 
 pub trait InterfacePage {

@@ -80,6 +80,14 @@ impl UpdatePage {
                     for release in l {
                         r_list.push(release);
                     }
+                    r_list.sort_by(|x, y| {
+                        if let Some(date_x) = x.created_at && let Some(date_y) = y.created_at {
+                            date_x.cmp(&date_y)
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    });
+                    r_list.reverse(); // Date low to date high needs to be swapped
                     *fw_list_c.write().unwrap() = DataState::LoadOk(r_list);
                     
                 },
