@@ -17,7 +17,7 @@ impl From<u16> for EgsMode {
         match diag_var_code {
             0x0251 => Self::EGS51,
             0x0252 => Self::EGS52,
-            0x0253 => Self::EGS53,
+            0x0253 | 0x353 => Self::EGS53,
             _ => Self::Unknown(diag_var_code),
         }
     }
