@@ -212,20 +212,25 @@ impl Nag52Endpoint for Nag52USB {
 }
 
 
-#[derive(Debug, Clone)]
-pub struct NagAppLoggerInner {
-    sender: mpsc::Sender<ServerEvent>
+/// Locks a mutex, recovering the inner value if a previous holder panicked.
+///
+/// Poisoning carries no meaning for a channel endpoint, so it must not become a panic.
+fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-unsafe impl Send for NagAppLoggerInner{}
-unsafe impl Sync for NagAppLoggerInner{}
+#[derive(Debug, Clone)]
+pub struct NagAppLoggerInner {
+    // Guarded so this type is `Send + Sync` by construction rather than by assertion.
+    sender: Arc<Mutex<mpsc::Sender<ServerEvent>>>
+}
 
 impl NagAppLoggerInner {
     pub fn new() -> (Self, mpsc::Receiver<ServerEvent>) {
         let (tx, rx) = mpsc::channel::<ServerEvent>();
         (
             Self {
-                sender: tx
+                sender: Arc::new(Mutex::new(tx))
             },
             rx
         )
@@ -234,13 +239,16 @@ impl NagAppLoggerInner {
 
 impl DiagServerLogger for NagAppLoggerInner {
     fn on_event(&self, evt: ServerEvent) {
-        self.sender.send(evt);
+        // The UI may have stopped draining events; dropping them is expected.
+        let _ = lock_recover(&self.sender).send(evt);
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct NagAppLogger {
-    recv: Arc<mpsc::Receiver<ServerEvent>>
+    // `mpsc::Receiver` is `!Sync`; the UI thread polls this while diag worker threads are
+    // running, so it needs real synchronisation rather than an `unsafe impl`.
+    recv: Arc<Mutex<mpsc::Receiver<ServerEvent>>>
 }
 
 impl NagAppLogger {
@@ -248,7 +256,7 @@ impl NagAppLogger {
         let (inner, recv) = NagAppLoggerInner::new();
         (
             Self {
-                recv: Arc::new(recv)
+                recv: Arc::new(Mutex::new(recv))
             },
             inner
         )
@@ -266,8 +274,9 @@ pub struct Nag52Diag {
     server_mutex: Arc<Mutex<()>>
 }
 
-unsafe impl Sync for Nag52Diag {}
-unsafe impl Send for Nag52Diag {}
+// `Nag52Diag` derives `Send + Sync` on its own now that the logger channel endpoints are
+// mutex-guarded, so the previous `unsafe impl Send`/`unsafe impl Sync` are gone: the
+// compiler verifies the sharing model instead of us asserting it.
 
 impl Nag52Diag {
     pub fn new(mut hw: AdapterHw) -> DiagServerResult<Self> {
@@ -412,10 +421,19 @@ impl Nag52Diag {
     }
 
     pub fn get_server_event(&self) -> Option<ServerEvent> {
-        self.logger.recv.try_recv().ok()
+        lock_recover(&self.logger.recv).try_recv().ok()
     }
 
 }
+
+/// The app clones `Nag52Diag` into worker threads and touches it from the UI thread, so
+/// these bounds must hold. They are asserted here rather than forced with `unsafe impl`,
+/// so that a future field which is not thread-safe becomes a compile error.
+const _: () = {
+    static_assertions::assert_impl_all!(Nag52Diag: Send, Sync);
+    static_assertions::assert_impl_all!(Nag52USB: Send, Sync);
+    static_assertions::assert_impl_all!(NagAppLoggerInner: Send, Sync);
+};
 
 #[cfg(test)]
 pub mod test_diag {
