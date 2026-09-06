@@ -30,7 +30,9 @@ pub struct MainWindow {
     last_data_query_time: Instant,
     last_tx_rate: u32,
     last_rx_rate: u32,
-    toasts: Toasts
+    toasts: Toasts,
+    /// Last diag mode label; retained across frames where the diag server is busy.
+    last_diag_mode: Option<String>
 }
 
 impl MainWindow {
@@ -52,7 +54,8 @@ impl MainWindow {
             .with_anchor(
                 egui_notify::Anchor::BottomRight
             )
-            .with_margin(Vec2::new(0.0, 5.0))
+            .with_margin(Vec2::new(0.0, 5.0)),
+            last_diag_mode: None
 
         }
     }
@@ -76,6 +79,16 @@ impl MainWindow {
 
 pub const MAX_BANDWIDTH: f32 = 155200.0 / 4.0;
 
+/// What the status bar learned about the diag link this frame.
+///
+/// `Connected(None)` (connected, mode not yet known) is deliberately distinct from
+/// `Disconnected` - conflating them made the status bar flash "Disconnected" on a healthy
+/// link whose session mode had not been read yet.
+enum DiagLink {
+    Connected(Option<String>),
+    Disconnected,
+}
+
 impl eframe::App for MainWindow {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
@@ -96,16 +109,44 @@ impl eframe::App for MainWindow {
                         }
                         if let Some(nag) = &self.nag {
 
-                            let _ = nag.with_kwp(|f| {
-                                if f.is_ecu_connected() {
-                                    if let Some(mode) = f.get_current_diag_mode() {
-                                        row.label(format!("Mode: {}(0x{:02X?})", mode.name, mode.id));
-                                    } 
+                            // This runs every frame. `with_kwp` takes a blocking lock, so a
+                            // worker holding it (flashing, map read, settings download)
+                            // would freeze the whole window - up to the 10s diag timeout.
+                            // `try_with_kwp` yields instead, and the label simply keeps its
+                            // previous text for that frame.
+                            match nag.try_with_kwp(|f| {
+                                Ok(if f.is_ecu_connected() {
+                                    DiagLink::Connected(
+                                        f.get_current_diag_mode()
+                                            .map(|mode| format!("Mode: {}(0x{:02X?})", mode.name, mode.id)),
+                                    )
                                 } else {
+                                    DiagLink::Disconnected
+                                })
+                            }) {
+                                Ok(Some(DiagLink::Connected(mode))) => {
+                                    self.last_diag_mode = mode;
+                                    // Connected but with an unknown mode draws nothing,
+                                    // which is what the blocking version did.
+                                    if let Some(text) = &self.last_diag_mode {
+                                        row.label(text);
+                                    }
+                                }
+                                Ok(Some(DiagLink::Disconnected)) => {
+                                    self.last_diag_mode = None;
                                     row.label(RichText::new("Disconnected").color(Color32::RED));
                                 }
-                                Ok(())
-                            });
+                                // Busy this frame - keep showing whatever we last knew.
+                                Ok(None) => {
+                                    if let Some(text) = &self.last_diag_mode {
+                                        row.label(text);
+                                    }
+                                }
+                                Err(_) => {
+                                    self.last_diag_mode = None;
+                                    row.label(RichText::new("Disconnected").color(Color32::RED));
+                                }
+                            }
 
                             if nag.has_logger() {
                                 while let Some(msg) = nag.read_log_msg() {
@@ -206,9 +247,12 @@ impl eframe::App for MainWindow {
                                 h.label(format!("{} B/s", self.last_rx_rate));
                             });
                         }
-                        let elapsed = self.last_repaint_time.elapsed().as_micros() as u64;
+                        // Guard against a sub-microsecond frame: integer division by a zero
+                        // elapsed time would panic.
+                        let elapsed = self.last_repaint_time.elapsed().as_secs_f32();
                         self.last_repaint_time = Instant::now();
-                        row.label(format!("{:.3} FPS", (1000*1000)/elapsed));
+                        let fps = if elapsed > 0.0 { 1.0 / elapsed } else { f32::INFINITY };
+                        row.label(format!("{:.3} FPS", fps));
                     });
                     s_bar_height = nav.available_height()
                 });
@@ -249,7 +293,7 @@ impl eframe::App for MainWindow {
                     },
                 }
             });
-            self.toasts.show(&ctx);
+            let mut log_save_error: Option<String> = None;
 
             // Show Log viewer
             if self.show_logger {
@@ -315,7 +359,6 @@ impl eframe::App for MainWindow {
                         }
                         if ui.button("Save logs to disk").clicked() {
                             if let Some(p) = rfd::FileDialog::new().add_filter("log file", &["log"]).save_file() {
-                                let mut f = OpenOptions::new().write(true).append(false).create(true).open(p).unwrap();
                                 let mut s = String::new();
                                 for msg in &self.logs {
                                     let li = match msg.lvl {
@@ -326,8 +369,17 @@ impl eframe::App for MainWindow {
                                     };
                                     s.push_str(&format!("{} {} - ({}) {}\n", msg.timestamp, li, msg.tag, msg.msg));
                                 }
-                                f.write_all(s.as_bytes()).unwrap();
-
+                                // Saving to a read-only or locked path must not kill the app.
+                                if let Err(e) = OpenOptions::new()
+                                    .write(true)
+                                    .append(false)
+                                    .create(true)
+                                    .truncate(true)
+                                    .open(&p)
+                                    .and_then(|mut f| f.write_all(s.as_bytes()))
+                                {
+                                    log_save_error = Some(format!("Could not save log to {}: {e}", p.display()));
+                                }
                             }
                         }
                     });
@@ -343,6 +395,14 @@ impl eframe::App for MainWindow {
                     });
                 });
             }
+
+            if let Some(err) = log_save_error {
+                let mut t = Toast::custom(err, ToastLevel::Error);
+                t.closable(true);
+                t.duration(Some(Duration::from_secs(5)));
+                self.toasts.add(t);
+            }
+            self.toasts.show(&ctx);
         }
     }
 }

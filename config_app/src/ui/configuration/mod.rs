@@ -485,14 +485,26 @@ newer EGS TCU's running older CAN layers. Consult the wiki for more information"
                         tmp = false;
                     }
                     if row.button("Yes, I am sure!").clicked() {
-                        let (_, mut efuse) = efuse_now.data().unwrap().clone();
-                        let date = chrono::Utc::now().date_naive();
-                        efuse.manf_day = date.day() as u8;
-                        efuse.manf_week = date.iso_week().week() as u8;
-                        efuse.manf_month = date.month() as u8;
-                        efuse.manf_year = (date.year() - 2000) as u8;
-                        Self::write_efuse(self.nag.clone(), efuse, self.scn.clone(), self.efuse.clone());
-                        tmp = false;
+                        // EFUSE burning is irreversible: if the current values are not
+                        // loaded, refuse rather than panicking (or worse, guessing).
+                        match efuse_now.data() {
+                            Some((_, efuse)) => {
+                                let mut efuse = efuse.clone();
+                                let date = chrono::Utc::now().date_naive();
+                                efuse.manf_day = date.day() as u8;
+                                efuse.manf_week = date.iso_week().week() as u8;
+                                efuse.manf_month = date.month() as u8;
+                                efuse.manf_year = (date.year() - 2000) as u8;
+                                Self::write_efuse(self.nag.clone(), efuse, self.scn.clone(), self.efuse.clone());
+                                tmp = false;
+                            }
+                            None => {
+                                row.colored_label(
+                                    Color32::RED,
+                                    "EFUSE data is not loaded yet - nothing was written.",
+                                );
+                            }
+                        }
                     }
                 })
             });

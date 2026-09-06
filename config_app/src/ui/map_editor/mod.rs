@@ -395,7 +395,9 @@ impl Map {
             y_elements.push(v);
             data = d;
         }
-        let key = String::from_utf8(data.to_vec()).unwrap();
+        // Device-supplied bytes: never assume valid UTF-8.
+        let key = String::from_utf8(data.to_vec())
+            .map_err(|_| DiagError::InvalidResponseLength)?;
 
         let mut default: Vec<i16> = Vec::new();
         let mut current: Vec<i16> = Vec::new();
@@ -1313,7 +1315,17 @@ impl Map {
                         kind: egui_notify::ToastLevel::Warning,
                     });
                 } else {
-                    save_map(&self);
+                    action = match save_map(&self) {
+                        Some(Ok(())) => Some(PageAction::SendNotification {
+                            text: "Map saved".into(),
+                            kind: egui_notify::ToastLevel::Success,
+                        }),
+                        Some(Err(e)) => Some(PageAction::SendNotification {
+                            text: e,
+                            kind: egui_notify::ToastLevel::Error,
+                        }),
+                        None => None,
+                    };
                 }
             }
         });
@@ -1520,6 +1532,15 @@ impl Map {
                     let area = EguiPlotBackend::new(painter, raw_ui.style().to_owned())
                         .into_drawing_area();
 
+                    // An empty axis or data set would make every min/max below panic.
+                    if self.x_values.is_empty() || self.y_values.is_empty() || src.is_empty() {
+                        raw_ui.colored_label(
+                            Color32::RED,
+                            "This map has no data to plot (empty axis or value list)",
+                        );
+                        return;
+                    }
+
                     let x_min = *self.x_values.iter().min().unwrap() as f64;
                     let x_max = *self.x_values.iter().max().unwrap() as f64;
                     let z_min = *self.y_values.iter().min().unwrap() as f64;
@@ -1640,25 +1661,33 @@ impl Map {
     }
 }
 
-pub fn save_map(map: &Map) {
+/// Returns `None` if the user cancelled, otherwise the outcome of the save.
+pub fn save_map(map: &Map) -> Option<Result<(), String>> {
     let save_data = MapSaveData {
         id: map.meta.id as u8,
         x_values: map.x_values.clone(),
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
     };
-    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
-        let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
-        let mut f = File::create(picked).unwrap();
-        let _ = f.write_all(&bin);
-    }
+    let picked = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file()?;
+    // Encoding and IO are both fallible; a bad destination must not kill the app.
+    let bin = match bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()) {
+        Ok(b) => b,
+        Err(e) => return Some(Err(format!("Could not encode map: {e}"))),
+    };
+    Some(
+        File::create(&picked)
+            .and_then(|mut f| f.write_all(&bin))
+            .map_err(|e| format!("Could not write {}: {e}", picked.display())),
+    )
 }
 
 pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
     let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
-    let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
-    f.read_to_end(&mut contents).unwrap();
+    if let Err(e) = File::open(&path).and_then(|mut f| f.read_to_end(&mut contents)) {
+        return Some(Err(format!("Could not read {}: {e}", path.display())));
+    }
     let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
