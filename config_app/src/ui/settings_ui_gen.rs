@@ -17,6 +17,17 @@ pub enum LoadState {
     Err(String)
 }
 
+/// Strips the 3-byte positive-response header from a coding string reply.
+///
+/// The TCU response is untrusted; a short frame must not panic a worker thread.
+fn coding_string_payload(x: Vec<u8>) -> DiagServerResult<Vec<u8>> {
+    if x.len() < 3 {
+        Err(backend::ecu_diagnostics::DiagError::InvalidResponseLength)
+    } else {
+        Ok(x[3..].to_vec())
+    }
+}
+
 pub struct TcuAdvSettingsUi {
     status: Arc<RwLock<LoadState>>,
     nag: Nag52Diag,
@@ -68,24 +79,29 @@ impl TcuAdvSettingsUi {
                 let mut zip = ZipArchive::new(reader).map_err(|_| format!("Data on EGS is corrupt!"))?;
                 let mut mod_settings = zip.by_name("MODULE_SETTINGS.yml").map_err(|_| format!("Data on EGS does not contain MODULE_SETTINGS"))?;
                 let mut s = String::new();
-                let _ = mod_settings.read_to_string(&mut s).unwrap();
+                mod_settings.read_to_string(&mut s).map_err(|e| format!("MODULE_SETTINGS.yml could not be read: {e}"))?;
                 serde_yaml::from_str::<ModuleSettingsData>(&s).map_err(|e| e.to_string())
-            }   
+            }
 
             match load_file(status_c.clone(), nag_c.clone(), ctx.clone()) {
                 Ok(yml) => {
                     *yml_c.write().unwrap() = Some(yml.clone());
                     for setting in &yml.settings {
-                        let scn_id = setting.scn_id.unwrap();
+                        // A setting with no SCN_ID cannot be addressed on the TCU; skip it
+                        // rather than taking the whole settings page down.
+                        let Some(scn_id) = setting.scn_id else {
+                            eprintln!("Setting '{}' has no SCN_ID, skipping", setting.name);
+                            continue;
+                        };
                         let _ = nag_c.with_kwp(|k| {
                             *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
                             let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id], None)
-                                .map(|x| x[3..].to_vec());
+                                .and_then(coding_string_payload);
                             ctx.request_repaint();
                             current_settings_c.write().unwrap().insert(scn_id, res);
                             *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
                             let res_defaut = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
-                                .map(|x| x[3..].to_vec());
+                                .and_then(coding_string_payload);
                             default_settings_c.write().unwrap().insert(scn_id, res_defaut);
                             ctx.request_repaint();
                             Ok(())
@@ -142,9 +158,21 @@ fn gen_drag_value<'a, Num: emath::Numeric>(value: &'a mut Num, var: &'a Settings
     dv
 }
 
-fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: &[EnumMap], internal_structs: &[SettingsData]) -> SettingsType {
+/// Renders one editable setting.
+///
+/// Returns `None` when the coding string and the YAML description disagree (bad offset,
+/// length or type name); the row then shows the decode error instead of the app dying.
+fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: &[EnumMap], internal_structs: &[SettingsData]) -> Option<SettingsType> {
     ui.code(&var.name);
-    let v = match var.to_settings_type(&coding, enums, internal_structs) {
+    let decoded = match var.to_settings_type(&coding, enums, internal_structs) {
+        Ok(d) => d,
+        Err(e) => {
+            ui.colored_label(Color32::RED, "Cannot decode");
+            ui.add(Label::new(e.to_string()).wrap());
+            return None;
+        }
+    };
+    let v = match decoded {
         SettingsType::Bool(mut b) => {
             ui.checkbox(&mut b, "");
             SettingsType::Bool(b)
@@ -197,17 +225,22 @@ fn gen_row(ui: &mut egui::Ui, var: &SettingsVariable, coding: &mut [u8], enums: 
                         ui.strong("Description");
                         ui.end_row();
                         for param in &s.params {
-                            let s = gen_row(ui, param, &mut raw, enums, internal_structs);
+                            let edited = gen_row(ui, param, &mut raw, enums, internal_structs);
                             ui.end_row();
-                            param.insert_back_into_coding_string(s, &mut raw);
-                        }            
+                            if let Some(edited) = edited {
+                                if let Err(e) = param.insert_back_into_coding_string(edited, &mut raw) {
+                                    ui.colored_label(Color32::RED, e.to_string());
+                                    ui.end_row();
+                                }
+                            }
+                        }
                     });
                 });
             SettingsType::Struct { raw, s }
         },
     };
     ui.add(Label::new(var.description.clone().unwrap_or("-".into())).wrap());
-    v
+    Some(v)
 }
 
 fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], setting: &SettingsData, enums: &[EnumMap], internal_structs: &[SettingsData], ui: &mut egui::Ui) -> Option<PageAction> {
@@ -241,12 +274,32 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
         });
     });
     ui.horizontal(|r| {
-        if r.button("Reset coding to default").clicked() {
+        // Current and default coding strings come from two separate ECU reads, so their
+        // lengths are not guaranteed to match.
+        let lengths_match = coding.len() == default.len();
+        if r.add_enabled(lengths_match, egui::Button::new("Reset coding to default")).clicked() {
             coding.copy_from_slice(default);
         }
+        if !lengths_match {
+            r.colored_label(
+                Color32::RED,
+                format!(
+                    "Cannot reset: TCU returned {} current bytes but {} default bytes",
+                    coding.len(),
+                    default.len()
+                ),
+            );
+        }
         if r.button("Write to TCU").clicked() {
+            let Some(scn_id) = setting.scn_id else {
+                ret = Some(PageAction::SendNotification {
+                    text: format!("Setting {} has no SCN_ID in MODULE_SETTINGS.yml", setting.name),
+                    kind: egui_notify::ToastLevel::Error,
+                });
+                return;
+            };
             ret = match nag.with_kwp(|kwp| {
-                let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, setting.scn_id.unwrap()];
+                let mut tx = vec![KwpCommand::WriteDataByLocalIdentifier.into(), 0xFC, scn_id];
                 tx.extend_from_slice(coding);
                 kwp.send_byte_array_with_response(&tx, None)
             }) {
@@ -277,9 +330,14 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
             ui.strong("Description");
             ui.end_row();
             for param in &setting.params {
-                let s = gen_row(ui, param, coding, enums, internal_structs);
+                let edited = gen_row(ui, param, coding, enums, internal_structs);
                 ui.end_row();
-                param.insert_back_into_coding_string(s, coding);
+                if let Some(edited) = edited {
+                    if let Err(e) = param.insert_back_into_coding_string(edited, coding) {
+                        ui.colored_label(Color32::RED, e.to_string());
+                        ui.end_row();
+                    }
+                }
             }            
         });
     });
@@ -295,33 +353,46 @@ impl InterfacePage for TcuAdvSettingsUi {
         let mut action = PageAction::None;
         match state {
             LoadState::Ready => {
-                let yml = yml.as_ref().unwrap().clone();
+                // `Ready` is only published after the YAML has loaded, but do not make the
+                // whole page a panic if that invariant ever changes.
+                let Some(yml) = yml.as_ref().cloned() else {
+                    ui.colored_label(Color32::RED, "Settings description is not loaded");
+                    return action;
+                };
                 MenuBar::new()
                     .ui(ui, |ui| {
                     ui.menu_button("Select coding string", |ui| {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         for (k, _) in &curr_settings {
-                            let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == *k).unwrap();
+                            let Some(setting_def) = yml.settings.iter().find(|x| x.scn_id == Some(*k)) else {
+                                continue;
+                            };
                             let text = setting_def.description.as_ref().unwrap_or(&setting_def.name);
                             ui.selectable_value(&mut self.current_setting, Some(*k), text);
                         }
-                    });     
+                    });
                 });
                 ui.separator();
                 if let Some(current_id) = self.current_setting {
-                    let setting_def = yml.settings.iter().find(|x| x.scn_id.unwrap() == current_id).unwrap();
-                    let default = def_settings.get(&current_id).unwrap().clone();
-                    let modifying = curr_settings.get(&current_id).unwrap().clone();
+                    let setting_def = yml.settings.iter().find(|x| x.scn_id == Some(current_id));
+                    let default = def_settings.get(&current_id);
+                    let modifying = curr_settings.get(&current_id);
 
-                    if modifying.is_ok() && default.is_ok() {
-                        let def = default.unwrap().clone();
-                        let mut modify = modifying.unwrap().clone();
-                        if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
-                            action = a;
+                    match (setting_def, default, modifying) {
+                        (Some(setting_def), Some(Ok(def)), Some(Ok(modify))) => {
+                            let def = def.clone();
+                            let mut modify = modify.clone();
+                            if let Some(a) = generate_editor_ui(&self.nag, &mut modify, &def, setting_def, &yml.enums, &yml.internal_structures, ui) {
+                                action = a;
+                            }
+                            self.current_settings.write().unwrap().insert(current_id, Ok(modify));
                         }
-                        self.current_settings.write().unwrap().insert(current_id, Ok(modify));
-                    } else {
-                        ui.label("Cannot load UI for this coding string due to TCU query error!");
+                        (None, _, _) => {
+                            ui.label(format!("No description for coding string 0x{current_id:02X} in MODULE_SETTINGS.yml"));
+                        }
+                        _ => {
+                            ui.label("Cannot load UI for this coding string due to TCU query error!");
+                        }
                     }
                 } else {
                     ui.label("No coding string selected");
@@ -331,7 +402,8 @@ impl InterfacePage for TcuAdvSettingsUi {
                 ui.label(txt);
             },
             LoadState::Download { curr_addr, total, done } => {
-                let pb = ProgressBar::new(done as f32 / total as f32)
+                let fraction = if total == 0 { 0.0 } else { done as f32 / total as f32 };
+                let pb = ProgressBar::new(fraction)
                     .animate(true)
                     .show_percentage()
                     .text(format!("Downloading diagnostic info. Addr: {:08X}", curr_addr));
@@ -353,9 +425,16 @@ impl InterfacePage for TcuAdvSettingsUi {
                         let current_settings_c = self.current_settings.clone();
 
                         std::thread::spawn(move || {
-                            let mut f = File::open(f).unwrap();
                             let mut s = String::new();
-                            f.read_to_string(&mut s).unwrap();
+                            match File::open(&f).and_then(|mut fh| fh.read_to_string(&mut s)) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    *status_c.write().unwrap() =
+                                        LoadState::Err(format!("Could not read {}: {e}", f.display()));
+                                    ctx.request_repaint();
+                                    return;
+                                }
+                            }
                             match serde_yaml::from_str::<ModuleSettingsData>(&s) {
                                 Ok(s) => {
                                     *yml_c.write().unwrap() = Some(s.clone());
@@ -365,16 +444,19 @@ impl InterfacePage for TcuAdvSettingsUi {
                                         *status_c.write().unwrap() = LoadState::Err("Cannot enter 0x93 diag mode".into())
                                     } else {
                                         for setting in &s.settings {
-                                            let scn_id = setting.scn_id.unwrap();
+                                            let Some(scn_id) = setting.scn_id else {
+                                                eprintln!("Setting '{}' has no SCN_ID, skipping", setting.name);
+                                                continue;
+                                            };
                                             let _ = nag_c.with_kwp(|k| {
                                                 *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} current configuration", setting.name));
                                                 let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id], None)
-                                                    .map(|x| x[3..].to_vec());
+                                                    .and_then(coding_string_payload);
                                                 ctx.request_repaint();
                                                 current_settings_c.write().unwrap().insert(scn_id, res);
                                                 *status_c.write().unwrap() = LoadState::Msg(format!("Reading {} default configuration", setting.name));
                                                 let res = k.send_byte_array_with_response(&[0x21, 0xFC, scn_id | 0b10000000], None)
-                                                    .map(|x| x[3..].to_vec());
+                                                    .and_then(coding_string_payload);
                                                 default_settings_c.write().unwrap().insert(scn_id, res);
                                                 ctx.request_repaint();
                                                 Ok(())

@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, path::Path};
 
 use chrono::NaiveDateTime;
 use packed_struct::{prelude::PackedStruct, PackedStructSlice};
@@ -105,14 +105,15 @@ pub fn load_binary(buf: Vec<u8>) -> FirwmareLoadResult<Firmware> {
             "Could not find header magic".into(),
         ));
     }
-    // Ok, read the header
+    // Ok, read the header. The file is user-supplied, so a malformed header must be
+    // reported through the existing error type rather than panicking.
     let header: FirmwareHeader =
         FirmwareHeader::unpack_from_slice(&buf[header_start_idx..header_start_idx + HEADER_SIZE])
-            .unwrap();
+            .map_err(|e| FirmwareLoadError::NotValid(format!("Firmware header is invalid: {e}")))?;
     Ok(Firmware { raw: buf, header })
 }
 
-pub fn load_binary_from_path(path: String) -> FirwmareLoadResult<Firmware> {
+pub fn load_binary_from_path<P: AsRef<Path>>(path: P) -> FirwmareLoadResult<Firmware> {
     let mut f = File::open(path)?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;

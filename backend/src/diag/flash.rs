@@ -18,6 +18,17 @@ pub struct PartitionInfo {
 
 pub const OTA_FORMAT: u8 = 0xF0;
 
+/// Reads the 16-bit block size out of a positive OTA/download response.
+///
+/// The ECU reply is untrusted: a short or truncated frame must surface as
+/// `InvalidResponseLength` rather than panicking inside a flashing worker thread.
+fn block_size_from_response(resp: &[u8]) -> DiagServerResult<u16> {
+    if resp.len() < 3 {
+        return Err(DiagError::InvalidResponseLength);
+    }
+    Ok((resp[1] as u16) << 8 | resp[2] as u16)
+}
+
 impl Nag52Diag {
     pub fn get_total_flash_size(&self) -> PartitionInfo {
         PartitionInfo {
@@ -87,7 +98,7 @@ impl Nag52Diag {
             req.push((image_len >> 8) as u8);
             req.push((image_len) as u8);
             let resp = server.send_byte_array_with_response(&req, None)?;
-            let bs = (resp[1] as u16) << 8 | resp[2] as u16;
+            let bs = block_size_from_response(&resp)?;
             Ok((part_info_next.address, bs))
         });
         res
@@ -106,7 +117,7 @@ impl Nag52Diag {
             req.push((len >> 8) as u8);
             req.push((len) as u8);
             let resp = server.send_byte_array_with_response(&req, None)?;
-            let bs = (resp[1] as u16) << 8 | resp[2] as u16;
+            let bs = block_size_from_response(&resp)?;
             Ok((part_info_next.address, bs))
         });
         res
@@ -123,7 +134,7 @@ impl Nag52Diag {
             req.push((partition_info.size >> 8) as u8);
             req.push((partition_info.size) as u8);
             let resp = server.send_byte_array_with_response(&req, None)?;
-            let bs = (resp[1] as u16) << 8 | resp[2] as u16;
+            let bs = block_size_from_response(&resp)?;
             Ok(bs)
         });
         res
@@ -141,7 +152,15 @@ impl Nag52Diag {
         self.with_kwp(|server| {
             server
                 .send_byte_array_with_response(&[0x36, blk_id], None)
-                .map(|x| x[2..].to_vec())
+                .and_then(|x| {
+                    // The 2-byte header carries no payload. Returning an empty Vec here
+                    // would spin the caller's "read until buffer is full" loop forever.
+                    if x.len() <= 2 {
+                        Err(DiagError::InvalidResponseLength)
+                    } else {
+                        Ok(x[2..].to_vec())
+                    }
+                })
         })
     }
 
@@ -149,6 +168,9 @@ impl Nag52Diag {
         self.with_kwp(|server| {
             server.send_byte_array_with_response(&[0x37], None)?;
             let status = server.send_byte_array_with_response(&[0x31, 0xE1], None)?;
+            if status.len() < 3 {
+                return Err(DiagError::InvalidResponseLength);
+            }
             if status[2] == 0x00 {
                 eprintln!("ECU Flash check OK! Rebooting");
                 if reboot {
@@ -167,7 +189,16 @@ impl Nag52Diag {
             let mut req = vec![0x24];
             req.extend_from_slice(&addr.to_be_bytes());
             req.push(size);
-            server.send_byte_array_with_response(&req, None).map(|res| res[1..].to_vec())
+            server.send_byte_array_with_response(&req, None).and_then(|res| {
+                // 1 header byte. A reply of exactly 1 byte would yield an empty payload and
+                // stall the caller's "read until the buffer is full" loop forever, so the
+                // guard has to be `< 2`, not `is_empty()`.
+                if res.len() < 2 {
+                    Err(DiagError::InvalidResponseLength)
+                } else {
+                    Ok(res[1..].to_vec())
+                }
+            })
         })
     }
 }

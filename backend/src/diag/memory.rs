@@ -34,9 +34,19 @@ impl MemoryRegion {
 }
 
 
+/// Checks that `[start + pos, start + pos + len]` stays inside the region.
+///
+/// The additions are done with `checked_add`: plain `u32` arithmetic wraps in release
+/// builds, which would let a large `pos` slip past the guard and send an arbitrary
+/// address to the TCU (and panic in debug builds instead).
+fn end_of_access(region: MemoryRegion, pos: u32, len: u32) -> Option<u32> {
+    let end = region.start_addr().checked_add(pos)?.checked_add(len)?;
+    if end > region.end_addr() { None } else { Some(end) }
+}
+
 impl Nag52Diag {
     pub fn read_memory(&self, region: MemoryRegion, pos: u32, len: u8) -> DiagServerResult<Vec<u8>> {
-        if region.start_addr() + pos + len as u32 > region.end_addr() {
+        if end_of_access(region, pos, len as u32).is_none() {
             Err(ecu_diagnostics::DiagError::ParameterInvalid)
         } else {
             // Valid address
@@ -56,7 +66,7 @@ impl Nag52Diag {
 
     /// Max of 251 bytes at a time!
     pub fn write_memory(&self, region: MemoryRegion, pos: u32, data: &[u8]) -> DiagServerResult<Vec<u8>> {
-        if region.start_addr() + pos + data.len() as u32 > region.end_addr() {
+        if end_of_access(region, pos, data.len() as u32).is_none() {
             Err(ecu_diagnostics::DiagError::ParameterInvalid)
         } else if data.len() > 251 { // Too much data
             Err(ecu_diagnostics::DiagError::ParameterInvalid)
