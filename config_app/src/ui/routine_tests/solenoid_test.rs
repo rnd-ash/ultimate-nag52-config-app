@@ -15,6 +15,7 @@ use backend::{
 use eframe::egui::{
     self, Color32, RichText,
 };
+use packed_struct::{prelude::PackedStruct, PackedStructSlice};
 
 
 use crate::{window::PageAction};
@@ -26,21 +27,21 @@ pub struct SolenoidTestPage {
     nag: Nag52Diag,
 }
 
-const TempCoefficient: f32 = 0.393; // Copper coils and wires
+const TEMP_COEFFICIENT: f32 = 0.393; // Copper coils and wires
 
-const ResistanceMeasureTemp: f32 = 20.0; // Mercedes tests resistance at 20C
+const RESISTANCE_MEASURE_TEMP: f32 = 20.0; // Mercedes tests resistance at 20C
 
 // From Sonnax data
-const ResitanceMPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
-const ResitanceSPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
-const ResitanceTCC: std::ops::RangeInclusive<f32> = 2.0..=4.0; // 3
+const RESISTANCE_MPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
+const RESISTANCE_SPC: std::ops::RangeInclusive<f32> = 4.0..=8.0; // 6
+const RESISTANCE_TCC: std::ops::RangeInclusive<f32> = 2.0..=4.0; // 3
 
-const ResitanceY3: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
-const ResitanceY4: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
-const ResitanceY5: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
+const RESISTANCE_Y3: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
+const RESISTANCE_Y4: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
+const RESISTANCE_Y5: std::ops::RangeInclusive<f32> = 2.5..=6.5; // 4.5
 
-#[repr(packed)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PackedStruct)]
+#[packed_struct(endian = "lsb")]
 pub struct TestResultsSolenoid {
     atf_temp: i16,
     mpc_off_current: u16,
@@ -83,18 +84,18 @@ impl SolenoidTestPage {
 fn calc_resistance(current: u16, batt: u16, temp: i16) -> f32 {
     let resistance_now = batt as f32 / current as f32;
     return resistance_now
-        + resistance_now * (((ResistanceMeasureTemp - temp as f32) * TempCoefficient) / 100.0);
+        + resistance_now * (((RESISTANCE_MEASURE_TEMP - temp as f32) * TEMP_COEFFICIENT) / 100.0);
 }
 
 fn make_resistance_text(c_raw: u16, r: f32, range: RangeInclusive<f32>) -> egui::Label {
     if c_raw == 0 {
-        if range == ResitanceTCC {
+        if range == RESISTANCE_TCC {
             return egui::Label::new(RichText::new("Open circuit detected (This is OK if you have the TCC Zener board installed)!").color(Color32::RED));
         } else {
             return egui::Label::new(RichText::new("FAIL! Open circuit detected!").color(Color32::RED));
         }
     }
-    if c_raw > 3200 && range != ResitanceTCC {
+    if c_raw > 3200 && range != RESISTANCE_TCC {
         return egui::Label::new(
             RichText::new("FAIL! Short circuit detected!").color(Color32::RED),
         );
@@ -181,12 +182,36 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                             match server.send_byte_array_with_response(&[0x33, 0xDE], None) {
                                 // Request test results in a loop
                                 Ok(res) => {
-                                    let routine_res_ptr: *const TestResultsSolenoid =
-                                        res[2..].as_ptr() as *const TestResultsSolenoid;
-                                    let routine_res: TestResultsSolenoid =
-                                        unsafe { *routine_res_ptr };
-                                    *res_ref.write().unwrap() = Some(routine_res);
-                                    *str_ref.write().unwrap() = format!("ECU Test Completed!");
+                                    // The reply is untrusted: decode it with a
+                                    // length-checked unpack rather than casting the buffer
+                                    // to a struct pointer, which read past the end of the
+                                    // allocation whenever the ECU returned a short frame.
+                                    let payload = res.get(2..).unwrap_or(&[]);
+                                    // `unpack_from_slice` wants an exact-size slice, so take
+                                    // just the leading struct and ignore any trailing bytes -
+                                    // the previous pointer cast tolerated those, and a
+                                    // firmware that appends data must not read as malformed.
+                                    let want = TestResultsSolenoid::packed_bytes_size(None).unwrap_or(0);
+                                    let decoded = match payload.get(..want) {
+                                        Some(s) => TestResultsSolenoid::unpack_from_slice(s)
+                                            .map_err(|e| e.to_string()),
+                                        None => Err(format!(
+                                            "expected at least {want} bytes, got {}",
+                                            payload.len()
+                                        )),
+                                    };
+                                    match decoded {
+                                        Ok(routine_res) => {
+                                            *res_ref.write().unwrap() = Some(routine_res);
+                                            *str_ref.write().unwrap() =
+                                                "ECU Test Completed!".to_string();
+                                        }
+                                        Err(e) => {
+                                            *str_ref.write().unwrap() = format!(
+                                                "ECU returned a malformed solenoid test result: {e}"
+                                            );
+                                        }
+                                    }
                                     break;
                                 }
                                 Err(e) => {
@@ -219,7 +244,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                     ui.label(format!(
                         "ATF Temp was {} C. Showing results adjusted to {} C",
                         &{ results.atf_temp },
-                        ResistanceMeasureTemp
+                        RESISTANCE_MEASURE_TEMP
                     ));
 
                     egui::Grid::new("S").striped(true).show(ui, |g_ui| {
@@ -231,7 +256,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                         //        results.vbatt_mpc,
                         //        results.atf_temp,
                         //    ),
-                        //    ResitanceMPC,
+                        //    RESISTANCE_MPC,
                         //));
                         //g_ui.end_row();
 
@@ -243,7 +268,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                         //        results.vbatt_spc,
                         //        results.atf_temp,
                         //    ),
-                        //    ResitanceSPC,
+                        //    RESISTANCE_SPC,
                         //));
                         //g_ui.end_row();
 
@@ -255,7 +280,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                                 results.vbatt_tcc,
                                 results.atf_temp,
                             ),
-                            ResitanceTCC,
+                            RESISTANCE_TCC,
                         ));
                         g_ui.end_row();
 
@@ -267,7 +292,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                                 results.vbatt_y3,
                                 results.atf_temp,
                             ),
-                            ResitanceY3,
+                            RESISTANCE_Y3,
                         ));
                         g_ui.end_row();
 
@@ -279,7 +304,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                                 results.vbatt_y4,
                                 results.atf_temp,
                             ),
-                            ResitanceY4,
+                            RESISTANCE_Y4,
                         ));
                         g_ui.end_row();
 
@@ -291,7 +316,7 @@ impl crate::window::InterfacePage for SolenoidTestPage {
                                 results.vbatt_y5,
                                 results.atf_temp,
                             ),
-                            ResitanceY5,
+                            RESISTANCE_Y5,
                         ));
                         g_ui.end_row();
                     });

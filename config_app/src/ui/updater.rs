@@ -67,7 +67,13 @@ impl UpdatePage {
         let instance_c = instance.clone();
         println!("NEW");
         std::thread::spawn(move|| {
-            let rt = Runtime::new().unwrap();
+            let rt = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    *fw_list_c.write().unwrap() = DataState::LoadErr(format!("Could not start async runtime: {e}"));
+                    return;
+                }
+            };
             match rt.block_on(async {
                 instance_c.repos("rnd-ash", "ultimate-nag52-fw")
                     .releases()
@@ -216,27 +222,49 @@ impl InterfacePage for UpdatePage {
                                 let mut buffer_firmware: Vec<u8> = Vec::new();
                                 let mut easy = Easy::new();
                                 let mut list = List::new();
-                                list.append("Accept: application/octet-stream").unwrap();
-                                easy.progress(true);
                                 let state_progress = state_c.clone();
-                                easy.progress_function(move|dltotal,dlnow,_,_| {
-                                    *state_progress.write().unwrap() = CurrentFlashState::Download(dlnow as usize, dltotal as usize);
-                                    return true;
-                                });
-                                easy.http_headers(list).unwrap();
-                                easy.useragent("request").unwrap();
-                                easy.follow_location(true).unwrap();
-                                easy.url(&url).unwrap();
-                                {
+                                // curl setup is fallible; report it instead of panicking
+                                // inside a detached worker thread.
+                                let setup = (|| -> Result<(), curl::Error> {
+                                    list.append("Accept: application/octet-stream")?;
+                                    easy.progress(true)?;
+                                    easy.progress_function(move|dltotal,dlnow,_,_| {
+                                        *state_progress.write().unwrap() = CurrentFlashState::Download(dlnow as usize, dltotal as usize);
+                                        return true;
+                                    })?;
+                                    easy.http_headers(list)?;
+                                    easy.useragent("request")?;
+                                    easy.follow_location(true)?;
+                                    easy.url(&url)?;
+                                    Ok(())
+                                })();
+                                if let Err(e) = setup {
+                                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Could not start firmware download: {e}"));
+                                    return;
+                                }
+                                let transfer_result = {
                                     let mut transfer = easy.transfer();
                                     let _ = transfer.write_function(|data| {
-                                        buffer_firmware.extend_from_slice(data);                         
+                                        buffer_firmware.extend_from_slice(data);
                                         Ok(data.len())
                                     });
-                                    let _ = transfer.perform();
+                                    transfer.perform()
+                                };
+
+                                // A transfer error must not be swallowed: without this a
+                                // half-finished download was handed to load_binary() and
+                                // reported as a corrupt firmware image.
+                                if let Err(e) = transfer_result {
+                                    *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware download failed: {e}"));
+                                    return;
                                 }
-                                
-                                let code = easy.response_code().unwrap_or(0);
+                                let code = match easy.response_code() {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Could not read HTTP response code: {e}"));
+                                        return;
+                                    }
+                                };
                                 if code == 200 || code == 302 {
                                     match load_binary(buffer_firmware) {
                                         Ok(fw) => {
@@ -244,7 +272,7 @@ impl InterfacePage for UpdatePage {
                                             *state_c.write().unwrap() = CurrentFlashState::None;
                                         },
                                         Err(e) => {
-                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware is corrupt!"));
+                                            *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Firmware is corrupt: {e:?}"));
                                         }
                                     }
                                 } else {
@@ -273,7 +301,9 @@ impl InterfacePage for UpdatePage {
             if let Some(bin_path) = rfd::FileDialog::new()
                 .add_filter("Firmware bin", &["bin"])
                 .pick_file() {
-                match load_binary_from_path(bin_path.into_os_string().into_string().unwrap()) {
+                // Pass the path through directly: the old `into_string().unwrap()` panicked
+                // on any non-UTF-8 path, which is reachable on Windows.
+                match load_binary_from_path(&bin_path) {
                     Ok(fw) => {
                         *self.fw.write().unwrap() = Some(fw);
                     },
@@ -377,12 +407,22 @@ impl InterfacePage for UpdatePage {
                 let mut read_buffer: Vec<u8> = vec![];
                 let mut counter = 0u8;
                 let start = read_op_c.address;
-                while read_buffer.len() < read_op_c.size as usize {
+                let total = read_op_c.size as usize;
+                while read_buffer.len() < total {
                     counter = counter.wrapping_add(1);
                     match ng.read_data(counter) {
-                        Ok(data) => { 
+                        Ok(data) => {
+                            if data.is_empty() {
+                                // Would never advance: bail instead of spinning forever.
+                                *state_c.write().unwrap() = CurrentFlashState::Failed(format!("TCU returned an empty block at address 0x{:08X?}", start as usize + read));
+                                return;
+                            }
                             read += data.len();
                             read_buffer.extend_from_slice(&data);
+                            // The last block can overshoot the partition size; clamp so the
+                            // progress display and the saved file both stay in range.
+                            read_buffer.truncate(total);
+                            read = read.min(total);
                             *state_c.write().unwrap() = CurrentFlashState::Read { start_addr: start, current: read as u32, total: read_op_c.size };
                         },
                         Err(e) => {
@@ -393,9 +433,17 @@ impl InterfacePage for UpdatePage {
                     ctx_c.request_repaint();
                 }
                 match ng.end_ota(false) {
-                    Ok(_) => *state_c.write().unwrap() = {
-                        File::create(save_path.unwrap()).unwrap().write_all(&read_buffer).unwrap();
-                        CurrentFlashState::Completed("Done!".to_string())
+                    Ok(_) => {
+                        // Report a failed save instead of panicking in this worker thread.
+                        *state_c.write().unwrap() = match save_path {
+                            Some(path) => match File::create(&path)
+                                .and_then(|mut f| f.write_all(&read_buffer))
+                            {
+                                Ok(_) => CurrentFlashState::Completed(format!("Saved to {}", path.display())),
+                                Err(e) => CurrentFlashState::Failed(format!("Could not write {}: {e}", path.display())),
+                            },
+                            None => CurrentFlashState::Failed("No save path was chosen".into()),
+                        };
                     },
                     Err(e) => {
                         *state_c.write().unwrap() = CurrentFlashState::Failed(format!("Error verification: {}", e));
@@ -424,9 +472,10 @@ impl InterfacePage for UpdatePage {
                 CurrentFlashState::Completed(s) => (1.0, s),
                 CurrentFlashState::Failed(s) => (1.0, s),
                 CurrentFlashState::Download(now, total) => {
+                    // ProgressBar takes a 0.0..=1.0 fraction, like every other arm here.
                     let mut f = 0.0;
                     if total != 0 {
-                        f = (now as f32 * 100.0) / total as f32;
+                        f = now as f32 / total as f32;
                     }
                     (f, format!("Downloading firmware. {now} bytes done"))
                 },
@@ -436,17 +485,21 @@ impl InterfacePage for UpdatePage {
                 if self.flash_start.is_none() {
                     self.flash_start = Some(Instant::now())
                 }
-                let f_start = self.flash_start.unwrap();
+                let f_start = self.flash_start.unwrap_or_else(Instant::now);
                 let (_start_address, current, total) = state.get_progress();
                 let spd = (1000.0 * current as f32
                     / f_start.elapsed().as_millis() as f32)
                     as u32;
-                if spd != 0 {
-                    let eta = (total - current) / spd;
-                    ui.label(format!("Avg {:.0} bytes/sec", spd));
-                    ui.label(format!("ETA: {:02}:{:02} seconds remaining", eta/60, eta % 60));
-                } else {
-                    ui.label("Please wait...");
+                // `current` can exceed `total` on the final block, so saturate: plain
+                // subtraction would underflow (a panic in debug, a nonsense ETA in release).
+                match total.saturating_sub(current).checked_div(spd) {
+                    Some(eta) => {
+                        ui.label(format!("Avg {:.0} bytes/sec", spd));
+                        ui.label(format!("ETA: {:02}:{:02} seconds remaining", eta/60, eta % 60));
+                    }
+                    None => {
+                        ui.label("Please wait...");
+                    }
                 }
                 
             }

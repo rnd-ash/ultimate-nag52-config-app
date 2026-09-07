@@ -39,7 +39,7 @@ impl CanLoggerPage {
         std::thread::spawn(move|| {
             match nag_c.with_kwp(|k| k.kwp_set_session(KwpSessionType::ExtendedDiagnostics.into())) {
                 Ok(_) => {
-                    *state_c.write() = PageLoadState::Err(format!("Querying device mode"));
+                    *state_c.write() = PageLoadState::Waiting("Querying device mode".into());
                     ctx.request_repaint();
                     if let Ok(mode) = nag_c.read_device_mode() {
                         *dev_mode_c.write() = Some(mode);
@@ -71,13 +71,16 @@ impl CanLoggerPage {
 
         Self {
             device_mode: dev_mode,
-            state: state,
+            state,
             nag,
-            reader_running: Arc::new(AtomicBool::new(false)),
+            // Must be the same flag the reader thread polls. Storing a fresh AtomicBool
+            // here meant `Drop` cleared a flag nobody read, and the reader thread kept
+            // polling the ECU forever after the page was closed.
+            reader_running: running,
             frames,
-            dialog_open: dialog_open
+            dialog_open
         }
-        
+
     }
 }
 
@@ -103,6 +106,7 @@ impl crate::window::InterfacePage for CanLoggerPage {
     fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         ui.heading("CAN Logger viewer");
         let state = self.state.read().clone();
+        let mut save_result: Option<PageAction> = None;
 
         match state {
             
@@ -141,13 +145,28 @@ impl crate::window::InterfacePage for CanLoggerPage {
                     if ui.button("Save to file").clicked() {
                         self.dialog_open.store(true, Ordering::Relaxed);
                         if let Some(p) = rfd::FileDialog::new().add_filter("CAN Log", &["log"]).set_title("Save CAN Log").save_file() {
-                            let mut f = File::create(p).unwrap();
+                            let mut buf = String::new();
                             for frame in frames_now.iter() {
                                 let mut f_str = String::new();
                                 for byte in frame.get_data() {
                                     f_str.push_str(&format!(" {:02X?}", byte));
                                 }
-                                let _ = f.write_all(format!("0x{:04X}{f_str}\n", frame.get_address()).as_bytes());
+                                buf.push_str(&format!("0x{:04X}{f_str}\n", frame.get_address()));
+                            }
+                            // A read-only or locked destination must not take the app down.
+                            match File::create(&p).and_then(|mut f| f.write_all(buf.as_bytes())) {
+                                Ok(_) => {
+                                    save_result = Some(PageAction::SendNotification {
+                                        text: format!("CAN log saved to {}", p.display()),
+                                        kind: egui_notify::ToastLevel::Success,
+                                    });
+                                }
+                                Err(e) => {
+                                    save_result = Some(PageAction::SendNotification {
+                                        text: format!("Could not save CAN log to {}: {e}", p.display()),
+                                        kind: egui_notify::ToastLevel::Error,
+                                    });
+                                }
                             }
                         }
                         self.dialog_open.store(false, Ordering::Relaxed);
@@ -187,7 +206,7 @@ impl crate::window::InterfacePage for CanLoggerPage {
 
             }
         }
-        PageAction::None
+        save_result.unwrap_or(PageAction::None)
     }
 
     fn should_show_statusbar(&self) -> bool {

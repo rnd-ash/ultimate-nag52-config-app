@@ -26,7 +26,10 @@ use crate::ui::diagnostics::DiagnosticsPage;
 const APP_COMMIT: &str = env!("VERGEN_GIT_SHA");
 
 pub struct MainPage {
-    diag_server: &'static mut Nag52Diag,
+    // Owned outright. This used to be a `&'static mut` produced by `Box::leak`, with a
+    // matching `Box::from_raw` in `Drop` to reclaim it - a hand-rolled ownership model with
+    // no benefit here, since every use site just clones the handle.
+    diag_server: Nag52Diag,
     info: Arc<RwLock<DataState<IdentData>>>,
     sn: Arc<RwLock<DataState<String>>>,
     first_run: bool,
@@ -55,18 +58,11 @@ impl MainPage {
     }
 
     pub fn new(nag: Nag52Diag) -> Self {
-        // Static mutable ref creation
-        // this Nag52 lives the whole lifetime of the app once created,
-        // so we have no need to clone it constantly, just throw the pointer around at
-        // the subpages.
-        //
-        // We can keep it here as a ref to create a box from it when Drop() is called
-        // so we can drop it safely without a memory leak
+        // `Nag52Diag` is a cheap handle (Arcs internally), so subpages just clone it.
         let instance = octocrab::instance();
-        let static_ref: &'static mut Nag52Diag = Box::leak(Box::new(nag));
         //Self::query_for_updates(instance.clone());
         Self {
-            diag_server: static_ref,
+            diag_server: nag,
             info: Arc::new(RwLock::new(DataState::Unint)),
             sn: Arc::new(RwLock::new(DataState::Unint)),
             first_run: false,
@@ -337,10 +333,4 @@ impl InterfacePage for MainPage {
 
 }
 
-impl Drop for MainPage {
-    fn drop(&mut self) {
-        // Create a temp box so we can drop it
-        let b = unsafe { Box::from_raw(self.diag_server) };
-        drop(b);
-    }
-}
+// No manual Drop: `diag_server` is an owned field and drops normally.
