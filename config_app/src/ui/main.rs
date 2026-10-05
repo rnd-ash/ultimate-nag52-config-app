@@ -2,7 +2,6 @@ use backend::diag::device_modes::TcuDeviceMode;
 use backend::diag::DataState;
 use backend::diag::ident::IdentData;
 use backend::diag::Nag52Diag;
-use backend::ecu_diagnostics::dynamic_diag::DiagSessionMode;
 use config_app_macros::include_base64;
 use eframe::egui::{self, Panel};
 use eframe::egui::CentralPanel;

@@ -1859,12 +1859,21 @@ impl super::InterfacePage for MapEditor {
                     }
                 });
                 ui.menu_button("Torque converter", |ui| {
-                    ui.label("Zone pressures (Adaptable)");
-                    if ui.button("Slipping pressure").clicked() {
-                        map_to_switch = Some(MapType::TccAdaptSlipMap);
+                    ui.label("Adapted pressures");
+                    if ui.button("Gear 1").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD1);
                     }
-                    if ui.button("Locking pressure").clicked() {
-                        map_to_switch = Some(MapType::TccAdaptLockMap);
+                    if ui.button("Gear 2").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD2);
+                    }
+                    if ui.button("Gear 3").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD3);
+                    }
+                    if ui.button("Gear 4").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD4);
+                    }
+                    if ui.button("Gear 5").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD5);
                     }
                     ui.separator();
                     ui.label("Target slip map");
