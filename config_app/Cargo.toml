@@ -52,4 +52,4 @@ vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rus
 name = "Ultimate-NAG52-Config-App"
 identifier = "com.rndash.un52configapp"
 short_description = "Ultimate-NAG52 configuration suite"
-osx_url_schemes = ["com.rndash.un52configapp"]
+#osx_url_schemes = ["com.rndash.un52configapp"]
