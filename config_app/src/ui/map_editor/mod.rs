@@ -1637,7 +1637,7 @@ impl Map {
                                     src[(len * y_idx) + x_idx] as f64
                                 },
                             )
-                            .style_func(&|&v| (&HSLColor((v / y_max) * 0.3, 1.0, 0.5)).into()),
+                            .style_func(&|&v| (&HSLColor(((v-y_min) / (y_max - y_min)) * 0.3, 1.0, 0.5)).into()),
                         )
                         .unwrap();
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
