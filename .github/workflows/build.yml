@@ -17,34 +17,31 @@ env:
 jobs:
   Linux-App:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
     - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
     - uses: Swatinem/rust-cache@v2
+      with:
+        key: "v1-ubuntu-22.04-x86_64"
     - name: Install deps
-      run: sudo apt-get update && sudo apt-get install -y libudev-dev binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
-    - name: Get app version
-      run : |
-        echo "APP_VERSION=$(cat config_app/Cargo.toml | grep "^version = " | tr -d \" | cut -d " " -f3)" >> $GITHUB_ENV
-    - name: Download appimagekit
-      run: sudo wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
-    - name: Make appimagetool exec
-      run: sudo chmod +x /usr/local/bin/appimagetool
-    - name: Install cargo-appimage
-      run: cargo install cargo-appimage
-    - name: Build executable
-      working-directory: ./config_app
-      run: cargo build --verbose --release
-    - name: Build appimage
-      working-directory: ./config_app
-      run: cargo appimage
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y \
+          binutils build-essential curl desktop-file-utils libfontconfig1-dev \
+          libfreetype6-dev libudev-dev pkg-config xauth xdotool xvfb
+    - name: Build and package Linux AppImage
+      run: bash ./.github/scripts/build-linux-appimage.sh
+    - name: Verify Linux AppImage and application startup
+      run: bash ./.github/scripts/verify-linux-appimage.sh target/appimage/config_app.AppImage
     - uses: actions/upload-artifact@v7
       with:
-        path: target/appimage/*.AppImage
-        name: config-app-linux 
+        path: target/appimage/config_app.AppImage
+        name: config-app-linux
+        if-no-files-found: error
 
   Windows-App:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
