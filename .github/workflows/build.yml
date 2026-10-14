@@ -72,7 +72,7 @@ jobs:
       - name: Build executable
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
-        run: ls target -R
+        run: Get-Item target/i686-pc-windows-msvc/release/config_app.exe
       - uses: actions/upload-artifact@v7
         with:
           name: config-app-exe
