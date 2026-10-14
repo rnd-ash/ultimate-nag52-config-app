@@ -71,13 +71,16 @@ jobs:
         with:
           key: "v1-windows-i686-msvc-${{ env.VCToolsVersion }}-sdk-${{ env.UCRTVersion }}"
       - name: Build executable
-        run: cargo build --verbose --release --target i686-pc-windows-msvc
+        run: cargo build --verbose --release --locked --package config_app --bin config_app --target i686-pc-windows-msvc
       - name: View artifacts
         run: Get-Item target/i686-pc-windows-msvc/release/config_app.exe
+      - name: Verify Windows executable and application startup
+        run: ./.github/scripts/verify-windows-exe.ps1 target/i686-pc-windows-msvc/release/config_app.exe
       - uses: actions/upload-artifact@v7
         with:
           name: config-app-exe
-          path: target/i686-pc-windows-msvc/release/*.exe
+          path: target/i686-pc-windows-msvc/release/config_app.exe
+          if-no-files-found: error
 
   OSX-app:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
