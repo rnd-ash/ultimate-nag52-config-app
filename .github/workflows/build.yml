@@ -67,6 +67,8 @@ jobs:
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal --target i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: "v1-windows-i686-msvc-${{ env.VCToolsVersion }}-sdk-${{ env.UCRTVersion }}"
       - name: Build executable
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
