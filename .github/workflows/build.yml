@@ -49,19 +49,17 @@ jobs:
   Windows-App:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: windows-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: win32
-      - name: Install Rustup using win.rustup.rs
+      - name: Install latest stable Rust and Windows x86 target
         run: |
-          $ProgressPreference = "SilentlyContinue"
-          Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
-          .\rustup-init.exe -y --default-host=i686-pc-windows-msvc --default-toolchain=none
-          del rustup-init.exe
-          rustup target add i686-pc-windows-msvc
-        shell: powershell
+          rustup set auto-self-update disable
+          rustup toolchain install stable --profile minimal --target i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - name: Build executable
         run: cargo build --verbose --release --target i686-pc-windows-msvc
