@@ -49,6 +49,7 @@ jobs:
   Windows-App:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       RUSTUP_TOOLCHAIN: stable
     defaults:
