@@ -51,6 +51,12 @@ jobs:
     runs-on: windows-latest
     env:
       RUSTUP_TOOLCHAIN: stable
+    defaults:
+      run:
+        # Stop on every native command failure, even when another command follows.
+        shell: >-
+          pwsh -NoLogo -NoProfile -NonInteractive -Command
+          "$ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true; . '{0}'"
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
