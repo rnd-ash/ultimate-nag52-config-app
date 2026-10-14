@@ -4,8 +4,7 @@ on:
   push:
     branches: [ "dev" ]
   release:
-    tags:
-      - v*
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +16,7 @@ env:
 
 jobs:
   Linux-App:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -47,6 +47,7 @@ jobs:
         name: config-app-linux 
 
   Windows-App:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +73,7 @@ jobs:
           path: target/i686-pc-windows-msvc/release/*.exe
 
   OSX-app:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: macos-latest # Apple Silicon (ARM64)
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -125,10 +127,11 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
-        name: Release ${{ env.BRANCH_NAME }}
+        tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || format('{0}-{1}', env.BRANCH_NAME, github.sha) }}
+        target_commitish: ${{ github.sha }}
+        name: ${{ github.event_name == 'release' && github.event.release.name || format('Release {0}', env.BRANCH_NAME) }}
         draft: false
-        prerelease: ${{ env.BRANCH_NAME != 'main' }}
+        prerelease: ${{ (github.event_name == 'release' && github.event.release.prerelease) || (github.event_name != 'release' && env.BRANCH_NAME != 'main') }}
         files: |
           *.exe
           *.AppImage
