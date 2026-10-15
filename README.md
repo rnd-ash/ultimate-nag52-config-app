@@ -6,18 +6,20 @@ The configuration app for the Ultimate-NAG52 TCU
 
 ### macOS
 
+The macOS build supports Apple Silicon (M1 and newer) and requires macOS 11.0 or newer; Intel Macs are not supported.
+
 #### ⚠️ IMPORTANT: App is not code-signed
 This app is not signed with an Apple Developer Certificate. macOS will show a security warning when you first try to open it.
-
-**DO NOT double-click the app on first launch** - it will show "app is damaged" error.
 
 #### Installation Steps:
 1. Download `config_app.dmg` from [Releases](https://github.com/rnd-ash/ultimate-nag52-config-app/releases)
 2. Open the downloaded DMG file
 3. Drag `Ultimate-NAG52-Config-App.app` to your **Applications** folder
-4. **Right-click** (or Control-click) on the app in Applications
-5. Select **"Open"** from the menu
-6. Click **"Open"** in the security dialog that appears
+4. Open the app once, then dismiss the security warning
+5. Open **System Settings → Privacy & Security** (on macOS 11–12: **System Preferences → Security & Privacy → General**)
+6. Click **Open Anyway** for this app, authenticate if prompted, and confirm **Open**
+
+On macOS 15 and newer, Control-click → Open no longer bypasses Gatekeeper for unsigned or unnotarized apps. See [Apple's instructions](https://support.apple.com/en-us/102445).
 
 **This is only needed the first time.** After that, you can launch the app normally.
 
