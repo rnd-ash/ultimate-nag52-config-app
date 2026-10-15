@@ -31,8 +31,9 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install --no-install-recommends -y \
-          binutils build-essential curl desktop-file-utils libfontconfig1-dev libgl1-mesa-dri \
-          libfreetype6-dev libudev-dev libxkbcommon-x11-0 pkg-config xauth xdotool xvfb
+          binutils build-essential curl desktop-file-utils libegl-dev libegl-mesa0 \
+          libfontconfig1-dev libfreetype6-dev libgl1-mesa-dri libudev-dev \
+          libxkbcommon-x11-0 pkg-config xauth xdotool xvfb
     - name: Build and package Linux AppImage
       run: bash ./.github/scripts/build-linux-appimage.sh
     - name: Verify Linux AppImage and application startup
