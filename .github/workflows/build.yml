@@ -41,7 +41,7 @@ jobs:
     - name: Build appimage
       working-directory: ./config_app
       run: cargo appimage
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         path: target/appimage/*.AppImage
         name: config-app-linux 
@@ -67,7 +67,7 @@ jobs:
         run: cargo build --verbose --release --target i686-pc-windows-msvc
       - name: View artifacts
         run: ls target -R
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: config-app-exe
           path: target/i686-pc-windows-msvc/release/*.exe
@@ -98,7 +98,7 @@ jobs:
           OPENSSL_STATIC: "1"
       - name: Verify macOS disk image and bundled executable
         run: bash .github/scripts/verify-macos-dmg.sh target/release/bundle/dmg/config_app.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: config-app-osx
           path: target/release/bundle/dmg/config_app.dmg
@@ -109,15 +109,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download Windows artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-exe
     - name: Download Linux artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-linux
     - name: Download OSX artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-osx
     - name: View artifacts
