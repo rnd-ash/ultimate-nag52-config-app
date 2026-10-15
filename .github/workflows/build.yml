@@ -72,10 +72,53 @@ jobs:
           key: "v1-windows-i686-msvc-${{ env.VCToolsVersion }}-sdk-${{ env.UCRTVersion }}"
       - name: Build executable
         run: cargo build --verbose --release --locked --package config_app --bin config_app --target i686-pc-windows-msvc
+      - name: Install Mesa llvmpipe for Windows GUI smoke test
+        if: runner.environment == 'github-hosted'
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'mesa-llvmpipe-x86-26.2.5.7z'
+          $mesaDir = Join-Path $env:RUNNER_TEMP 'mesa-llvmpipe-x86'
+          $sevenZip = Join-Path $env:RUNNER_TEMP '7zr.exe'
+          $releaseDir = (Resolve-Path 'target/i686-pc-windows-msvc/release').Path
+          $mesaDll = Join-Path $releaseDir 'opengl32.dll'
+          $url = 'https://github.com/mmozeiko/build-mesa/releases/download/26.2.5/mesa-llvmpipe-x86-26.2.5.7z'
+          $sha256 = '1858bce8a19c5d337dc4c9db039ef5e2f98d82dbb6e100dbe51564e8bc3572a4'
+          $sevenZipUrl = 'https://github.com/ip7z/7zip/releases/download/26.04/7zr.exe'
+          $sevenZipSha256 = '256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282'
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $sha256) {
+            throw 'Mesa llvmpipe archive SHA-256 does not match the pinned release.'
+          }
+          Invoke-WebRequest -Uri $sevenZipUrl -OutFile $sevenZip
+          if ((Get-FileHash -LiteralPath $sevenZip -Algorithm SHA256).Hash -ne $sevenZipSha256) {
+            throw '7-Zip extractor SHA-256 does not match the pinned release.'
+          }
+
+          if (Test-Path -LiteralPath $mesaDll) {
+            throw "Unexpected OpenGL runtime already exists: $mesaDll"
+          }
+          New-Item -ItemType Directory -Path $mesaDir -Force | Out-Null
+          & $sevenZip x $archive "-o$mesaDir" -y
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not extract the pinned Mesa llvmpipe archive.'
+          }
+          $mesaSourceDll = Join-Path $mesaDir 'opengl32.dll'
+          if (-not (Test-Path -LiteralPath $mesaSourceDll)) {
+            throw 'Mesa llvmpipe archive does not contain opengl32.dll.'
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value 'WGPU_BACKEND=gl'
+          Add-Content -Path $env:GITHUB_ENV -Value 'MESA_RUNTIME_INSTALLED=true'
+          Copy-Item -LiteralPath $mesaSourceDll -Destination $mesaDll
       - name: View artifacts
         run: Get-Item target/i686-pc-windows-msvc/release/config_app.exe
-      - name: Verify Windows executable and application startup
+      - name: Verify Windows executable and GUI startup
         run: ./.github/scripts/verify-windows-exe.ps1 target/i686-pc-windows-msvc/release/config_app.exe
+      - name: Remove Mesa runtime after GUI smoke test
+        if: always() && runner.environment == 'github-hosted'
+        run: |
+          if ($env:MESA_RUNTIME_INSTALLED -eq 'true') {
+            Remove-Item target/i686-pc-windows-msvc/release/opengl32.dll -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: config-app-exe
