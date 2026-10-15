@@ -16,7 +16,7 @@ mkdir -p "$appimage_dir"
 rm -rf "$appdir"
 rm -f "$output"
 
-cargo build --release --locked --package config_app --bin config_app
+cargo build --release --package config_app --bin config_app
 
 tools_dir=$(mktemp -d)
 trap 'rm -rf "$tools_dir"' EXIT
