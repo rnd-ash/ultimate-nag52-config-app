@@ -39,7 +39,10 @@ fi
 echo "Verified AppImage GLIBC requirement: $required_glibc (baseline $max_glibc)"
 
 log_file="$temp_dir/startup.log"
-LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a bash -s -- "$image" "$log_file" <<'SMOKE'
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+    LIBGL_ALWAYS_SOFTWARE=1 \
+    RUST_LOG=wgpu_hal::gles::egl=debug,wgpu_core::instance=debug \
+    xvfb-run -a bash -s -- "$image" "$log_file" <<'SMOKE'
 set -euo pipefail
 image=$1
 log_file=$2
