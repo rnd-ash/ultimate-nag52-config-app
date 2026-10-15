@@ -71,7 +71,7 @@ jobs:
         with:
           key: "v1-windows-i686-msvc-${{ env.VCToolsVersion }}-sdk-${{ env.UCRTVersion }}"
       - name: Build executable
-        run: cargo build --verbose --release --locked --package config_app --bin config_app --target i686-pc-windows-msvc
+        run: cargo build --verbose --release --package config_app --bin config_app --target i686-pc-windows-msvc
       - name: Install Mesa llvmpipe for Windows GUI smoke test
         if: runner.environment == 'github-hosted'
         run: |
