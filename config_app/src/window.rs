@@ -243,7 +243,8 @@ impl eframe::App for MainWindow {
                         self.show_back = false;
                     }
                     PageAction::SendNotification { text, kind } => {
-                        let mut t = Toast::new()
+                        let t = Toast::new()
+                            .text(text)
                             .kind(kind)
                             .options(
                                 ToastOptions::default()
