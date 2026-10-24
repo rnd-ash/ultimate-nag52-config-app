@@ -111,6 +111,10 @@ pub struct Map {
     pending_write: Option<PendingMapWrite>,
 }
 
+fn has_local_map_edits(edited: &[i16], ram: &[i16]) -> bool {
+    edited != ram
+}
+
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
     if a.len() < 2 {
         return Err(DiagError::InvalidResponseLength);
@@ -1385,11 +1389,14 @@ impl Map {
                     self.data_modify = self.data_program.clone();
                 }
             });
-            raw_ui.add_enabled_ui(self.data_modify != self.data_eeprom, |ui| {
+            let can_write_or_undo = self.data_modify != self.data_eeprom
+                || has_local_map_edits(&self.data_modify, &self.data_memory);
+            raw_ui.add_enabled_ui(can_write_or_undo, |ui| {
                 if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
                             self.data_modify = self.data_eeprom.clone();
+                            self.data_memory = self.data_eeprom.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
                                 kind: egui_toast::ToastKind::Success,
@@ -2013,13 +2020,13 @@ impl super::InterfacePage for MapEditor {
             // Stop user changing maps if they have unsaved changes
             let mut allowed_to_swtich = true;
             if let Some(current_map) = self.loaded_map.as_ref() {
-                if current_map.data_modify != current_map.data_eeprom {
+                if has_local_map_edits(&current_map.data_modify, &current_map.data_memory) {
                     allowed_to_swtich = false;
                 }
             }
             if !allowed_to_swtich {
                 action = Some(PageAction::SendNotification {
-                    text: "You have uncommited changes, please reset or write to EEPROM".into(),
+                    text: "You have local edits. Undo them or write them to RAM before changing maps.".into(),
                     kind: egui_toast::ToastKind::Warning,
                 })
             } else {
@@ -2069,5 +2076,30 @@ impl super::InterfacePage for MapEditor {
 
     fn should_show_statusbar(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_local_map_edits;
+
+    #[test]
+    fn ram_differing_from_eeprom_does_not_block_map_switching() {
+        let ram = vec![100, 200];
+        let eeprom = vec![90, 180];
+        let local = ram.clone();
+        assert_ne!(ram, eeprom);
+        assert!(!has_local_map_edits(&local, &ram));
+    }
+
+    #[test]
+    fn local_edit_back_to_eeprom_still_blocks_map_switching() {
+        let ram = vec![100, 200];
+        let eeprom = vec![90, 180];
+        let mut local = ram.clone();
+        local[0] = eeprom[0];
+        local[1] = eeprom[1];
+        assert_eq!(local, eeprom);
+        assert!(has_local_map_edits(&local, &ram));
     }
 }
