@@ -38,14 +38,39 @@ if [[ -z $required_glibc || $(printf '%s\n%s\n' "$required_glibc" "$max_glibc" |
 fi
 echo "Verified AppImage GLIBC requirement: $required_glibc (baseline $max_glibc)"
 
+environment_warning() {
+    echo "::warning::Linux GUI startup was NOT checked: Xvfb/OpenGL test environment unavailable."
+    if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+        printf '\n### Linux GUI startup: NOT CHECKED\nXvfb/OpenGL test environment unavailable. AppImage validation passed; publication is allowed. See the verification log.\n' >>"$GITHUB_STEP_SUMMARY"
+    fi
+}
+for tool in xvfb-run Xvfb xauth xdotool glxinfo; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "Missing GUI test tool: $tool" >&2
+        environment_warning
+        exit 0
+    fi
+done
+
 log_file="$temp_dir/startup.log"
+app_started="$temp_dir/app-test-started"
+status=0
 env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
     LIBGL_ALWAYS_SOFTWARE=1 \
     RUST_LOG=wgpu_hal::gles::egl=debug,wgpu_core::instance=debug \
-    xvfb-run -a bash -s -- "$image" "$log_file" <<'SMOKE'
+    xvfb-run -a bash -s -- "$image" "$log_file" "$app_started" <<'SMOKE' || status=$?
 set -euo pipefail
 image=$1
 log_file=$2
+app_started=$3
+# Use the same X server and software renderer as the application test.
+xdotool getdisplaygeometry
+gl_info=$(glxinfo -B)
+printf '%s\n' "$gl_info"
+gl_version=$(awk '/OpenGL core profile version string:/ { print $6; exit }' <<<"$gl_info")
+[[ $gl_version =~ ^([0-9]+)\.([0-9]+) ]] || exit 1
+(( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 3) )) || exit 1
+touch "$app_started"
 "$image" --appimage-extract-and-run >"$log_file" 2>&1 &
 app_pid=$!
 cleanup() {
@@ -68,4 +93,11 @@ if [[ -z $process_state || $process_state == *Z* ]]; then
 fi
 SMOKE
 
+if (( status != 0 )); then
+    if [[ ! -e $app_started ]]; then
+        environment_warning
+        exit 0
+    fi
+    exit "$status"
+fi
 echo "Verified Linux AppImage and GUI startup: $image"

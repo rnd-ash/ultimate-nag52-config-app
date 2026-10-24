@@ -33,7 +33,10 @@ jobs:
         sudo apt-get install --no-install-recommends -y \
           binutils build-essential curl desktop-file-utils libegl-dev libegl-mesa0 \
           libfontconfig1-dev libfreetype6-dev libgl1-mesa-dri libudev-dev \
-          libxkbcommon-x11-0 pkg-config xauth xdotool xvfb
+          libxkbcommon-x11-0 pkg-config
+    - name: Install Linux GUI test tools
+      continue-on-error: true
+      run: sudo apt-get install --no-install-recommends -y xauth xdotool xvfb mesa-utils
     - name: Build and package Linux AppImage
       run: bash ./.github/scripts/build-linux-appimage.sh
     - name: Verify Linux AppImage and application startup
@@ -73,6 +76,8 @@ jobs:
       - name: Build executable
         run: cargo build --verbose --release --package config_app --bin config_app --target i686-pc-windows-msvc
       - name: Install Mesa llvmpipe for Windows GUI smoke test
+        id: mesa
+        continue-on-error: true
         if: runner.environment == 'github-hosted'
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'mesa-llvmpipe-x86-26.2.5.7z'
@@ -113,6 +118,8 @@ jobs:
         run: Get-Item target/i686-pc-windows-msvc/release/config_app.exe
       - name: Verify Windows executable and GUI startup
         run: ./.github/scripts/verify-windows-exe.ps1 target/i686-pc-windows-msvc/release/config_app.exe
+        env:
+          SKIP_GUI_STARTUP: ${{ steps.mesa.outcome == 'failure' && '1' || '0' }}
       - name: Remove Mesa runtime after GUI smoke test
         if: always() && runner.environment == 'github-hosted'
         run: |

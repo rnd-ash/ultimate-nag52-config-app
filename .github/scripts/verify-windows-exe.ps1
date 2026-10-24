@@ -50,6 +50,39 @@ if ($unexpectedDlls.Count -gt 0) {
 }
 Write-Host "DLL dependencies: $($dependencies -join ', ')"
 
+# Probe the desktop independently of the application under test.
+$environmentFailure = $null
+if ($env:SKIP_GUI_STARTUP -eq '1') {
+    $environmentFailure = 'Mesa runtime installation failed; see the installation step.'
+} else {
+    $probe = $null
+    try {
+        if (-not [Environment]::UserInteractive) {
+            throw 'The runner has no interactive desktop.'
+        }
+        Add-Type -AssemblyName System.Windows.Forms
+        $probe = [System.Windows.Forms.Form]::new()
+        $probe.Show()
+        [System.Windows.Forms.Application]::DoEvents()
+        if (-not $probe.Visible -or $probe.Handle -eq 0) {
+            throw 'Could not create a test window on the runner desktop.'
+        }
+    } catch {
+        $environmentFailure = $_.Exception.Message
+    } finally {
+        if ($null -ne $probe) { $probe.Dispose() }
+    }
+}
+if ($null -ne $environmentFailure) {
+    Write-Host "::warning::Windows GUI startup was NOT checked: test environment unavailable."
+    Write-Host $environmentFailure
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content $env:GITHUB_STEP_SUMMARY '### Windows GUI startup: NOT CHECKED
+Test environment preparation failed. Executable validation passed; publication is allowed. See the verification and Mesa installation logs.'
+    }
+    return
+}
+
 $stdout = [System.IO.Path]::GetTempFileName()
 $stderr = [System.IO.Path]::GetTempFileName()
 $process = $null

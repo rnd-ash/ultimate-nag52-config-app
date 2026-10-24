@@ -54,6 +54,16 @@ otool -L "$binary" | awk '
     END { exit (invalid || NR < 2) }
 '
 
+# Check desktop automation before attributing a missing window to the app.
+if ! osascript -e 'tell application "System Events" to tell process "Finder" to get name of every window' >>"$launch_log" 2>&1; then
+    cat "$launch_log" >&2
+    echo "::warning::macOS GUI startup was NOT checked: desktop automation unavailable."
+    if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+        printf '\n### macOS GUI startup: NOT CHECKED\nDesktop automation unavailable. DMG validation passed; publication is allowed.\n' >>"$GITHUB_STEP_SUMMARY"
+    fi
+    exit 0
+fi
+
 open -n "$app" >"$launch_log" 2>&1
 window_title=""
 for _ in {1..60}; do
