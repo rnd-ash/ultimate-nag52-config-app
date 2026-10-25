@@ -10,35 +10,55 @@ pub enum MapType {
     DnshiftC = 0x05,
     DnshiftS = 0x06,
 
-    TccPwm   = 0x09,
-    FillTime =  0x0A,
-    FillPressure= 0x0B,
+    TccPwm = 0x09,
+    FillTime = 0x0A,
+    FillPressure = 0x0B,
     LowFillPressure = 0x0C,
 
-    UpshiftOverlapA  = 0x10,
-    DnshiftOverlapA  = 0x11,
-    UpshiftOverlapS  = 0x12,
-    DnshiftOverlapS  = 0x13,
-    UpshiftOverlapC  = 0x14,
-    DnshiftOverlapC  = 0x15,
-    UpshiftOverlapW  = 0x16,
-    DnshiftOverlapW  = 0x17,
-    UpshiftOverlapM  = 0x18,
-    DnshiftOverlapM  = 0x19,
+    UpshiftOverlapA = 0x10,
+    DnshiftOverlapA = 0x11,
+    UpshiftOverlapS = 0x12,
+    DnshiftOverlapS = 0x13,
+    UpshiftOverlapC = 0x14,
+    DnshiftOverlapC = 0x15,
+    UpshiftOverlapW = 0x16,
+    DnshiftOverlapW = 0x17,
+    UpshiftOverlapM = 0x18,
+    DnshiftOverlapM = 0x19,
+
+    TrqAdaptPull12 = 0x90,
+    TrqAdaptPull23 = 0x91,
+    TrqAdaptPull34 = 0x92,
+    TrqAdaptPull45 = 0x93,
+    TrqAdaptPull21 = 0x94,
+    TrqAdaptPull32 = 0x95,
+    TrqAdaptPull43 = 0x96,
+    TrqAdaptPull54 = 0x97,
+    TrqAdaptPush12 = 0x98,
+    TrqAdaptPush23 = 0x99,
+    TrqAdaptPush34 = 0x9A,
+    TrqAdaptPush45 = 0x9B,
+    TrqAdaptPush21 = 0x9C,
+    TrqAdaptPush32 = 0x9D,
+    TrqAdaptPush43 = 0x9E,
+    TrqAdaptPush54 = 0x9F,
 
     HfmTrqMap = 0x20,
     HfmMafMap = 0x21,
     HfmMaxMap = 0x22,
 
-    TccAdaptSlipMap = 0xA0,
-    TccAdaptLockMap = 0xA1,
+    //TccAdaptSlipMap = 0xA0,
+    //TccAdaptLockMap = 0xA1,
+    ShiftAdaptFillTMap = 0xA2,
+    ShiftAdaptFillPMap = 0xA3,
 
-    ShiftAdaptFillTMap   = 0xA2,
-    ShiftAdaptFillPMap   = 0xA3,
-    ShiftAdaptTrqApplMap = 0xA4,
-    ShiftAdaptTrqFreeMap = 0xA5,
+    TccRpmSlipMap = 0xB0,
 
-    TccRpmSlipMap = 0xB0
+    TccSlipMapD1 = 0xC0,
+    TccSlipMapD2 = 0xC1,
+    TccSlipMapD3 = 0xC2,
+    TccSlipMapD4 = 0xC3,
+    TccSlipMapD5 = 0xC4,
 }
 
 pub(crate) const MAP_ARRAY: &[MapData] = &[
@@ -53,8 +73,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftC,
@@ -67,8 +86,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftS,
@@ -81,8 +99,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["1->2", "2->3", "3->4", "4->5"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftA,
@@ -95,8 +112,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftC,
@@ -109,8 +125,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftS,
@@ -123,8 +138,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         Some(&["2->1", "3->2", "4->3", "5->4"]),
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::TccPwm,
@@ -137,8 +151,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "/4096",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::FillTime,
@@ -151,9 +164,9 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2"]),
-        true
-        
-    ).with_help("Duration of stage 1 of the filling process (Priming the clutch)."),
+        true,
+    )
+    .with_help("Duration of stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
         MapType::FillPressure,
         "Clutch filling pressure",
@@ -165,9 +178,9 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
-        true
-        
-    ).with_help("Clutch filling pressure for stage 1 of the filling process (Priming the clutch)."),
+        true,
+    )
+    .with_help("Clutch filling pressure for stage 1 of the filling process (Priming the clutch)."),
     MapData::new(
         MapType::LowFillPressure,
         "Clutch low filling pressure",
@@ -179,9 +192,9 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "mBar",
         None,
         Some(&["K1", "K2", "K3", "B1", "B2", "B3"]),
-        true
-        
-    ).with_help("Clutch filling pressure for stage 2 of the filling process (Tolorance clearning)."),
+        true,
+    )
+    .with_help("Clutch filling pressure for stage 2 of the filling process (Tolorance clearning)."),
     MapData::new(
         MapType::UpshiftOverlapA,
         "Upshift overlap time (Agility)",
@@ -193,8 +206,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftOverlapA,
@@ -207,8 +219,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftOverlapS,
@@ -221,8 +232,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftOverlapS,
@@ -235,8 +245,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftOverlapC,
@@ -249,8 +258,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftOverlapC,
@@ -263,8 +271,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftOverlapW,
@@ -277,8 +284,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftOverlapW,
@@ -291,8 +297,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::UpshiftOverlapM,
@@ -305,8 +310,7 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
         MapType::DnshiftOverlapM,
@@ -319,35 +323,215 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "ms",
         None,
         None,
-        false
-        
+        false,
     ),
     MapData::new(
-        MapType::TccAdaptSlipMap,
-        "Torque converter slip adapt map",
+        MapType::TrqAdaptPull12,
+        "1-2 power upshift adapted torque correction",
+        "RPM",
         "%",
-        "",
-        "TCC Load %",
-        "",
-        "Slipping pressure(mBar)",
-        "mBar",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
         None,
-        Some(&["D1", "D2", "D3", "D4", "D5"]),
-        false
-        
+        None,
+        false,
     ),
     MapData::new(
-        MapType::TccAdaptLockMap,
-        "Torque converter lock adapt map",
+        MapType::TrqAdaptPull23,
+        "2-3 power upshift adapted torque correction",
+        "RPM",
         "%",
-        "",
-        "TCC Load %",
-        "",
-        "Locking pressure(mBar)",
-        "mBar",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
         None,
-        Some(&["D1", "D2", "D3", "D4", "D5"]),
-        false
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull34,
+        "3-4 power upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull45,
+        "4-5 power upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull21,
+        "2-1 power downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull32,
+        "3-2 power downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull43,
+        "4-3 power downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPull54,
+        "5-4 power downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush12,
+        "1-2 coasting upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush23,
+        "2-3 coasting upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush34,
+        "3-4 coasting upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush45,
+        "4-5 coasting upshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Releasing clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush21,
+        "2-1 coasting downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush32,
+        "3-2 coasting downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush43,
+        "4-3 coasting downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TrqAdaptPush54,
+        "5-4 coasting downshift adapted torque correction",
+        "RPM",
+        "%",
+        "Engine speed",
+        "Gearbox load",
+        "Correction torque (Applying clutch)",
+        "Nm",
+        None,
+        None,
+        false,
     ),
     MapData::new(
         MapType::ShiftAdaptFillTMap,
@@ -358,9 +542,11 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         "Filling cycles offset (20ms per cycle)",
         "cycle(s)",
+        Some(&[
+            "1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4",
+        ]),
         None,
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
-        false
+        false,
     ),
     MapData::new(
         MapType::ShiftAdaptFillPMap,
@@ -371,37 +557,12 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         "Pressure offset",
         "mBar",
+        Some(&[
+            "1-2/2-1", "2-3/3-2", "3-4", "4-5/5-4", "UNUSED", "UNUSED", "4-3", "UNUSED",
+        ]),
         None,
-        Some(&["1-2/2-1", "2-3/3-2", "3-4", "4-5/5-4", "UNUSED", "UNUSED", "4-3", "UNUSED"]),
-        false
+        false,
     ),
-    MapData::new(
-        MapType::ShiftAdaptTrqApplMap,
-        "Shift adaptation applying clutch torque offset map",
-        "",
-        "",
-        "Gear change",
-        "",
-        "Torque offset",
-        "Nm",
-        None,
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
-        false
-    ),
-    MapData::new(
-        MapType::ShiftAdaptTrqFreeMap,
-        "Shift adaptation releasing clutch torque offset map",
-        "",
-        "",
-        "Gear change",
-        "",
-        "Torque offset",
-        "Nm",
-        None,
-        Some(&["1->2", "2->3", "3->4", "4->5", "2->1", "3->2", "4->3", "5->4"]),
-        false
-    ),
-
     MapData::new(
         MapType::HfmTrqMap,
         "HFM Engine max torque table",
@@ -413,9 +574,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "Nm",
         None,
         None,
-        false
+        false,
     ),
-
     MapData::new(
         MapType::HfmMafMap,
         "HFM Engine MAF table",
@@ -427,9 +587,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         None,
         None,
-        false
+        false,
     ),
-
     MapData::new(
         MapType::HfmMaxMap,
         "HFM Engine Max MAF table",
@@ -441,10 +600,8 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "",
         None,
         None,
-        false
+        false,
     ),
-
-
     MapData::new(
         MapType::TccRpmSlipMap,
         "Torque converter slipping target",
@@ -456,6 +613,71 @@ pub(crate) const MAP_ARRAY: &[MapData] = &[
         "RPM",
         None,
         None,
-        false
+        false,
+    ),
+    MapData::new(
+        MapType::TccSlipMapD1,
+        "Torque converter pressure adaptation map (Gear 1)",
+        "%",
+        "C",
+        "TCC Load %",
+        "ATF Temperature",
+        "Pressure(mBar)",
+        "mBar",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TccSlipMapD2,
+        "Torque converter pressure adaptation map (Gear 2)",
+        "%",
+        "C",
+        "TCC Load %",
+        "ATF Temperature",
+        "Pressure(mBar)",
+        "mBar",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TccSlipMapD3,
+        "Torque converter pressure adaptation map (Gear 3)",
+        "%",
+        "C",
+        "TCC Load %",
+        "ATF Temperature",
+        "Pressure(mBar)",
+        "mBar",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TccSlipMapD4,
+        "Torque converter pressure adaptation map (Gear 4)",
+        "%",
+        "C",
+        "TCC Load %",
+        "ATF Temperature",
+        "Pressure(mBar)",
+        "mBar",
+        None,
+        None,
+        false,
+    ),
+    MapData::new(
+        MapType::TccSlipMapD5,
+        "Torque converter pressure adaptation map (Gear 5)",
+        "%",
+        "C",
+        "TCC Load %",
+        "ATF Temperature",
+        "Pressure(mBar)",
+        "mBar",
+        None,
+        None,
+        false,
     ),
 ];

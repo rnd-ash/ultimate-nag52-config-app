@@ -1,6 +1,6 @@
-use std::{fs::File, io::{BufReader, Cursor, Read}, sync::{Arc, RwLock}};
+use std::{collections::HashMap, fs::File, io::{BufReader, Cursor, Read}, sync::{Arc, RwLock}};
 use backend::{diag::{Nag52Diag, settings::{SettingsData, ModuleSettingsData, EnumMap, SettingsType, SettingsVariable, EnumDesc}}, ecu_diagnostics::{kwp2000::{KwpSessionType, KwpCommand, KwpSessionTypeByte}, DiagServerResult}, serde_yaml};
-use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea}, emath, epaint::{Color32, ahash::HashMap}};
+use eframe::{egui::{self, CollapsingHeader, DragValue, Label, MenuBar, ProgressBar, RichText, ScrollArea}, emath, epaint::{Color32}};
 use zip::ZipArchive;
 
 use crate::window::{InterfacePage, PageAction};
@@ -254,7 +254,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} OK!", setting.name),
-                            kind: egui_notify::ToastLevel::Success
+                            kind: egui_toast::ToastKind::Success
                         }
                     )
                 },
@@ -262,7 +262,7 @@ fn generate_editor_ui(nag: &Nag52Diag, coding: &mut Vec<u8>, default: &[u8], set
                     Some(
                         PageAction::SendNotification { 
                             text: format!("Writing of setting {} failed: {e:?}", setting.name),
-                            kind: egui_notify::ToastLevel::Error
+                            kind: egui_toast::ToastKind::Error
                         }
                     )
                 }

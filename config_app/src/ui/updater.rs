@@ -3,7 +3,7 @@ use std::{sync::{Arc, RwLock}, time::Instant, fs::File, io::Write};
 use backend::{diag::{Nag52Diag, flash::PartitionInfo, DataState}, hw::firmware::{Firmware, load_binary, FirmwareHeader, load_binary_from_path}};
 use curl::easy::{Easy, List};
 use eframe::egui::{self};
-use octocrab::{Octocrab, models::repos::Release};
+use octocrab::{Octocrab, models::repos::Release, repos::releases::ListReleasesBuilder};
 use tokio::runtime::Runtime;
 
 use crate::window::{InterfacePage, PageAction};
@@ -72,6 +72,7 @@ impl UpdatePage {
                 instance_c.repos("rnd-ash", "ultimate-nag52-fw")
                     .releases()
                     .list()
+                    .per_page(100)
                     .send()
                     .await
             }) {
@@ -80,6 +81,14 @@ impl UpdatePage {
                     for release in l {
                         r_list.push(release);
                     }
+                    r_list.sort_by(|x, y| {
+                        if let Some(date_x) = x.created_at && let Some(date_y) = y.created_at {
+                            date_x.cmp(&date_y)
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    });
+                    r_list.reverse(); // Date low to date high needs to be swapped
                     *fw_list_c.write().unwrap() = DataState::LoadOk(r_list);
                     
                 },

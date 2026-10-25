@@ -1,24 +1,37 @@
-use std::{fs::File, io::{Read, Write}, sync::mpsc::{self, Receiver, Sender}, thread, time::{Duration, Instant}};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+    time::{Duration, Instant},
+};
 
 use backend::{
     diag::Nag52Diag,
     ecu_diagnostics::{
+        DiagError, DiagServerResult,
         dynamic_diag::DynamicDiagSession,
-        DiagError, DiagServerResult, kwp2000::{KwpCommand, KwpSessionTypeByte},
+        kwp2000::{KwpCommand, KwpSessionTypeByte},
     },
 };
 use eframe::{
-    egui::{
-        self, DragValue, Layout, MenuBar, RichText, ScrollArea
-    }, epaint::Color32,
+    egui::{self, DragValue, Layout, MenuBar, RichText, ScrollArea},
+    epaint::Color32,
 };
 use egui_extras::Column;
 use egui_plot::{Bar, BarChart, Line, MarkerShape, Points, VLine};
-use plotters::{prelude::{IntoDrawingArea, ChartBuilder}, series::SurfaceSeries};
+use plotters::{
+    prelude::{ChartBuilder, IntoDrawingArea},
+    series::SurfaceSeries,
+};
 use serde::Serialize;
 mod help_view;
 mod map_list;
-use crate::{plot_backend::{into_rgba_color, EguiPlotBackend}, ui::map_editor::map_list::MapType, window::PageAction};
+use crate::{
+    plot_backend::{EguiPlotBackend, into_rgba_color},
+    ui::map_editor::map_list::MapType,
+    window::PageAction,
+};
 use map_list::MAP_ARRAY;
 use plotters::prelude::*;
 
@@ -96,6 +109,10 @@ pub struct Map {
     rot: f64,
     lookup_cache: LookupCacheState,
     pending_write: Option<PendingMapWrite>,
+}
+
+fn has_local_map_edits(edited: &[i16], ram: &[i16]) -> bool {
+    edited != ram
 }
 
 fn read_i16(a: &[u8]) -> DiagServerResult<(&[u8], i16)> {
@@ -332,7 +349,11 @@ impl LookupCacheState {
     }
 
     fn poll_interval(&self) -> Duration {
-        Duration::from_secs_f32(1.0 / self.poll_hz.clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ))
+        Duration::from_secs_f32(
+            1.0 / self
+                .poll_hz
+                .clamp(LOOKUP_CACHE_MIN_POLL_HZ, LOOKUP_CACHE_MAX_POLL_HZ),
+        )
     }
 
     fn ui_settings(&self) -> LookupCacheUiSettings {
@@ -348,7 +369,6 @@ impl LookupCacheState {
         self.clamp_poll_hz();
         self.next_poll = Instant::now();
     }
-
 }
 
 impl Map {
@@ -606,13 +626,22 @@ impl Map {
             let (d, x) = read_f32(&data[1..])?;
             let (d, y) = read_f32(d)?;
             let (d, timestamp_ms) = read_u32(d)?;
-            entries.push(LookupCacheEntry { slot_id, x, y, timestamp_ms });
+            entries.push(LookupCacheEntry {
+                slot_id,
+                x,
+                y,
+                timestamp_ms,
+            });
             data = d;
         }
         Ok(LookupCacheResponse { entries })
     }
 
-    fn read_lookup_cache_once(nag: Nag52Diag, map_id: MapType, sync_time: bool) -> LookupCacheReadResult {
+    fn read_lookup_cache_once(
+        nag: Nag52Diag,
+        map_id: MapType,
+        sync_time: bool,
+    ) -> LookupCacheReadResult {
         match nag.try_with_kwp(|server| {
             let time_sync = if sync_time {
                 Some(Self::read_tcu_time_from_server(server)?)
@@ -672,8 +701,12 @@ impl Map {
                 while let Ok(cmd) = cmd_rx.recv() {
                     match cmd {
                         LookupCacheWorkerCommand::Read { manual, sync_time } => {
-                            let result = Self::read_lookup_cache_once(nag.clone(), map_id, sync_time);
-                            if result_tx.send(LookupCacheWorkerResult { manual, result }).is_err() {
+                            let result =
+                                Self::read_lookup_cache_once(nag.clone(), map_id, sync_time);
+                            if result_tx
+                                .send(LookupCacheWorkerResult { manual, result })
+                                .is_err()
+                            {
                                 break;
                             }
                         }
@@ -740,30 +773,37 @@ impl Map {
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
             }
             LookupCacheReadResult::Error(err) => {
-                self.lookup_cache.consecutive_errors = self.lookup_cache.consecutive_errors.saturating_add(1);
+                self.lookup_cache.consecutive_errors =
+                    self.lookup_cache.consecutive_errors.saturating_add(1);
                 self.lookup_cache.status = "error";
                 self.lookup_cache.last_error = Some(err);
                 self.lookup_cache.last_error_at = Some(Instant::now());
-                if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS && !manual {
+                if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_DISABLE_AFTER_ERRORS
+                    && !manual
+                {
                     self.lookup_cache.disabled = true;
                     self.lookup_cache.status = "disabled";
                 }
-                let delay = if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
-                    LOOKUP_CACHE_BACKOFF_INTERVAL
-                } else {
-                    self.lookup_cache.poll_interval()
-                };
+                let delay =
+                    if self.lookup_cache.consecutive_errors >= LOOKUP_CACHE_BACKOFF_AFTER_ERRORS {
+                        LOOKUP_CACHE_BACKOFF_INTERVAL
+                    } else {
+                        self.lookup_cache.poll_interval()
+                    };
                 self.lookup_cache.next_poll = Instant::now() + delay;
             }
         }
     }
 
     fn record_lookup_trace(&mut self, cache: &LookupCacheResponse) {
-        let tcu_now_ms = self.lookup_cache.time_sync.map(|sync| sync.estimated_tcu_now_ms());
+        let tcu_now_ms = self
+            .lookup_cache
+            .time_sync
+            .map(|sync| sync.estimated_tcu_now_ms());
         if let Some(tcu_now_ms) = tcu_now_ms {
-            self.lookup_cache
-                .trace
-                .retain(|sample| tcu_now_ms.wrapping_sub(sample.timestamp_ms) <= LOOKUP_TRACE_FADE_MS);
+            self.lookup_cache.trace.retain(|sample| {
+                tcu_now_ms.wrapping_sub(sample.timestamp_ms) <= LOOKUP_TRACE_FADE_MS
+            });
         }
 
         for entry in &cache.entries {
@@ -793,7 +833,11 @@ impl Map {
                     self.lookup_cache.worker_rx = Some(rx);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let manual = self.lookup_cache.in_flight.map(|(_, manual)| manual).unwrap_or(false);
+                    let manual = self
+                        .lookup_cache
+                        .in_flight
+                        .map(|(_, manual)| manual)
+                        .unwrap_or(false);
                     self.lookup_cache.in_flight = None;
                     self.lookup_cache.worker_tx = None;
                     self.handle_lookup_cache_result(
@@ -805,15 +849,18 @@ impl Map {
         }
 
         if let Some((started, _manual)) = self.lookup_cache.in_flight {
-            if !self.lookup_cache.timeout_reported && started.elapsed() > LOOKUP_CACHE_REQUEST_TIMEOUT {
+            if !self.lookup_cache.timeout_reported
+                && started.elapsed() > LOOKUP_CACHE_REQUEST_TIMEOUT
+            {
                 self.lookup_cache.timeout_reported = true;
                 self.lookup_cache.in_flight = None;
                 self.lookup_cache.worker_tx = None;
                 self.lookup_cache.worker_rx = None;
                 self.lookup_cache.disabled = true;
                 self.lookup_cache.status = "timeout";
-                self.lookup_cache.last_error =
-                    Some("Lookup cache request timed out; live cursor disabled until refresh".into());
+                self.lookup_cache.last_error = Some(
+                    "Lookup cache request timed out; live cursor disabled until refresh".into(),
+                );
                 self.lookup_cache.last_error_at = Some(Instant::now());
                 self.lookup_cache.next_poll = Instant::now() + LOOKUP_CACHE_BACKOFF_INTERVAL;
                 return;
@@ -900,7 +947,12 @@ impl Map {
             );
             if matches!(
                 self.lookup_cache.status,
-                "diagnostics busy" | "unsupported" | "disabled" | "timeout" | "write queued" | "write active"
+                "diagnostics busy"
+                    | "unsupported"
+                    | "disabled"
+                    | "timeout"
+                    | "write queued"
+                    | "write active"
             ) {
                 ui.label(self.lookup_cache.status);
             }
@@ -1077,12 +1129,12 @@ impl Map {
                     self.data_memory = self.data_modify.clone();
                     PageAction::SendNotification {
                         text: format!("Map {} RAM write OK!", self.eeprom_key),
-                        kind: egui_notify::ToastLevel::Success,
+                        kind: egui_toast::ToastKind::Success,
                     }
                 }
                 Err(e) => PageAction::SendNotification {
                     text: format!("Map {} RAM write failed! {}", self.eeprom_key, e),
-                    kind: egui_notify::ToastLevel::Error,
+                    kind: egui_toast::ToastKind::Error,
                 },
             },
             PendingMapWrite::Eeprom => match self.save_to_eeprom() {
@@ -1093,16 +1145,17 @@ impl Map {
                         Self::new(self.meta.id, self.ecu_ref.clone(), self.meta.clone())
                     {
                         *self = new_data;
-                        self.lookup_cache.apply_ui_settings(lookup_cache_ui_settings);
+                        self.lookup_cache
+                            .apply_ui_settings(lookup_cache_ui_settings);
                     }
                     PageAction::SendNotification {
                         text: format!("Map {} EEPROM save OK!", eeprom_key),
-                        kind: egui_notify::ToastLevel::Success,
+                        kind: egui_toast::ToastKind::Success,
                     }
                 }
                 Err(e) => PageAction::SendNotification {
                     text: format!("Map {} EEPROM save failed! {}", self.eeprom_key, e),
-                    kind: egui_notify::ToastLevel::Error,
+                    kind: egui_toast::ToastKind::Error,
                 },
             },
         }
@@ -1117,7 +1170,7 @@ impl Map {
                     "Map {} write queued until live cursor request finishes.",
                     self.eeprom_key
                 ),
-                kind: egui_notify::ToastLevel::Info,
+                kind: egui_toast::ToastKind::Info,
             }
         } else {
             self.pending_write = None;
@@ -1149,7 +1202,11 @@ impl Map {
         }
     }
 
-    fn gen_edit_table(&mut self, raw_ui: &mut egui::Ui, active_lookup_points: &[ActiveLookupCachePoint]) {
+    fn gen_edit_table(
+        &mut self,
+        raw_ui: &mut egui::Ui,
+        active_lookup_points: &[ActiveLookupCachePoint],
+    ) {
         let hash = match self.view_type {
             MapViewType::EEPROM => &self.data_eeprom,
             MapViewType::Default => &self.data_program,
@@ -1221,7 +1278,10 @@ impl Map {
                                     cell.painter().rect_filled(
                                         cell.max_rect().shrink(1.0),
                                         2.0,
-                                        Self::lookup_cache_fill_color(dark_mode, lookup_cache_alpha),
+                                        Self::lookup_cache_fill_color(
+                                            dark_mode,
+                                            lookup_cache_alpha,
+                                        ),
                                     );
                                 }
                                 match self.view_type {
@@ -1292,13 +1352,13 @@ impl Map {
                             *self = copy;
                             action = Some(PageAction::SendNotification {
                                 text: format!("Map loading OK!"),
-                                kind: egui_notify::ToastLevel::Success,
+                                kind: egui_toast::ToastKind::Success,
                             });
                         }
                         Err(e) => {
                             action = Some(PageAction::SendNotification {
                                 text: format!("Map loading failed: {e}"),
-                                kind: egui_notify::ToastLevel::Error,
+                                kind: egui_toast::ToastKind::Error,
                             });
                         }
                     }
@@ -1310,7 +1370,7 @@ impl Map {
                         text:
                             "You have unsaved data in the map. Please write to EEPROM before saving"
                                 .into(),
-                        kind: egui_notify::ToastLevel::Warning,
+                        kind: egui_toast::ToastKind::Warning,
                     });
                 } else {
                     save_map(&self);
@@ -1329,19 +1389,22 @@ impl Map {
                     self.data_modify = self.data_program.clone();
                 }
             });
-            raw_ui.add_enabled_ui(self.data_modify != self.data_eeprom, |ui| {
+            let can_write_or_undo = self.data_modify != self.data_eeprom
+                || has_local_map_edits(&self.data_modify, &self.data_memory);
+            raw_ui.add_enabled_ui(can_write_or_undo, |ui| {
                 if ui.button("Undo user changes").clicked() {
                     action = match self.undo_changes() {
                         Ok(_) => {
                             self.data_modify = self.data_eeprom.clone();
+                            self.data_memory = self.data_eeprom.clone();
                             Some(PageAction::SendNotification {
                                 text: format!("Map {} undo OK!", self.eeprom_key),
-                                kind: egui_notify::ToastLevel::Success,
+                                kind: egui_toast::ToastKind::Success,
                             })
                         }
                         Err(e) => Some(PageAction::SendNotification {
                             text: format!("Map {} undo failed! {}", self.eeprom_key, e),
-                            kind: egui_notify::ToastLevel::Error,
+                            kind: egui_toast::ToastKind::Error,
                         }),
                     };
                 }
@@ -1390,10 +1453,11 @@ impl Map {
                         .show(raw_ui, |plot_ui| {
                             plot_ui.bar_chart(BarChart::new("", bars));
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
-                                    &active_lookup_points,
-                                    slot,
-                                )
+                                let points: Vec<([f64; 2], u8)> =
+                                    Self::active_lookup_cache_points_for_slot(
+                                        &active_lookup_points,
+                                        slot,
+                                    )
                                     .into_iter()
                                     .filter_map(|point| {
                                         let x = axis_position(&self.y_values, point.y)
@@ -1405,7 +1469,8 @@ impl Map {
                                     })
                                     .collect();
                                 for segment in points.windows(2) {
-                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    let alpha =
+                                        ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
                                     plot_ui.line(
                                         Line::new(
                                             format!("Live cursor trace slot {}", slot),
@@ -1459,21 +1524,25 @@ impl Map {
                                 plot_ui.line(l);
                             }
                             for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                                let points: Vec<([f64; 2], u8)> = Self::active_lookup_cache_points_for_slot(
-                                    &active_lookup_points,
-                                    slot,
-                                )
+                                let points: Vec<([f64; 2], u8)> =
+                                    Self::active_lookup_cache_points_for_slot(
+                                        &active_lookup_points,
+                                        slot,
+                                    )
                                     .into_iter()
                                     .map(|point| {
                                         let x = point.x as f64;
                                         let value = self
                                             .interpolated_data_value_for(src, point.x, point.y)
-                                            .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                            .unwrap_or_else(|| {
+                                                self.data_value_for(src, point.x_idx, point.y_idx)
+                                            });
                                         ([x, value], point.alpha)
                                     })
                                     .collect();
                                 for segment in points.windows(2) {
-                                    let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
+                                    let alpha =
+                                        ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as u8;
                                     plot_ui.line(
                                         Line::new(
                                             format!("Live cursor trace slot {}", slot),
@@ -1488,7 +1557,9 @@ impl Map {
                                 let x = point.x as f64;
                                 let value = self
                                     .interpolated_data_value_for(src, point.x, point.y)
-                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
+                                    .unwrap_or_else(|| {
+                                        self.data_value_for(src, point.x_idx, point.y_idx)
+                                    });
                                 let color = Self::lookup_cache_marker_color(dark_mode, point.alpha);
                                 plot_ui.vline(
                                     VLine::new(format!("Live cursor X slot {}", point.slot), x)
@@ -1535,7 +1606,7 @@ impl Map {
                     } else if self.pitch > 1.57 {
                         self.pitch = 1.57;
                     }
-                    let vis = &raw_ui.ctx().style().visuals;
+                    let vis = &raw_ui.style().visuals;
                     let _ = area.fill(&into_rgba_color(vis.extreme_bg_color));
                     let mut chart = ChartBuilder::on(&area)
                         .build_cartesian_3d(x_min..x_max, y_min..y_max, z_min..z_max)
@@ -1573,31 +1644,33 @@ impl Map {
                                     src[(len * y_idx) + x_idx] as f64
                                 },
                             )
-                            .style_func(&|&v| (&HSLColor((v / y_max) * 0.3, 1.0, 0.5)).into()),
+                            .style_func(&|&v| (&HSLColor(((v-y_min) / (y_max - y_min)) * 0.3, 1.0, 0.5)).into()),
                         )
                         .unwrap();
                     let x_step = ((x_max - x_min) * 0.015).max(1.0);
                     let z_step = ((z_max - z_min) * 0.015).max(1.0);
                     for slot in 0..LOOKUP_CACHE_MAX_SLOTS as usize {
-                        let points: Vec<((f64, f64, f64), u8)> = Self::active_lookup_cache_points_for_slot(
-                            &active_lookup_points,
-                            slot,
-                        )
-                            .into_iter()
-                            .map(|point| {
-                                let x = point.x as f64;
-                                let z = point.y as f64;
-                                let y = self
-                                    .interpolated_data_value_for(src, point.x, point.y)
-                                    .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
-                                ((x, y, z), point.alpha)
-                            })
-                            .collect();
+                        let points: Vec<((f64, f64, f64), u8)> =
+                            Self::active_lookup_cache_points_for_slot(&active_lookup_points, slot)
+                                .into_iter()
+                                .map(|point| {
+                                    let x = point.x as f64;
+                                    let z = point.y as f64;
+                                    let y = self
+                                        .interpolated_data_value_for(src, point.x, point.y)
+                                        .unwrap_or_else(|| {
+                                            self.data_value_for(src, point.x_idx, point.y_idx)
+                                        });
+                                    ((x, y, z), point.alpha)
+                                })
+                                .collect();
                         for segment in points.windows(2) {
-                            let alpha = ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
+                            let alpha =
+                                ((segment[0].1 as u16 + segment[1].1 as u16) / 2) as f64 / 255.0;
                             let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
                             let color = RGBColor(r, g, b).mix(alpha);
-                            let style = ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
+                            let style =
+                                ShapeStyle::from(&color).stroke_width(LOOKUP_TRACE_3D_LINE_WIDTH);
                             let _ = chart.draw_series(LineSeries::new(
                                 vec![segment[0].0, segment[1].0],
                                 style,
@@ -1612,10 +1685,8 @@ impl Map {
                             .unwrap_or_else(|| self.data_value_for(src, point.x_idx, point.y_idx));
                         let (r, g, b) = Self::lookup_cache_rgb(dark_mode);
                         let color = RGBColor(r, g, b).mix(point.alpha as f64 / 255.0);
-                        let _ = chart.draw_series(LineSeries::new(
-                            vec![(x, y_min, z), (x, y, z)],
-                            &color,
-                        ));
+                        let _ = chart
+                            .draw_series(LineSeries::new(vec![(x, y_min, z), (x, y, z)], &color));
                         let _ = chart.draw_series(LineSeries::new(
                             vec![(x - x_step, y, z), (x + x_step, y, z)],
                             &color,
@@ -1647,7 +1718,11 @@ pub fn save_map(map: &Map) {
         y_values: map.y_values.clone(),
         state: map.data_eeprom.clone(),
     };
-    if let Some(picked) = rfd::FileDialog::new().set_title(format!("Save map {}", map.meta.name)).set_file_name(format!("map_{}.mapbin", map.eeprom_key)).save_file() {
+    if let Some(picked) = rfd::FileDialog::new()
+        .set_title(format!("Save map {}", map.meta.name))
+        .set_file_name(format!("map_{}.mapbin", map.eeprom_key))
+        .save_file()
+    {
         let bin = bincode::serde::encode_to_vec(&save_data, bincode::config::legacy()).unwrap();
         let mut f = File::create(picked).unwrap();
         let _ = f.write_all(&bin);
@@ -1655,32 +1730,44 @@ pub fn save_map(map: &Map) {
 }
 
 pub fn load_map(map: &mut Map) -> Option<Result<(), String>> {
-    let path = rfd::FileDialog::new().add_filter("mapbin", &["mapbin"]).set_title(format!("Pick map file for {}", map.meta.name)).pick_file()?;
+    let path = rfd::FileDialog::new()
+        .add_filter("mapbin", &["mapbin"])
+        .set_title(format!("Pick map file for {}", map.meta.name))
+        .pick_file()?;
     let mut f = File::open(path).unwrap();
     let mut contents = Vec::new();
     f.read_to_end(&mut contents).unwrap();
-    let save_data = bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy()).map_err(|e| e.to_string());
+    let save_data =
+        bincode::serde::decode_from_slice::<MapSaveData, _>(&contents, bincode::config::legacy())
+            .map_err(|e| e.to_string());
     match save_data {
         Ok((data, _)) => {
             if data.id != map.meta.id as u8 {
-                return Some(Err(format!("Map key is different. Expected {}, got {}", map.meta.id as u8, data.id)));
+                return Some(Err(format!(
+                    "Map key is different. Expected {}, got {}",
+                    map.meta.id as u8, data.id
+                )));
             }
             if data.x_values != map.x_values {
-                return Some(Err(format!("X sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "X sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.y_values != map.y_values {
-                return Some(Err(format!("Y sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Y sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             if data.state.len() != map.data_eeprom.len() {
-                return Some(Err(format!("Z sizes differ! Map spec has changed. Saved map is no longer valid")));
+                return Some(Err(format!(
+                    "Z sizes differ! Map spec has changed. Saved map is no longer valid"
+                )));
             }
             // All OK!
             map.data_modify = data.state;
-            return Some(Ok(()))
-        },
-        Err(e) => {
-            return Some(Err(e))
+            return Some(Ok(()));
         }
+        Err(e) => return Some(Err(e)),
     }
 }
 
@@ -1697,7 +1784,7 @@ pub struct MapData {
     x_replace: Option<&'static [&'static str]>,
     y_replace: Option<&'static [&'static str]>,
     help: Option<&'static str>,
-    reset_adaptation: bool
+    reset_adaptation: bool,
 }
 
 impl MapData {
@@ -1726,7 +1813,7 @@ impl MapData {
             x_replace,
             y_replace,
             help: None,
-            reset_adaptation
+            reset_adaptation,
         }
     }
 
@@ -1754,14 +1841,10 @@ impl MapEditor {
 }
 
 impl super::InterfacePage for MapEditor {
-    fn make_ui(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-    ) -> crate::window::PageAction {
+    fn make_ui(&mut self, ui: &mut eframe::egui::Ui) -> crate::window::PageAction {
         let mut action = None;
         let mut map_to_switch = None;
-        MenuBar::new()
-        .ui(ui, |ui| {
+        MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Select map", |ui| {
                 ui.menu_button("Shift points", |ui| {
                     ui.label("(S)tandard mode");
@@ -1787,7 +1870,6 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Downshift").clicked() {
                         map_to_switch = Some(MapType::DnshiftA);
                     }
-
                 });
                 ui.menu_button("Shift speed", |ui| {
                     ui.label("(S)tandard mode");
@@ -1840,11 +1922,57 @@ impl super::InterfacePage for MapEditor {
                     if ui.button("Shift circuit pressure offset").clicked() {
                         map_to_switch = Some(MapType::ShiftAdaptFillPMap);
                     }
-                    if ui.button("Applying clutch torque offset").clicked() {
-                        map_to_switch = Some(MapType::ShiftAdaptTrqApplMap);
+                    ui.separator();
+                    ui.label("Torque correction (Upshifts)");
+                    if ui.button("1-2 power upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull12);
                     }
-                    if ui.button("Releasing clutch torque offset").clicked() {
-                        map_to_switch = Some(MapType::ShiftAdaptTrqFreeMap);
+                    if ui.button("1-2 coasting upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush12);
+                    }
+                    if ui.button("2-3 power upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull23);
+                    }
+                    if ui.button("2-3 coasting upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush23);
+                    }
+                    if ui.button("3-4 power upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull34);
+                    }
+                    if ui.button("3-4 coasting upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush34);
+                    }
+                    if ui.button("4-5 power upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull45);
+                    }
+                    if ui.button("4-5 coasting upshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush45);
+                    }
+                    ui.separator();
+                    ui.label("Torque correction (Downshifts)");
+                    if ui.button("2-1 power downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull21);
+                    }
+                    if ui.button("2-1 coasting downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush21);
+                    }
+                    if ui.button("3-2 power downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull32);
+                    }
+                    if ui.button("3-2 coasting downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush32);
+                    }
+                    if ui.button("4-3 power downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull43);
+                    }
+                    if ui.button("4-3 coasting downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush43);
+                    }
+                    if ui.button("5-4 power downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPull54);
+                    }
+                    if ui.button("5-4 coasting downshift").clicked() {
+                        map_to_switch = Some(MapType::TrqAdaptPush54);
                     }
                 });
                 ui.menu_button("HFM CAN Specific maps", |ui| {
@@ -1859,12 +1987,21 @@ impl super::InterfacePage for MapEditor {
                     }
                 });
                 ui.menu_button("Torque converter", |ui| {
-                    ui.label("Zone pressures (Adaptable)");
-                    if ui.button("Slipping pressure").clicked() {
-                        map_to_switch = Some(MapType::TccAdaptSlipMap);
+                    ui.label("Adapted pressures");
+                    if ui.button("Gear 1").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD1);
                     }
-                    if ui.button("Locking pressure").clicked() {
-                        map_to_switch = Some(MapType::TccAdaptLockMap);
+                    if ui.button("Gear 2").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD2);
+                    }
+                    if ui.button("Gear 3").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD3);
+                    }
+                    if ui.button("Gear 4").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD4);
+                    }
+                    if ui.button("Gear 5").clicked() {
+                        map_to_switch = Some(MapType::TccSlipMapD5);
                     }
                     ui.separator();
                     ui.label("Target slip map");
@@ -1883,34 +2020,35 @@ impl super::InterfacePage for MapEditor {
             // Stop user changing maps if they have unsaved changes
             let mut allowed_to_swtich = true;
             if let Some(current_map) = self.loaded_map.as_ref() {
-                if current_map.data_modify != current_map.data_eeprom {
+                if has_local_map_edits(&current_map.data_modify, &current_map.data_memory) {
                     allowed_to_swtich = false;
                 }
             }
             if !allowed_to_swtich {
                 action = Some(PageAction::SendNotification {
-                    text: "You have uncommited changes, please reset or write to EEPROM".into(),
-                    kind: egui_notify::ToastLevel::Warning
+                    text: "You have local edits. Undo them or write them to RAM before changing maps.".into(),
+                    kind: egui_toast::ToastKind::Warning,
                 })
             } else {
                 if let Some(found_map_info) = MAP_ARRAY.iter().find(|x| x.id == selected) {
                     self.error = None;
                     match Map::new(selected, self.nag.clone(), found_map_info.clone()) {
-                        Ok(m) => {
-                            self.loaded_map = Some(m)
-                        }
+                        Ok(m) => self.loaded_map = Some(m),
                         Err(e) => {
                             action = Some(PageAction::SendNotification {
                                 text: format!("Failed to read map {:?}. {}", selected, e),
-                                kind: egui_notify::ToastLevel::Error
+                                kind: egui_toast::ToastKind::Error,
                             })
-                        },
+                        }
                     }
                 } else {
                     //Error toast
                     action = Some(PageAction::SendNotification {
-                        text: format!("Failed to find map {:?} (0x{:02X}). This is a bug!", selected, selected as u8),
-                        kind: egui_notify::ToastLevel::Error
+                        text: format!(
+                            "Failed to find map {:?} (0x{:02X}). This is a bug!",
+                            selected, selected as u8
+                        ),
+                        kind: egui_toast::ToastKind::Error,
                     })
                 }
             }
@@ -1918,7 +2056,9 @@ impl super::InterfacePage for MapEditor {
         ui.separator();
         if let Some(loaded_map) = self.loaded_map.as_mut() {
             if let Some(err) = &self.error {
-                ui.centered_and_justified(|ui| ui.colored_label(Color32::RED, format!("Map failed to load: {err}")));
+                ui.centered_and_justified(|ui| {
+                    ui.colored_label(Color32::RED, format!("Map failed to load: {err}"))
+                });
             } else {
                 if action.is_none() {
                     action = loaded_map.generate_window_ui(ui);
@@ -1936,5 +2076,30 @@ impl super::InterfacePage for MapEditor {
 
     fn should_show_statusbar(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_local_map_edits;
+
+    #[test]
+    fn ram_differing_from_eeprom_does_not_block_map_switching() {
+        let ram = vec![100, 200];
+        let eeprom = vec![90, 180];
+        let local = ram.clone();
+        assert_ne!(ram, eeprom);
+        assert!(!has_local_map_edits(&local, &ram));
+    }
+
+    #[test]
+    fn local_edit_back_to_eeprom_still_blocks_map_switching() {
+        let ram = vec![100, 200];
+        let eeprom = vec![90, 180];
+        let mut local = ram.clone();
+        local[0] = eeprom[0];
+        local[1] = eeprom[1];
+        assert_eq!(local, eeprom);
+        assert!(has_local_map_edits(&local, &ram));
     }
 }

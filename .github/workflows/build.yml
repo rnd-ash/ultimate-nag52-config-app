@@ -3,8 +3,8 @@ name: Build
 on:
   push:
     branches: [ "dev" ]
-  pull_request:
-    branches: [ "main" ]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -16,209 +16,168 @@ env:
 
 jobs:
   Linux-App:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
     - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
     - uses: Swatinem/rust-cache@v2
-    - name: Install deps
-      run: sudo apt-get update && sudo apt-get install -y libudev-dev binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync libgtk-3-dev
-    - name: Get app version
-      run : |
-        echo "APP_VERSION=$(cat config_app/Cargo.toml | grep "^version = " | tr -d \" | cut -d " " -f3)" >> $GITHUB_ENV
-    - name: Download appimagekit
-      run: sudo wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
-    - name: Make appimagetool exec
-      run: sudo chmod +x /usr/local/bin/appimagetool
-    - name: Install cargo-appimage
-      run: cargo install cargo-appimage
-    - name: Build executable
-      working-directory: ./config_app
-      run: cargo build --verbose --release
-    - name: Build appimage
-      working-directory: ./config_app
-      run: cargo appimage
-    - uses: actions/upload-artifact@v4
       with:
-        path: target/appimage/*.AppImage
-        name: config-app-linux 
+        key: "v1-ubuntu-22.04-x86_64"
+    - name: Install deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y \
+          binutils build-essential curl desktop-file-utils libegl-dev libegl-mesa0 \
+          libfontconfig1-dev libfreetype6-dev libgl1-mesa-dri libudev-dev \
+          libxkbcommon-x11-0 pkg-config
+    - name: Install Linux GUI test tools
+      continue-on-error: true
+      run: sudo apt-get install --no-install-recommends -y xauth xdotool xvfb mesa-utils
+    - name: Build and package Linux AppImage
+      run: bash ./.github/scripts/build-linux-appimage.sh
+    - name: Verify Linux AppImage and application startup
+      run: bash ./.github/scripts/verify-linux-appimage.sh target/appimage/config_app.AppImage
+      env:
+        WGPU_BACKEND: gl
+    - uses: actions/upload-artifact@v7
+      with:
+        path: target/appimage/config_app.AppImage
+        name: config-app-linux
+        if-no-files-found: error
 
   Windows-App:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    defaults:
+      run:
+        # Stop on every native command failure, even when another command follows.
+        shell: >-
+          pwsh -NoLogo -NoProfile -NonInteractive -Command
+          "$ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true; . '{0}'"
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: win32
-      - name: Install Rustup using win.rustup.rs
+      - name: Install latest stable Rust and Windows x86 target
         run: |
-          $ProgressPreference = "SilentlyContinue"
-          Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
-          .\rustup-init.exe -y --default-host=i686-pc-windows-msvc --default-toolchain=none
-          del rustup-init.exe
-          rustup target add i686-pc-windows-msvc
-        shell: powershell
+          rustup set auto-self-update disable
+          rustup toolchain install stable --profile minimal --target i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: "v1-windows-i686-msvc-${{ env.VCToolsVersion }}-sdk-${{ env.UCRTVersion }}"
       - name: Build executable
-        run: cargo build --verbose --release --target i686-pc-windows-msvc
+        run: cargo build --verbose --release --package config_app --bin config_app --target i686-pc-windows-msvc
+      - name: Install Mesa llvmpipe for Windows GUI smoke test
+        id: mesa
+        continue-on-error: true
+        if: runner.environment == 'github-hosted'
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'mesa-llvmpipe-x86-26.2.5.7z'
+          $mesaDir = Join-Path $env:RUNNER_TEMP 'mesa-llvmpipe-x86'
+          $sevenZip = Join-Path $env:RUNNER_TEMP '7zr.exe'
+          $releaseDir = (Resolve-Path 'target/i686-pc-windows-msvc/release').Path
+          $mesaDll = Join-Path $releaseDir 'opengl32.dll'
+          $url = 'https://github.com/mmozeiko/build-mesa/releases/download/26.2.5/mesa-llvmpipe-x86-26.2.5.7z'
+          $sha256 = '1858bce8a19c5d337dc4c9db039ef5e2f98d82dbb6e100dbe51564e8bc3572a4'
+          $sevenZipUrl = 'https://github.com/ip7z/7zip/releases/download/26.04/7zr.exe'
+          $sevenZipSha256 = '256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282'
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $sha256) {
+            throw 'Mesa llvmpipe archive SHA-256 does not match the pinned release.'
+          }
+          Invoke-WebRequest -Uri $sevenZipUrl -OutFile $sevenZip
+          if ((Get-FileHash -LiteralPath $sevenZip -Algorithm SHA256).Hash -ne $sevenZipSha256) {
+            throw '7-Zip extractor SHA-256 does not match the pinned release.'
+          }
+
+          if (Test-Path -LiteralPath $mesaDll) {
+            throw "Unexpected OpenGL runtime already exists: $mesaDll"
+          }
+          New-Item -ItemType Directory -Path $mesaDir -Force | Out-Null
+          & $sevenZip x $archive "-o$mesaDir" -y
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not extract the pinned Mesa llvmpipe archive.'
+          }
+          $mesaSourceDll = Join-Path $mesaDir 'opengl32.dll'
+          if (-not (Test-Path -LiteralPath $mesaSourceDll)) {
+            throw 'Mesa llvmpipe archive does not contain opengl32.dll.'
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value 'WGPU_BACKEND=gl'
+          Add-Content -Path $env:GITHUB_ENV -Value 'MESA_RUNTIME_INSTALLED=true'
+          Copy-Item -LiteralPath $mesaSourceDll -Destination $mesaDll
       - name: View artifacts
-        run: ls target -R
-      - uses: actions/upload-artifact@v4
+        run: Get-Item target/i686-pc-windows-msvc/release/config_app.exe
+      - name: Verify Windows executable and GUI startup
+        run: ./.github/scripts/verify-windows-exe.ps1 target/i686-pc-windows-msvc/release/config_app.exe
+        env:
+          SKIP_GUI_STARTUP: ${{ steps.mesa.outcome == 'failure' && '1' || '0' }}
+      - name: Remove Mesa runtime after GUI smoke test
+        if: always() && runner.environment == 'github-hosted'
+        run: |
+          if ($env:MESA_RUNTIME_INSTALLED -eq 'true') {
+            Remove-Item target/i686-pc-windows-msvc/release/opengl32.dll -Force -ErrorAction SilentlyContinue
+          }
+      - uses: actions/upload-artifact@v7
         with:
           name: config-app-exe
-          path: target/i686-pc-windows-msvc/release/*.exe
+          path: target/i686-pc-windows-msvc/release/config_app.exe
+          if-no-files-found: error
 
   OSX-app:
-    runs-on: macos-latest # macos-latest is macOS 15 on Apple Silicon (ARM64) as of 2025
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: macos-latest # Apple Silicon (ARM64)
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
       - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
-      - name: Add Rust targets for Universal Binary
-        run: |
-          rustup target add x86_64-apple-darwin
-          rustup target add aarch64-apple-darwin
-      - name: Install build dependencies
-        run: |
-          # Ensure we have necessary build tools for OpenSSL compilation
-          which perl || brew install perl
-          which make || echo "make already available"
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = arm64
       - uses: Swatinem/rust-cache@v2
         with:
-          key: "v2-macos-universal-static-ssl"
-      - name: Build for x86_64 (Intel)
-        run: cargo build --release --target x86_64-apple-darwin --package config_app
+          key: "v4-macos-arm64-static-ssl"
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle --version 0.12.0 --locked
+      - name: Build Apple Silicon app and DMG
+        run: |
+          cargo build --release --package config_app
+          cargo bundle --release --package config_app --binary-path target/release/config_app --format dmg
+          mv target/release/bundle/dmg/Ultimate-NAG52-Config-App.dmg target/release/bundle/dmg/config_app.dmg
         env:
-          # Enable verbose OpenSSL build output for debugging
           OPENSSL_STATIC: "1"
-      - name: Build for aarch64 (Apple Silicon)
-        run: cargo build --release --target aarch64-apple-darwin --package config_app
-        env:
-          OPENSSL_STATIC: "1"
-      - name: Create Universal Binary
-        run: |
-          mkdir -p target/universal
-          lipo -create \
-            target/x86_64-apple-darwin/release/config_app \
-            target/aarch64-apple-darwin/release/config_app \
-            -output target/universal/config_app
-          echo "Universal binary created. Verifying architectures:"
-          lipo -info target/universal/config_app
-      # TODO: Code signing with Apple Developer Certificate
-      # Requires: Apple Developer Account ($99/year) and certificates in GitHub Secrets
-      # Uncomment and configure the following steps when certificate is available:
-      #
-      # - name: Import Code Signing Certificate
-      #   env:
-      #     MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-      #     MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
-      #   run: |
-      #     echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
-      #     security create-keychain -p actions temp.keychain
-      #     security default-keychain -s temp.keychain
-      #     security unlock-keychain -p actions temp.keychain
-      #     security import certificate.p12 -k temp.keychain -P $MACOS_CERTIFICATE_PWD -T /usr/bin/codesign
-      #     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions temp.keychain
-      #
-      # - name: Sign Application Binary
-      #   run: |
-      #     codesign --force --deep \
-      #       --sign "Developer ID Application: YOUR_NAME (TEAM_ID)" \
-      #       --options runtime \
-      #       --timestamp \
-      #       target/release/config_app
-      #
-      # For now, users need to remove quarantine attribute after download:
-      # xattr -cr Ultimate-NAG52-Config-App.app
-      - name: Create .app bundle with cargo-bundle
-        run: |
-          # cargo-bundle will rebuild for host arch (ARM64) and may clean target/release/
-          # Our universal binary is safely stored in target/universal/
-          cargo bundle --release --package config_app
-          echo "Bundle created. Now replacing with universal binary..."
-
-          # Verify universal binary still exists
-          if [ ! -f "target/universal/config_app" ]; then
-            echo "ERROR: Universal binary not found at target/universal/config_app"
-            exit 1
-          fi
-
-          # Replace the bundled binary with our universal binary
-          cp -v target/universal/config_app \
-             "target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app"
-
-          echo "Bundle contents:"
-          ls -lh target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/
-      - name: Verify Universal Binary in .app bundle
-        run: |
-          echo "Verifying that .app contains universal binary..."
-          LIPO_OUTPUT=$(lipo -info "target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app")
-          echo "$LIPO_OUTPUT"
-
-          # Check if output contains both architectures
-          if echo "$LIPO_OUTPUT" | grep -q "x86_64" && echo "$LIPO_OUTPUT" | grep -q "arm64"; then
-            echo "SUCCESS: Universal binary verified (x86_64 + arm64)"
-          else
-            echo "FAILURE: Binary is NOT universal!"
-            echo "Expected both 'x86_64' and 'arm64' in lipo output"
-            exit 1
-          fi
-      - name: Verify macOS deployment targets
-        run: |
-          echo "Checking minimum macOS version requirements..."
-          BINARY="target/release/bundle/osx/Ultimate-NAG52-Config-App.app/Contents/MacOS/config_app"
-
-          # Extract deployment target for each architecture
-          echo "=== x86_64 architecture ==="
-          X86_VERSION=$(otool -l "$BINARY" -arch x86_64 | grep -A 3 "LC_BUILD_VERSION\|LC_VERSION_MIN_MACOSX" | grep "minos\|version" | head -1 | awk '{print $2}')
-          echo "x86_64 minimum macOS: $X86_VERSION"
-
-          echo ""
-          echo "=== arm64 architecture ==="
-          ARM_VERSION=$(otool -l "$BINARY" -arch arm64 | grep -A 3 "LC_BUILD_VERSION\|LC_VERSION_MIN_MACOSX" | grep "minos\|version" | head -1 | awk '{print $2}')
-          echo "arm64 minimum macOS: $ARM_VERSION"
-
-          echo ""
-          echo "=== Summary ==="
-          if [ -n "$X86_VERSION" ] && [ -n "$ARM_VERSION" ]; then
-            REQUIRED_VERSION=$(echo -e "$X86_VERSION\n$ARM_VERSION" | sort -V | tail -1)
-            echo "Universal binary requires macOS $REQUIRED_VERSION or newer (highest of both architectures)"
-          else
-            echo "Could not determine deployment target versions"
-          fi
-      - name: Package .app as DMG
-        run: |
-          cd target/release/bundle/osx
-          hdiutil create -volname "Ultimate-NAG52-Config-App" \
-            -srcfolder Ultimate-NAG52-Config-App.app \
-            -ov -format UDZO \
-            config_app.dmg
-          ls -lh config_app.dmg
-          echo "DMG created successfully"
-      - uses: actions/upload-artifact@v4
+      - name: Verify macOS disk image and bundled executable
+        run: bash .github/scripts/verify-macos-dmg.sh target/release/bundle/dmg/config_app.dmg
+      - uses: actions/upload-artifact@v7
         with:
           name: config-app-osx
-          path: target/release/bundle/osx/config_app.dmg
+          path: target/release/bundle/dmg/config_app.dmg
+          if-no-files-found: error
 
   Create-Upload:
     needs: [Windows-App, Linux-App, OSX-app]
     runs-on: ubuntu-latest
     steps:
     - name: Download Windows artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-exe
     - name: Download Linux artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-linux
     - name: Download OSX artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: config-app-osx
     - name: View artifacts
@@ -228,10 +187,11 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ env.BRANCH_NAME }}-${{ github.sha }}
-        name: Release ${{ env.BRANCH_NAME }}
+        tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || format('{0}-{1}', env.BRANCH_NAME, github.sha) }}
+        target_commitish: ${{ github.sha }}
+        name: ${{ github.event_name == 'release' && github.event.release.name || format('Release {0}', env.BRANCH_NAME) }}
         draft: false
-        prerelease: ${{ env.BRANCH_NAME != 'main' }}
+        prerelease: ${{ (github.event_name == 'release' && github.event.release.prerelease) || (github.event_name != 'release' && env.BRANCH_NAME != 'main') }}
         files: |
           *.exe
           *.AppImage
