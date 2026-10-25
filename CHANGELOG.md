@@ -1,3 +1,8 @@
+# 1.9.0 (25/10/26)
+* Update TCC diagnostic data
+* Add support for new shift torque adaptation maps 
+* Add support for new TCC adaptation maps
+
 # 1.8.0 (08/06/26)
 * Support identification of 1.3 RevB PCBs
 * Add viewing of adaptation and HFM maps in map editor
